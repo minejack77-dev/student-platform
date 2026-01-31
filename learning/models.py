@@ -116,3 +116,22 @@ class Answer(models.Model):
 
     def __str__(self) -> str:
         return f"Answer for Attempt #{self.attempt_question.attempt_id} Q{self.attempt_question.order}"
+
+
+class Group(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={"role": "teacher"},
+        related_name="teaching_groups",  
+)
+
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
