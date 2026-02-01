@@ -15,32 +15,45 @@ class Topic(models.Model):
 
 
 class Question(models.Model):
+    # оставляем только multiple choice
     class QuestionType(models.TextChoices):
-        TEXT = "text", "Text"
-        SINGLE_CHOICE = "single_choice", "Single choice"
         MULTIPLE_CHOICE = "multiple_choice", "Multiple choice"
 
-    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="questions")
+    topic = models.ForeignKey("Topic", on_delete=models.CASCADE, related_name="questions")
     text = models.TextField()
-    question_type = models.CharField(
-        max_length=30, choices=QuestionType.choices, default=QuestionType.TEXT
-    )
 
-    # На старте пусть будет просто текст (можно хранить JSON позже)
-    correct_answer = models.TextField(blank=True)
+    question_type = models.CharField(
+        max_length=30,
+        choices=QuestionType.choices,
+        default=QuestionType.MULTIPLE_CHOICE,
+    )
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        indexes = [
-            models.Index(fields=["topic", "is_active"]),
-        ]
-        ordering = ["topic__title", "-created_at"]
+    def clean(self):
+        # В админке Question может сохраняться до вариантов — поэтому
+        # строгую проверку "есть варианты" лучше делать не здесь, а
+        # отдельной кнопкой/валидацией в админке или при публикации.
+        super().clean()
 
     def __str__(self) -> str:
         return f"[{self.topic.title}] {self.text[:60]}"
 
+
+class Choice(models.Model):
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name="choices"
+    )
+    text = models.CharField(max_length=300)
+    is_correct = models.BooleanField(default=False)
+    order = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self) -> str:
+        return self.text
 
 class Attempt(models.Model):
     class Status(models.TextChoices):
@@ -103,10 +116,14 @@ class Answer(models.Model):
         AttemptQuestion, on_delete=models.CASCADE, related_name="answer"
     )
 
-    answer_text = models.TextField(blank=True)
+    # выбранные студентом варианты (может быть несколько)
+    selected_choices = models.ManyToManyField(
+        "Choice", blank=True, related_name="answers"
+    )
+
     answered_at = models.DateTimeField(null=True, blank=True)
 
-    # null = ещё не проверено (если нужна ручная проверка)
+    # null = ещё не проверено (на старте можно заполнять автоматически)
     is_correct = models.BooleanField(null=True, blank=True)
 
     teacher_comment = models.TextField(blank=True)

@@ -1,6 +1,5 @@
 from django.contrib import admin
-
-from .models import Topic, Question, Attempt, AttemptQuestion, Answer
+from .models import Topic, Question, Choice, Attempt, AttemptQuestion, Answer, Group
 
 
 @admin.register(Topic)
@@ -10,12 +9,20 @@ class TopicAdmin(admin.ModelAdmin):
     search_fields = ("title",)
 
 
+class ChoiceInline(admin.TabularInline):
+    model = Choice
+    extra = 2  # сколько пустых строк для добавления сразу
+    fields = ("order", "text", "is_correct")
+    ordering = ("order",)
+
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "topic", "question_type", "is_active", "created_at")
-    list_filter = ("topic", "question_type", "is_active")
+    list_display = ("id", "topic", "is_active", "created_at")
+    list_filter = ("topic", "is_active")
     search_fields = ("text",)
     autocomplete_fields = ("topic",)
+    inlines = (ChoiceInline,)
 
 
 class AnswerInline(admin.StackedInline):
