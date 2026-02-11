@@ -8,7 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from rest_framework import serializers
-from learning.models import Topic
+from learning.models import Topic, Group
 import os
 
 # Create your views here.
@@ -34,3 +34,24 @@ class TopicViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = TopicSetFilter
     # permission_classes = [DjangoModelPermissionsOrAnonReadOnly]
+
+
+class GroupSetFilter(FilterSet):
+    title = filters.CharFilter(field_name="title", lookup_expr="icontains")
+
+    class Meta:
+        model = Group
+        fields = "__all__"
+
+
+class GroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Group
+        fields = "__all__"
+
+
+class GroupViewSet(viewsets.ModelViewSet):
+    queryset = Group.objects.filter()
+    serializer_class = GroupSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = GroupSetFilter

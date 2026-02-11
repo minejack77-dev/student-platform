@@ -25,5 +25,4 @@
     </div>
   </nav>
   <router-view></router-view>
-  <h2>футтур</h2>
 </template>

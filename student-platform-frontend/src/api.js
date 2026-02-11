@@ -69,3 +69,5 @@ function apiConstructor(apiUrl) {
 }
 
 export let Topic = apiConstructor("/api/topic/");
+export let Group = apiConstructor("/api/group/");
+export let Users = apiConstructor("/api/user/");

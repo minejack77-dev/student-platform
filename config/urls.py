@@ -21,8 +21,11 @@ from django.conf.urls import include
 
 from rest_framework.routers import DefaultRouter
 from learning import views as learning_views
+from accounts import views as accounts_views
 
 router = DefaultRouter()
 router.register(r"topic", learning_views.TopicViewSet, basename="topic")
+router.register(r"group", learning_views.GroupViewSet, basename="group")
+router.register(r"user", accounts_views.UserViewSet, basename="user")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]

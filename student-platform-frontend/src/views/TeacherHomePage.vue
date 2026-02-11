@@ -1,40 +1,48 @@
 <script setup>
 import { ref, onMounted, watch } from "vue";
-import { Topic } from "@/api.js";
-let topicList = ref([]);
-let newTopic = ref({});
+import { Group } from "@/api.js";
+let groupList = ref([]);
 
 let filters = ref({ title: "" });
 
 watch(
   () => filters.value,
-  () => getTopic(),
+  () => getGroup(),
   { deep: true },
 );
-let getTopic = async () => {
-  let request = await Topic.filter(filters.value);
-  topicList.value = request.results;
+let getGroup = async () => {
+  let request = await Group.filter(filters.value);
+  groupList.value = request.results;
 };
 onMounted(async () => {
-  getTopic();
+  getGroup();
 });
-
-let saveTopic = async () => {
-  await Topic.save(newTopic.value);
-  getTopic();
-};
 </script>
 
 <template>
-  <h1>Главаня страница</h1>
-  поис по имени <input v-model="filters.title" />
-  <div v-for="topic in topicList">
-    <b>{{ topic.title }}</b>
-    <div>{{ topic.description }}</div>
+  <h1>Страница преподавателя</h1>
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-12">
+        <h2>мои группы</h2>
+        <div class="row row-cols-1 row-cols-md-4 g-4">
+          <div class="col" v-for="group in groupList">
+            <div class="card">
+              <div class="card-body">
+                <h5 class="card-title">{{ group.name }}</h5>
+                <p class="card-text">
+                  {{ group.description }}
+                </p>
+                <router-link
+                  :to="{ name: 'group-detail', params: { id: group.id } }"
+                  class="card-link"
+                  >Card link</router-link
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
-
-  <hr />
-  <input v-model="newTopic.title" />
-  <input v-model="newTopic.description" />
-  <button @click="saveTopic()">save</button>
 </template>

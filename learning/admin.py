@@ -70,3 +70,8 @@ class AnswerAdmin(admin.ModelAdmin):
     list_filter = ("is_correct", "attempt_question__attempt__topic")
     search_fields = ("answer_text", "teacher_comment")
     autocomplete_fields = ("attempt_question",)
+
+
+@admin.register(Group)
+class GroupAdmin(admin.ModelAdmin):
+    pass
