@@ -9,6 +9,7 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from rest_framework import serializers
 from learning.models import Topic, Group
+from accounts.models import Student
 import os
 
 # Create your views here.
@@ -50,8 +51,29 @@ class GroupSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class StudentBriefSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+
+    class Meta:
+        model = Student
+        fields = ("id", "user", "username", "email")
+
+
+class GroupDetailSerializer(serializers.ModelSerializer):
+    students = StudentBriefSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Group
+        fields = "__all__"
+
+
 class GroupViewSet(viewsets.ModelViewSet):
-    queryset = Group.objects.filter()
-    serializer_class = GroupSerializer
+    queryset = Group.objects.prefetch_related("students__user").filter()
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = GroupSetFilter
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return GroupDetailSerializer
+        return GroupSerializer

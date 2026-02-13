@@ -8,6 +8,12 @@ const routes = [
     props: true,
     component: () => import("@/views/GroupDetail.vue"),
   },
+  {
+    name: "topic-detail",
+    path: "/topic/:id",
+    props: true,
+    component: () => import("@/views/TopicDetail.vue"),
+  },
 ];
 
 const router = createRouter({

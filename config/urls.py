@@ -27,5 +27,7 @@ router = DefaultRouter()
 router.register(r"topic", learning_views.TopicViewSet, basename="topic")
 router.register(r"group", learning_views.GroupViewSet, basename="group")
 router.register(r"user", accounts_views.UserViewSet, basename="user")
+router.register(r"teacher", accounts_views.TeacherViewSet, basename="teacher")
+router.register(r"student", accounts_views.StudentViewSet, basename="student")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]

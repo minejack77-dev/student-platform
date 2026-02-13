@@ -1,18 +1,9 @@
-from django.shortcuts import render
-
-# Create your views here.
-from django.shortcuts import render
-
-from django_filters import FilterSet
-from django_filters import filters
-from rest_framework import viewsets, permissions
-
+from django_filters import FilterSet, filters
+from rest_framework import serializers, viewsets
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
-from rest_framework.decorators import action
-from rest_framework import serializers
-from accounts.models import User
-import os
+
+from accounts.models import Student, Teacher, User
 
 
 class UserSetFilter(FilterSet):
@@ -35,3 +26,41 @@ class UserViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = UserSetFilter
     # permission_classes = [DjangoModelPermissionsOrAnonReadOnly]
+
+
+class TeacherSetFilter(FilterSet):
+    class Meta:
+        model = Teacher
+        fields = "__all__"
+
+
+class TeacherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Teacher
+        fields = "__all__"
+
+
+class TeacherViewSet(viewsets.ModelViewSet):
+    queryset = Teacher.objects.filter()
+    serializer_class = TeacherSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = TeacherSetFilter
+
+
+class StudentSetFilter(FilterSet):
+    class Meta:
+        model = Student
+        fields = "__all__"
+
+
+class StudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = "__all__"
+
+
+class StudentViewSet(viewsets.ModelViewSet):
+    queryset = Student.objects.filter()
+    serializer_class = StudentSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = StudentSetFilter

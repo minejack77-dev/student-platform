@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import models
 
 
@@ -62,10 +61,9 @@ class Attempt(models.Model):
         ABANDONED = "abandoned", "Abandoned"
 
     student = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        "accounts.Student",
         on_delete=models.CASCADE,
         related_name="attempts",
-        limit_choices_to={"role": "student"},
     )
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="attempts")
 
@@ -84,7 +82,10 @@ class Attempt(models.Model):
         ordering = ["-started_at"]
 
     def __str__(self) -> str:
-        return f"Attempt #{self.pk} | {self.student.username} | {self.topic.title} | {self.status}"
+        return (
+            f"Attempt #{self.pk} | {self.student.user.username} | "
+            f"{self.topic.title} | {self.status}"
+        )
 
 
 class AttemptQuestion(models.Model):
@@ -140,15 +141,43 @@ class Group(models.Model):
     description = models.TextField(blank=True)
 
     teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        "accounts.Teacher",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        limit_choices_to={"role": "teacher"},
-        related_name="teaching_groups",  
-)
+        related_name="teaching_groups",
+    )
 
     is_active = models.BooleanField(default=True)
+    students = models.ManyToManyField(
+        "accounts.Student",
+        through="GroupStudent",
+        related_name="groups",
+        blank=True,
+    )
 
     def __str__(self):
         return self.name
+
+
+class GroupStudent(models.Model):
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="group_students",
+    )
+    student = models.ForeignKey(
+        "accounts.Student",
+        on_delete=models.CASCADE,
+        related_name="group_memberships",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "student"], name="uq_group_student"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.group.name} | {self.student.user.username}"

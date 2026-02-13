@@ -3,16 +3,27 @@ from django.db import models
 
 
 class User(AbstractUser):
-    class Role(models.TextChoices):
-        STUDENT = "student", "Student"
-        TEACHER = "teacher", "Teacher"
+    def __str__(self) -> str:
+        return self.username
 
-    role = models.CharField(
-        max_length=20,
-        choices=Role.choices,
-        default=Role.STUDENT,
-        db_index=True,
+
+class Teacher(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="teacher_profile",
     )
 
     def __str__(self) -> str:
-        return f"{self.username} ({self.role})"
+        return self.user.username
+
+
+class Student(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="student_profile",
+    )
+
+    def __str__(self) -> str:
+        return self.user.username
