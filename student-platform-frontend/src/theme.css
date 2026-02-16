@@ -1,0 +1,167 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --bg-0: #fbf7f2;
+  --bg-1: #eef5fb;
+  --surface: rgba(255, 255, 255, 0.84);
+  --surface-strong: rgba(255, 255, 255, 0.94);
+  --ink: #16212b;
+  --ink-soft: #5b6b78;
+  --line: rgba(17, 35, 59, 0.12);
+  --brand-blue: #1f5fd8;
+  --brand-blue-strong: #1542a8;
+  --brand-mint: #0ca992;
+  --brand-gold: #ffb347;
+  --danger: #c13d3d;
+  --success: #0d8f6d;
+  --radius-xl: 26px;
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --shadow-1: 0 18px 40px rgba(16, 30, 52, 0.12);
+  --shadow-2: 0 10px 20px rgba(16, 30, 52, 0.08);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Plus Jakarta Sans", "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 8% -20%, rgba(255, 179, 71, 0.36), transparent 37%),
+    radial-gradient(circle at 95% 3%, rgba(31, 95, 216, 0.22), transparent 34%),
+    linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 100%);
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+.display-title,
+.section-title {
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(8px);
+}
+
+.pill {
+  align-items: center;
+  background: rgba(31, 95, 216, 0.12);
+  border: 1px solid rgba(31, 95, 216, 0.25);
+  border-radius: 999px;
+  color: var(--brand-blue-strong);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.btn {
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand-blue) 0%, #3f77ea 100%);
+  border-color: transparent;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: linear-gradient(135deg, #1b53bd 0%, #3369d8 100%);
+  border-color: transparent;
+}
+
+.btn-outline-primary {
+  border-color: rgba(31, 95, 216, 0.45);
+  color: var(--brand-blue-strong);
+}
+
+.btn-outline-primary:hover,
+.btn-outline-primary:focus {
+  background: rgba(31, 95, 216, 0.12);
+  border-color: rgba(31, 95, 216, 0.7);
+  color: var(--brand-blue-strong);
+}
+
+.form-control,
+.form-select {
+  border: 1px solid rgba(19, 36, 60, 0.16);
+  border-radius: 12px;
+  color: var(--ink);
+  padding: 0.62rem 0.75rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: rgba(31, 95, 216, 0.45);
+  box-shadow: 0 0 0 0.25rem rgba(31, 95, 216, 0.16);
+}
+
+.form-check-input:checked {
+  background-color: var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+
+.route-fade-enter-active {
+  animation: route-in 300ms ease both;
+}
+
+.route-fade-leave-active {
+  animation: route-out 180ms ease both;
+}
+
+@keyframes route-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes route-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.995);
+  }
+}
+
+@keyframes rise-fade {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
