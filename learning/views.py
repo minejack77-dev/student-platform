@@ -9,7 +9,23 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 
 from accounts.models import Student, Teacher
-from learning.models import Choice, Group, GroupTeachingAssignment, Question, Subject, Topic
+from learning.models import (
+    Choice,
+    Group,
+    GroupTeachingAssignment,
+    Question,
+    Subject,
+    Topic,
+    Attempt,
+    AttemptQuestion,
+    Answer,
+)
+from learning.serializers import (
+    QuestionSerializer,
+    AttemptQuestionSerializer,
+    AttemptSerializer,
+    AnswerSerializer,
+)
 
 
 def get_request_teacher(request):
@@ -38,7 +54,9 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
     group_name = serializers.CharField(source="group.name", read_only=True)
-    teacher_username = serializers.CharField(source="teacher.user.username", read_only=True)
+    teacher_username = serializers.CharField(
+        source="teacher.user.username", read_only=True
+    )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     topic_title = serializers.CharField(source="topic.title", read_only=True)
 
@@ -86,7 +104,9 @@ class SubjectViewSet(viewsets.ModelViewSet):
             )
 
         assignments = (
-            GroupTeachingAssignment.objects.select_related("group", "teacher__user", "subject", "topic")
+            GroupTeachingAssignment.objects.select_related(
+                "group", "teacher__user", "subject", "topic"
+            )
             .filter(teacher=teacher, subject_id=pk)
             .order_by("group__name")
         )
@@ -129,13 +149,6 @@ class TopicViewSet(viewsets.ModelViewSet):
     ordering = ("title",)
 
 
-class ChoiceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Choice
-        fields = ("id", "text", "is_correct", "order")
-        read_only_fields = ("id",)
-
-
 class QuestionSetFilter(FilterSet):
     topic = filters.NumberFilter(field_name="topic_id")
     text = filters.CharFilter(field_name="text", lookup_expr="icontains")
@@ -146,86 +159,6 @@ class QuestionSetFilter(FilterSet):
     class Meta:
         model = Question
         fields = ("id", "topic", "text", "question_type", "is_active")
-
-
-class QuestionSerializer(serializers.ModelSerializer):
-    choices = ChoiceSerializer(many=True)
-
-    class Meta:
-        model = Question
-        fields = (
-            "id",
-            "topic",
-            "text",
-            "question_type",
-            "is_active",
-            "created_at",
-            "choices",
-        )
-        read_only_fields = ("id", "created_at")
-
-    def validate_choices(self, choices):
-        if not choices:
-            raise serializers.ValidationError("At least one answer choice is required.")
-        for idx, choice in enumerate(choices, start=1):
-            text = (choice.get("text") or "").strip()
-            if not text:
-                raise serializers.ValidationError(
-                    f"Choice #{idx} must have non-empty text."
-                )
-        return choices
-
-    def validate(self, attrs):
-        question_type = attrs.get(
-            "question_type",
-            getattr(self.instance, "question_type", Question.QuestionType.MULTIPLE_CHOICE),
-        )
-        choices = attrs.get("choices")
-        if self.instance is None and choices is None:
-            raise serializers.ValidationError({"choices": "This field is required."})
-        if choices is None:
-            return attrs
-
-        if len(choices) < 2:
-            raise serializers.ValidationError(
-                {"choices": "At least two answer choices are required."}
-            )
-
-        correct_count = sum(1 for choice in choices if choice.get("is_correct"))
-        if question_type == Question.QuestionType.SINGLE_CHOICE and correct_count != 1:
-            raise serializers.ValidationError(
-                {"choices": "Single choice question must have exactly one correct choice."}
-            )
-        if question_type == Question.QuestionType.MULTIPLE_CHOICE and correct_count < 1:
-            raise serializers.ValidationError(
-                {"choices": "Multiple choice question must have at least one correct choice."}
-            )
-        return attrs
-
-    def _replace_choices(self, question, choices_data):
-        question.choices.all().delete()
-        for idx, choice in enumerate(choices_data, start=1):
-            Choice.objects.create(
-                question=question,
-                text=choice["text"].strip(),
-                is_correct=choice.get("is_correct", False),
-                order=choice.get("order") or idx,
-            )
-
-    def create(self, validated_data):
-        choices_data = validated_data.pop("choices")
-        question = Question.objects.create(**validated_data)
-        self._replace_choices(question, choices_data)
-        return question
-
-    def update(self, instance, validated_data):
-        choices_data = validated_data.pop("choices", None)
-        for key, value in validated_data.items():
-            setattr(instance, key, value)
-        instance.save()
-        if choices_data is not None:
-            self._replace_choices(instance, choices_data)
-        return instance
 
 
 class QuestionViewSet(viewsets.ModelViewSet):
@@ -264,7 +197,14 @@ class GroupSetFilter(FilterSet):
 
     class Meta:
         model = Group
-        fields = ("id", "name", "teacher", "is_active", "teacher_subject", "teacher_topic")
+        fields = (
+            "id",
+            "name",
+            "teacher",
+            "is_active",
+            "teacher_subject",
+            "teacher_topic",
+        )
 
     def _get_teacher(self):
         request = getattr(self, "request", None)
@@ -325,7 +265,9 @@ class GroupSerializer(serializers.ModelSerializer):
         if hasattr(obj, cache_attr):
             return getattr(obj, cache_attr)
 
-        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get("teaching_assignments")
+        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get(
+            "teaching_assignments"
+        )
         if prefetched is not None:
             assignment = next(
                 (item for item in prefetched if item.teacher_id == teacher.id),
@@ -333,7 +275,9 @@ class GroupSerializer(serializers.ModelSerializer):
             )
         else:
             assignment = (
-                obj.teaching_assignments.select_related("subject", "topic", "teacher__user")
+                obj.teaching_assignments.select_related(
+                    "subject", "topic", "teacher__user"
+                )
                 .filter(teacher_id=teacher.id)
                 .first()
             )
@@ -444,7 +388,11 @@ class GroupViewSet(viewsets.ModelViewSet):
     def _touch_group(self, group_id):
         Group.objects.filter(id=group_id).update(updated_at=timezone.now())
 
-    @action(detail=True, methods=["get", "patch", "put", "delete"], url_path="teacher-assignment")
+    @action(
+        detail=True,
+        methods=["get", "patch", "put", "delete"],
+        url_path="teacher-assignment",
+    )
     def teacher_assignment(self, request, pk=None):
         teacher = get_request_teacher(request)
         if not teacher:
@@ -455,7 +403,9 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         group = self.get_object()
         assignment = (
-            GroupTeachingAssignment.objects.select_related("group", "teacher__user", "subject", "topic")
+            GroupTeachingAssignment.objects.select_related(
+                "group", "teacher__user", "subject", "topic"
+            )
             .filter(group=group, teacher=teacher)
             .first()
         )
@@ -578,7 +528,9 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
-        student = get_object_or_404(Student.objects.select_related("user"), user_id=user_id)
+        student = get_object_or_404(
+            Student.objects.select_related("user"), user_id=user_id
+        )
         data = StudentBriefSerializer(student).data
         data["in_group"] = group.students.filter(id=student.id).exists()
         return Response(data, status=status.HTTP_200_OK)
@@ -593,7 +545,9 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
-        student = get_object_or_404(Student.objects.select_related("user"), user_id=user_id)
+        student = get_object_or_404(
+            Student.objects.select_related("user"), user_id=user_id
+        )
         is_member = group.students.filter(id=student.id).exists()
         if not is_member:
             group.students.add(student)
@@ -617,7 +571,9 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
-        student = get_object_or_404(Student.objects.select_related("user"), user_id=user_id)
+        student = get_object_or_404(
+            Student.objects.select_related("user"), user_id=user_id
+        )
         is_member = group.students.filter(id=student.id).exists()
         if is_member:
             group.students.remove(student)
@@ -630,3 +586,46 @@ class GroupViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class AttemptSetFilter(FilterSet):
+    class Meta:
+        model = Attempt
+        fields = "__all__"
+
+
+class AttemptViewSet(viewsets.ModelViewSet):
+    queryset = Attempt.objects.all()
+    serializer_class = AttemptSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = AttemptSetFilter
+
+    def get_queryset(self):
+        student = self.request.user.student_profile
+        return super().get_queryset().filter(student=student)
+
+
+class AttemptQuestionSetFilter(FilterSet):
+    class Meta:
+        model = AttemptQuestion
+        fields = "__all__"
+
+
+class AttemptQuestionViewSet(viewsets.ModelViewSet):
+    queryset = AttemptQuestion.objects.all()
+    serializer_class = AttemptQuestionSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = AttemptQuestionSetFilter
+
+
+class AnswerSetFilter(FilterSet):
+    class Meta:
+        model = Answer
+        fields = "__all__"
+
+
+class AnswerViewSet(viewsets.ModelViewSet):
+    queryset = Answer.objects.all()
+    serializer_class = AnswerSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = AnswerSetFilter

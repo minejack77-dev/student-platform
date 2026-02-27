@@ -1,5 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Subject(models.Model):
@@ -45,7 +47,9 @@ class Question(models.Model):
         SINGLE_CHOICE = "single_choice", "Single choice"
         MULTIPLE_CHOICE = "multiple_choice", "Multiple choice"
 
-    topic = models.ForeignKey("Topic", on_delete=models.CASCADE, related_name="questions")
+    topic = models.ForeignKey(
+        "Topic", on_delete=models.CASCADE, related_name="questions"
+    )
     text = models.TextField()
 
     question_type = models.CharField(
@@ -81,6 +85,7 @@ class Choice(models.Model):
     def __str__(self) -> str:
         return self.text
 
+
 class Attempt(models.Model):
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "In progress"
@@ -100,6 +105,11 @@ class Attempt(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
     )
+
+    def correct_count(self):
+        return self.attempt_questions.filter(answer__is_correct=True).aggregate(
+            models.Count("id")
+        )["id__count"]
 
     class Meta:
         indexes = [
@@ -149,7 +159,7 @@ class Answer(models.Model):
         "Choice", blank=True, related_name="answers"
     )
 
-    answered_at = models.DateTimeField(null=True, blank=True)
+    answered_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     # null = ещё не проверено (на старте можно заполнять автоматически)
     is_correct = models.BooleanField(null=True, blank=True)
@@ -161,6 +171,23 @@ class Answer(models.Model):
 
     def __str__(self) -> str:
         return f"Answer for Attempt #{self.attempt_question.attempt_id} Q{self.attempt_question.order}"
+
+    def check_answer(self):
+        correct = set(
+            self.attempt_question.question.choices.filter(is_correct=True).values_list(
+                "id", flat=True
+            )
+        )
+        choises = set(
+            self.attempt_question.question.choices.values_list("id", flat=True)
+        )
+        print("==", choises, correct)
+        if choises == correct:
+            self.is_correct = True
+        else:
+            self.is_correct = False
+        self.save()
+        return self.is_correct
 
 
 class Group(models.Model):
@@ -261,3 +288,10 @@ class GroupStudent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.group.name} | {self.student.user.username}"
+
+
+@receiver(post_save, sender=Attempt)
+def complte_attempt(sender, instance, created, **kwargs):
+    if instance.status == "completed":
+        for q in instance.attempt_questions.all():
+            q.answer.check_answer()

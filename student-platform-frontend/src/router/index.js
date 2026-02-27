@@ -20,6 +20,12 @@ const routes = [
     props: true,
     component: () => import("@/views/TopicDetail.vue"),
   },
+  {
+    name: "attempt-detail",
+    path: "/attempt/:id",
+    props: true,
+    component: () => import("@/views/AttemptDetail.vue"),
+  },
 ];
 
 const router = createRouter({

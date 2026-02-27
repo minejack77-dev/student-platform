@@ -74,7 +74,10 @@ groupApi.getTeacherAssignment = async (groupId) => {
   return response.data;
 };
 groupApi.saveTeacherAssignment = async (groupId, payload) => {
-  const response = await axios.patch(`/api/group/${groupId}/teacher-assignment/`, payload);
+  const response = await axios.patch(
+    `/api/group/${groupId}/teacher-assignment/`,
+    payload,
+  );
   return response.data;
 };
 groupApi.clearTeacherAssignment = async (groupId) => {
@@ -86,3 +89,6 @@ export let Topic = apiConstructor("/api/topic/");
 export let Question = apiConstructor("/api/question/");
 export let Group = groupApi;
 export let Users = apiConstructor("/api/user/");
+export let Attempt = apiConstructor("/api/attempt/");
+export let AttemptQuestion = apiConstructor("/api/attempt_question/");
+export let Answer = apiConstructor("/api/answer/");

@@ -31,5 +31,12 @@ router.register(r"group", learning_views.GroupViewSet, basename="group")
 router.register(r"user", accounts_views.UserViewSet, basename="user")
 router.register(r"teacher", accounts_views.TeacherViewSet, basename="teacher")
 router.register(r"student", accounts_views.StudentViewSet, basename="student")
+router.register(r"attempt", learning_views.AttemptViewSet, basename="attempt")
+router.register(
+    r"attempt_question",
+    learning_views.AttemptQuestionViewSet,
+    basename="attempt_question",
+)
+router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
