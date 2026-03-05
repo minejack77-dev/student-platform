@@ -1,25 +1,56 @@
-from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+
+class Subject(models.Model):
+    name = models.CharField(max_length=200, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
 
 
 class Topic(models.Model):
-    title = models.CharField(max_length=200, unique=True)
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.PROTECT,
+        related_name="topics",
+    )
+    title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subject", "title"],
+                name="uq_topic_subject_title",
+            )
+        ]
 
     def __str__(self) -> str:
-        return self.title
+        return f"{self.subject.name} | {self.title}"
 
 
 class Question(models.Model):
     # оставляем только multiple choice
     class QuestionType(models.TextChoices):
+        SINGLE_CHOICE = "single_choice", "Single choice"
         MULTIPLE_CHOICE = "multiple_choice", "Multiple choice"
 
-    topic = models.ForeignKey("Topic", on_delete=models.CASCADE, related_name="questions")
+    topic = models.ForeignKey(
+        "Topic", on_delete=models.CASCADE, related_name="questions"
+    )
+    instruction = models.TextField(blank=True)
     text = models.TextField()
 
     question_type = models.CharField(
@@ -55,6 +86,7 @@ class Choice(models.Model):
     def __str__(self) -> str:
         return self.text
 
+
 class Attempt(models.Model):
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "In progress"
@@ -62,10 +94,9 @@ class Attempt(models.Model):
         ABANDONED = "abandoned", "Abandoned"
 
     student = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        "accounts.Student",
         on_delete=models.CASCADE,
         related_name="attempts",
-        limit_choices_to={"role": "student"},
     )
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="attempts")
 
@@ -76,6 +107,11 @@ class Attempt(models.Model):
         max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
     )
 
+    def correct_count(self):
+        return self.attempt_questions.filter(answer__is_correct=True).aggregate(
+            models.Count("id")
+        )["id__count"]
+
     class Meta:
         indexes = [
             models.Index(fields=["student", "started_at"]),
@@ -84,7 +120,10 @@ class Attempt(models.Model):
         ordering = ["-started_at"]
 
     def __str__(self) -> str:
-        return f"Attempt #{self.pk} | {self.student.username} | {self.topic.title} | {self.status}"
+        return (
+            f"Attempt #{self.pk} | {self.student.user.username} | "
+            f"{self.topic.title} | {self.status}"
+        )
 
 
 class AttemptQuestion(models.Model):
@@ -121,7 +160,7 @@ class Answer(models.Model):
         "Choice", blank=True, related_name="answers"
     )
 
-    answered_at = models.DateTimeField(null=True, blank=True)
+    answered_at = models.DateTimeField(auto_now_add=True, null=True)
 
     # null = ещё не проверено (на старте можно заполнять автоматически)
     is_correct = models.BooleanField(null=True, blank=True)
@@ -134,21 +173,123 @@ class Answer(models.Model):
     def __str__(self) -> str:
         return f"Answer for Attempt #{self.attempt_question.attempt_id} Q{self.attempt_question.order}"
 
+    def check_answer(self):
+        correct = set(
+            self.attempt_question.question.choices.filter(is_correct=True).values_list(
+                "id", flat=True
+            )
+        )
+        selected = set(self.selected_choices.values_list("id", flat=True))
+        self.is_correct = selected == correct
+        self.save(update_fields=["is_correct"])
+        return self.is_correct
+
 
 class Group(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
 
     teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        "accounts.Teacher",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        limit_choices_to={"role": "teacher"},
-        related_name="teaching_groups",  
-)
+        related_name="teaching_groups",
+    )
 
     is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    students = models.ManyToManyField(
+        "accounts.Student",
+        through="GroupStudent",
+        related_name="groups",
+        blank=True,
+    )
 
     def __str__(self):
         return self.name
+
+
+class GroupTeachingAssignment(models.Model):
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="teaching_assignments",
+    )
+    teacher = models.ForeignKey(
+        "accounts.Teacher",
+        on_delete=models.CASCADE,
+        related_name="group_assignments",
+    )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.PROTECT,
+        related_name="teaching_assignments",
+    )
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="teaching_assignments",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "teacher"],
+                name="uq_group_teacher_assignment",
+            )
+        ]
+        ordering = ["group__name", "teacher__user__username"]
+
+    def clean(self):
+        super().clean()
+        if self.topic_id and self.topic.subject_id != self.subject_id:
+            raise ValidationError(
+                {"topic": "Topic must belong to the selected subject."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return (
+            f"{self.group.name} | {self.teacher.user.username} | "
+            f"{self.subject.name} | {self.topic.title if self.topic else 'No topic'}"
+        )
+
+
+class GroupStudent(models.Model):
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="group_students",
+    )
+    student = models.ForeignKey(
+        "accounts.Student",
+        on_delete=models.CASCADE,
+        related_name="group_memberships",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "student"], name="uq_group_student"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.group.name} | {self.student.user.username}"
+
+
+@receiver(post_save, sender=Attempt)
+def complete_attempt(sender, instance, created, **kwargs):
+    if instance.status != Attempt.Status.COMPLETED:
+        return
+
+    for attempt_question in instance.attempt_questions.all():
+        answer, _ = Answer.objects.get_or_create(attempt_question=attempt_question)
+        answer.check_answer()

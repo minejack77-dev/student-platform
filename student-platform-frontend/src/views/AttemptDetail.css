@@ -1,0 +1,213 @@
+.attempt-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.attempt-hero {
+  align-items: end;
+  animation: rise-fade 430ms ease both;
+  background:
+    radial-gradient(circle at 86% 24%, rgba(31, 95, 216, 0.2), transparent 44%),
+    linear-gradient(130deg, rgba(255, 255, 255, 0.9) 0%, rgba(244, 250, 255, 0.96) 100%);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1.2fr 0.8fr;
+  padding: 22px;
+}
+
+.attempt-title {
+  font-size: clamp(28px, 3.8vw, 38px);
+  margin: 10px 0 4px;
+}
+
+.attempt-topic {
+  color: var(--ink-soft);
+  font-size: 16px;
+  margin: 0;
+}
+
+.hero-metrics {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-card {
+  background: var(--surface-strong);
+  border: 1px solid rgba(20, 46, 72, 0.12);
+  border-radius: var(--radius-lg);
+  min-width: 150px;
+  padding: 10px 12px;
+}
+
+.metric-label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.metric-status {
+  color: var(--brand-blue-strong);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.metric-status.done {
+  color: var(--success);
+}
+
+.attempt-state,
+.question-panel,
+.result-panel {
+  animation: rise-fade 440ms ease both;
+  padding: 20px;
+}
+
+.attempt-state {
+  color: var(--ink-soft);
+}
+
+.panel-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.save-indicator {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.save-indicator.saving {
+  color: var(--brand-blue-strong);
+}
+
+.save-indicator.saved {
+  color: var(--success);
+}
+
+.save-indicator.error {
+  color: var(--danger);
+}
+
+.question-text {
+  font-size: 28px;
+  margin: 12px 0 16px;
+}
+
+.question-instruction {
+  color: var(--ink-soft);
+  margin: -6px 0 16px;
+}
+
+.choices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.choice-item {
+  align-items: center;
+  background: var(--surface-strong);
+  border: 1px solid rgba(16, 39, 64, 0.12);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease,
+    background 140ms ease;
+}
+
+.choice-item:hover {
+  border-color: rgba(31, 95, 216, 0.28);
+  transform: translateY(-1px);
+}
+
+.choice-item.selected {
+  background: rgba(31, 95, 216, 0.08);
+  border-color: rgba(31, 95, 216, 0.35);
+}
+
+.choice-item input {
+  margin: 0;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.result-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title {
+  font-size: 26px;
+  margin: 0;
+}
+
+.result-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+}
+
+.result-card {
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.result-card.success {
+  background: rgba(13, 143, 109, 0.1);
+  border: 1px solid rgba(13, 143, 109, 0.24);
+}
+
+.result-card.danger {
+  background: rgba(193, 61, 61, 0.1);
+  border: 1px solid rgba(193, 61, 61, 0.24);
+}
+
+.result-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.result-value {
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .attempt-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

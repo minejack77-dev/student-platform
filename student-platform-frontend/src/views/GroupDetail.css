@@ -1,0 +1,234 @@
+.group-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.group-hero {
+  align-items: end;
+  animation: rise-fade 430ms ease both;
+  background:
+    radial-gradient(circle at 88% 22%, rgba(12, 169, 146, 0.2), transparent 46%),
+    linear-gradient(130deg, rgba(255, 255, 255, 0.9) 0%, rgba(244, 250, 255, 0.96) 100%);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1.2fr 0.8fr;
+  padding: 22px;
+}
+
+.group-title {
+  font-size: clamp(28px, 3.8vw, 38px);
+  margin: 10px 0 6px;
+}
+
+.group-description {
+  color: var(--ink-soft);
+  margin: 0;
+  max-width: 680px;
+}
+
+.hero-meta {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.meta-card {
+  background: var(--surface-strong);
+  border: 1px solid rgba(20, 46, 72, 0.12);
+  border-radius: var(--radius-lg);
+  min-width: 150px;
+  padding: 10px 12px;
+}
+
+.meta-label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.meta-value {
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.home-link {
+  color: var(--brand-blue-strong);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.home-link:hover {
+  text-decoration: underline;
+}
+
+.assignment-panel {
+  animation: rise-fade 430ms ease both;
+  padding: 20px;
+}
+
+.assignment-hint {
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+.assignment-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.group-layout {
+  animation: rise-fade 450ms ease both;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  padding: 20px;
+}
+
+.column-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.section-title {
+  font-size: 26px;
+  margin: 0;
+}
+
+.empty-box {
+  border: 1px dashed rgba(20, 45, 72, 0.24);
+  border-radius: var(--radius-md);
+  color: var(--ink-soft);
+  padding: 14px;
+}
+
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.member-item {
+  align-items: center;
+  animation: rise-fade 320ms ease both;
+  animation-delay: var(--delay);
+  background: var(--surface-strong);
+  border: 1px solid rgba(16, 39, 64, 0.12);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+}
+
+.member-index {
+  align-items: center;
+  background: rgba(31, 95, 216, 0.12);
+  border-radius: 10px;
+  color: var(--brand-blue-strong);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.member-name {
+  font-weight: 700;
+}
+
+.member-meta {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.search-hint {
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+
+.search-input {
+  max-width: 430px;
+}
+
+.search-state {
+  color: var(--ink-soft);
+  margin-top: 10px;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.search-item {
+  align-items: center;
+  background: var(--surface-strong);
+  border: 1px solid rgba(16, 39, 64, 0.12);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.search-actions {
+  align-items: center;
+  display: flex;
+}
+
+.ghost-danger-btn {
+  background: rgba(193, 61, 61, 0.14);
+  border: 1px solid rgba(193, 61, 61, 0.26);
+  border-radius: 999px;
+  color: #9d2727;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: auto;
+  padding: 5px 10px;
+  transition: background 120ms ease;
+}
+
+.ghost-danger-btn:hover:not(:disabled) {
+  background: rgba(193, 61, 61, 0.2);
+}
+
+.ghost-danger-btn:disabled {
+  opacity: 0.6;
+}
+
+@media (max-width: 920px) {
+  .group-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .group-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-meta {
+    justify-items: start;
+  }
+}
+
+@media (max-width: 700px) {
+  .column-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .search-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
