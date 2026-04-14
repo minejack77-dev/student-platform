@@ -98,3 +98,20 @@ export let Users = apiConstructor("/api/user/");
 export let Attempt = apiConstructor("/api/attempt/");
 export let AttemptQuestion = apiConstructor("/api/attempt_question/");
 export let Answer = apiConstructor("/api/answer/");
+
+export const Auth = {
+  async fetchCsrf() {
+    await axios.get("/api/auth/csrf/");
+  },
+  async login(credentials) {
+    const response = await axios.post("/api/auth/login/", credentials);
+    return response.data;
+  },
+  async logout() {
+    await axios.post("/api/auth/logout/");
+  },
+  async me() {
+    const response = await axios.get("/api/auth/me/");
+    return response.data;
+  },
+};

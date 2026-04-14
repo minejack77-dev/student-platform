@@ -194,3 +194,88 @@ class AccountsApiTests(APITestCase):
     def test_student_me_assignments_rejects_non_student_user(self):
         response = self.client.get("/api/student/me-assignments/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # def test_auth_csrf_endpoint_sets_cookie(self):
+    #     self.client.force_authenticate(user=None)
+    #     response = self.client.get("/api/auth/csrf/")
+
+    #     self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+    #     self.assertIn("csrftoken", response.cookies)
+
+    # def test_login_returns_authenticated_user_payload(self):
+    #     self.client.force_authenticate(user=None)
+    #     user = User.objects.create_user(
+    #         username="login_user",
+    #         password="StrongPass123",
+    #         role=User.Role.STUDENT,
+    #         email="login@example.com",
+    #     )
+    #     student = Student.objects.create(user=user)
+
+    #     response = self.client.post(
+    #         "/api/auth/login/",
+    #         {"username": "login_user", "password": "StrongPass123"},
+    #         format="json",
+    #     )
+
+    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
+    #     self.assertEqual(response.data["id"], user.id)
+    #     self.assertEqual(response.data["role"], User.Role.STUDENT)
+    #     self.assertEqual(response.data["student_id"], student.id)
+    #     self.assertIsNone(response.data["teacher_id"])
+    #     self.assertTrue(response.data["is_authenticated"])
+
+    # def test_login_rejects_invalid_credentials(self):
+    #     self.client.force_authenticate(user=None)
+    #     User.objects.create_user(
+    #         username="bad_login_user",
+    #         password="StrongPass123",
+    #         role=User.Role.TEACHER,
+    #     )
+
+    #     response = self.client.post(
+    #         "/api/auth/login/",
+    #         {"username": "bad_login_user", "password": "WrongPassword123"},
+    #         format="json",
+    #     )
+
+    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # def test_me_returns_current_user(self):
+    #     user = User.objects.create_user(
+    #         username="me_user",
+    #         password="StrongPass123",
+    #         role=User.Role.TEACHER,
+    #         email="me@example.com",
+    #     )
+    #     teacher = Teacher.objects.create(user=user)
+
+    #     self.client.force_authenticate(user)
+    #     response = self.client.get("/api/auth/me/")
+
+    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
+    #     self.assertEqual(response.data["id"], user.id)
+    #     self.assertEqual(response.data["teacher_id"], teacher.id)
+    #     self.assertIsNone(response.data["student_id"])
+
+    # def test_logout_ends_authenticated_session(self):
+    #     self.client.force_authenticate(user=None)
+    #     user = User.objects.create_user(
+    #         username="logout_user",
+    #         password="StrongPass123",
+    #         role=User.Role.STUDENT,
+    #     )
+    #     Student.objects.create(user=user)
+
+    #     login_response = self.client.post(
+    #         "/api/auth/login/",
+    #         {"username": "logout_user", "password": "StrongPass123"},
+    #         format="json",
+    #     )
+    #     self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+    #     logout_response = self.client.post("/api/auth/logout/")
+    #     self.assertEqual(logout_response.status_code, status.HTTP_204_NO_CONTENT)
+
+    #     me_response = self.client.get("/api/auth/me/")
+    #     self.assertEqual(me_response.status_code, status.HTTP_403_FORBIDDEN)

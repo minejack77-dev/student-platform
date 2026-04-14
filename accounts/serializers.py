@@ -5,6 +5,49 @@ from accounts.models import Student, Teacher, User
 from learning.models import Group, Topic
 
 
+class AuthLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class AuthUserSerializer(serializers.ModelSerializer):
+    # Вычисляемые поля
+    student_id = serializers.SerializerMethodField(read_only=True)
+    teacher_id = serializers.SerializerMethodField(read_only=True)
+    is_authenticated = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ( # Список полей которые попадут на фронт
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "role",
+            "is_active",
+            "student_id",
+            "teacher_id",
+            "is_authenticated",
+        )
+        read_only_fields = fields # Не редактируем поля через этот класс
+
+    def get_student_id(self, obj):
+        try:
+            return obj.student_profile.id
+        except Student.DoesNotExist:
+            return None
+
+    def get_teacher_id(self, obj):
+        try:
+            return obj.teacher_profile.id
+        except Teacher.DoesNotExist:
+            return None
+
+    def get_is_authenticated(self, _obj):
+        return True
+
+
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     student_id = serializers.SerializerMethodField(read_only=True)

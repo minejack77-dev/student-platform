@@ -1,10 +1,19 @@
 <script setup>
 import { computed } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
+
+import { useAuthStore } from "@/stores/auth";
 
 const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+const { isAuthenticated, role, user } = storeToRefs(authStore);
 
 const pageLabel = computed(() => {
+  if (route.name === "login") {
+    return "Access portal";
+  }
   if (route.name === "topic-detail") {
     return "Topic workspace";
   }
@@ -22,6 +31,21 @@ const pageLabel = computed(() => {
   }
   return "Teaching dashboard";
 });
+
+const roleLabel = computed(() => {
+  if (role.value === "student") {
+    return "Student";
+  }
+  if (role.value === "teacher") {
+    return "Teacher";
+  }
+  return "Guest";
+});
+
+const handleLogout = async () => {
+  await authStore.logout();
+  await router.push({ name: "login" });
+};
 </script>
 
 <template>
@@ -37,8 +61,28 @@ const pageLabel = computed(() => {
         </router-link>
 
         <nav class="nav-wrap">
-          <router-link class="nav-item-link" :to="{ name: 'teacher-home' }">Teacher</router-link>
-          <router-link class="nav-item-link" :to="{ name: 'student-home' }">Tasks</router-link>
+          <!-- <router-link class="nav-item-link" :to="{ name: 'teacher-home' }">Teacher</router-link> -->
+          <!-- <router-link class="nav-item-link" :to="{ name: 'student-home' }">Tasks</router-link> -->
+          <template v-if="isAuthenticated">
+            <router-link
+              v-if="role === 'teacher'"
+              class="nav-item-link"
+              :to="{ name: 'teacher-home' }"
+            >
+              Teacher
+            </router-link>
+            <router-link
+              v-if="role === 'student'"
+              class="nav-item-link"
+              :to="{ name: 'student-home' }"
+            >
+              Tasks
+            </router-link>
+            <span class="nav-user">{{ user?.username }} · {{ roleLabel }}</span>
+            <button class="btn btn-outline-primary btn-sm" type="button" @click="handleLogout">
+              Sign out
+            </button>
+          </template>
           <span class="pill">{{ pageLabel }}</span>
         </nav>
       </div>

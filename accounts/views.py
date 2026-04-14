@@ -1,13 +1,87 @@
+from django.contrib.auth import authenticate, login, logout
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django_filters import FilterSet, filters
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import OrderingFilter
+from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from accounts.models import Student, Teacher, User
-from accounts.serializers import StudentSerializer, TeacherSerializer, UserSerializer
+from accounts.serializers import (
+    AuthLoginSerializer,
+    AuthUserSerializer,
+    StudentSerializer,
+    TeacherSerializer,
+    UserSerializer,
+)
 from learning.models import GroupTeachingAssignment
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+# Декоратор
+# ensure_csrf_cookie если у пользователя нет CSRF, Django вернет его
+# dispatch проверяет метод запроса
+class CsrfCookieView(APIView):
+    permission_classes = [AllowAny] # endpoint доступен всем
+
+    def get(self, _request):
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        # Создаем объект сериализатора и передаем в него данные
+        serializer = AuthLoginSerializer(data=request.data)
+        # Запускается проверка данных
+        # Если все данные правильные serializer.is_valid() вернет true
+        # raise_exception=True мы ожидаем, что все поля правильные. Если нет, клиент получит 400
+        # После валидации можно безопасно брать serializer.validated_data["username"] и прочее
+        serializer.is_valid(raise_exception=True)
+
+        user = authenticate(
+            request=request,
+            username=serializer.validated_data["username"],
+            password=serializer.validated_data["password"],
+        )
+        if user is None:
+            return Response(
+                {"detail": "Invalid username or password."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not user.is_active:
+            return Response(
+                {"detail": "This account is disabled."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        login(request, user)
+        # user Django-модель
+        # AuthUserSerializer(user) превращаем Python данные в удобную структуру данных, пригодную для JSON
+        # .data готовое сериализованное представление пользователя
+        return Response(AuthUserSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(AuthUserSerializer(request.user).data, status=status.HTTP_200_OK)
 
 
 class UserSetFilter(FilterSet):
