@@ -28,6 +28,8 @@ class Topic(models.Model):
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    src = models.FileField(blank=True, null=True)
+
     class Meta:
         ordering = ["title"]
         constraints = [

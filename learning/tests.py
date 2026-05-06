@@ -1,6 +1,9 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -15,6 +18,11 @@ from learning.models import (
     Question,
     Subject,
     Topic,
+)
+from learning.services.question_import import (
+    SpreadsheetCell,
+    _render_rich_text_html,
+    import_questions_from_xls,
 )
 
 
@@ -362,3 +370,134 @@ class LearningApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("attempt_question", response.data)
+
+
+class QuestionImportTests(APITestCase):
+    def test_import_from_xls_creates_single_choice_questions(self):
+        subject = Subject.objects.create(name="English")
+        topic = Topic.objects.create(subject=subject, title="Adjectives and adverbs")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell("Choose adj (adjective) or adv (adverb):", "Choose adj (adjective) or adv (adverb):"),
+                SpreadsheetCell("option 1", "<strong>option 1</strong>"),
+                SpreadsheetCell("option 2", "<strong>option 2</strong>"),
+                SpreadsheetCell("key", "<strong>key</strong>"),
+            ],
+            [
+                SpreadsheetCell("I had a bad day yesterday.", "I had a <strong>bad</strong> day yesterday."),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("adj", "adj"),
+            ],
+            [
+                SpreadsheetCell("My students study well.", "My students study <strong>well</strong>."),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("adv", "adv"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            questions = import_questions_from_xls(topic=topic, src="1.xls")
+
+        self.assertEqual(len(questions), 2)
+        first_question = questions[0]
+        self.assertEqual(first_question.instruction, "")
+        self.assertEqual(
+            first_question.text,
+            "Choose adj (adjective) or adv (adverb):\nI had a <strong>bad</strong> day yesterday.",
+        )
+        self.assertEqual(first_question.question_type, Question.QuestionType.SINGLE_CHOICE)
+        self.assertEqual(first_question.choices.count(), 2)
+        self.assertEqual(
+            list(first_question.choices.values_list("text", "is_correct", "order")),
+            [("adj", True, 1), ("adv", False, 2)],
+        )
+
+    def test_import_from_xls_rejects_rows_without_matching_answer_key(self):
+        subject = Subject.objects.create(name="English grammar")
+        topic = Topic.objects.create(subject=subject, title="Parts of speech")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell("Choose adj (adjective) or adv (adverb):", "Choose adj (adjective) or adv (adverb):"),
+                SpreadsheetCell("option 1", "option 1"),
+                SpreadsheetCell("option 2", "option 2"),
+                SpreadsheetCell("key", "key"),
+            ],
+            [
+                SpreadsheetCell("This road is very dangerous.", "This road is very <strong>dangerous</strong>."),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("noun", "noun"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            with self.assertRaises(ValidationError):
+                import_questions_from_xls(topic=topic, src="1.xls")
+
+        self.assertEqual(Question.objects.count(), 0)
+        self.assertEqual(Choice.objects.count(), 0)
+
+    def test_render_rich_text_html_wraps_bold_runs(self):
+        class Font:
+            def __init__(self, weight):
+                self.weight = weight
+                self.bold = 0
+
+        class Workbook:
+            font_list = [Font(400), Font(700)]
+
+        html = _render_rich_text_html(
+            plain_text="Hello world!",
+            runlist=[(0, 0), (6, 1)],
+            workbook=Workbook(),
+        )
+
+        self.assertEqual(html, "Hello <strong>world!</strong>")
+
+
+class TopicAdminImportTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username="admin",
+            email="admin@example.com",
+            password="StrongPass123",
+        )
+        self.client.force_login(self.admin_user)
+        self.subject = Subject.objects.create(name="English Admin")
+        self.topic = Topic.objects.create(subject=self.subject, title="Grammar")
+
+    def test_import_button_uses_attached_file(self):
+        self.topic.src = "imports/1.xls"
+        self.topic.save(update_fields=["src"])
+
+        with patch("learning.admin.import_questions_from_xls", return_value=[]) as import_mock:
+            response = self.client.post(
+                reverse("admin:learning_topic_import_from_src", args=[self.topic.pk]),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        import_mock.assert_called_once_with(
+            topic=self.topic,
+            src=self.topic.src,
+            is_active=self.topic.is_active,
+        )
+
+    def test_import_button_requires_attached_file(self):
+        with patch("learning.admin.import_questions_from_xls") as import_mock:
+            response = self.client.post(
+                reverse("admin:learning_topic_import_from_src", args=[self.topic.pk]),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        import_mock.assert_not_called()
+        self.assertContains(response, "Attach a .xls file to the topic before running import.")

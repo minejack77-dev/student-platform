@@ -1,4 +1,8 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404
+from django.urls import path, reverse
+
 from .models import (
     Answer,
     Attempt,
@@ -11,6 +15,7 @@ from .models import (
     Subject,
     Topic,
 )
+from .services.question_import import import_questions_from_xls
 
 
 @admin.register(Subject)
@@ -26,6 +31,58 @@ class TopicAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "subject")
     search_fields = ("title", "subject__name")
     autocomplete_fields = ("subject",)
+    change_form_template = "admin/learning/topic/change_form.html"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/import-from-src/",
+                self.admin_site.admin_view(self.import_from_src_view),
+                name="learning_topic_import_from_src",
+            )
+        ]
+        return custom_urls + urls
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["import_from_src_url"] = reverse(
+            "admin:learning_topic_import_from_src",
+            args=[object_id],
+        )
+        return super().change_view(request, object_id, form_url, extra_context)
+
+    def import_from_src_view(self, request, object_id):
+        topic = get_object_or_404(Topic, pk=object_id)
+        change_url = reverse("admin:learning_topic_change", args=[topic.pk])
+
+        if request.method != "POST":
+            return HttpResponseRedirect(change_url)
+
+        if not topic.src:
+            self.message_user(
+                request,
+                "Attach a .xls file to the topic before running import.",
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(change_url)
+
+        try:
+            questions = import_questions_from_xls(
+                topic=topic,
+                src=topic.src,
+                is_active=topic.is_active,
+            )
+        except Exception as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(change_url)
+
+        self.message_user(
+            request,
+            f"Imported {len(questions)} questions from {topic.src.name}.",
+            level=messages.SUCCESS,
+        )
+        return HttpResponseRedirect(change_url)
 
 
 class ChoiceInline(admin.TabularInline):
