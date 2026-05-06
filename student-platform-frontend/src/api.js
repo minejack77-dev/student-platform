@@ -83,6 +83,19 @@ groupApi.saveTeacherAssignment = async (groupId, payload) => {
 groupApi.clearTeacherAssignment = async (groupId) => {
   await axios.delete(`/api/group/${groupId}/teacher-assignment/`);
 };
+groupApi.getTopicCalendar = async (groupId, params) => {
+  const response = await axios.get(`/api/group/${groupId}/topic-calendar/`, { params });
+  return response.data;
+};
+groupApi.saveTopicCalendarItem = async (groupId, payload) => {
+  const response = await axios.patch(`/api/group/${groupId}/topic-calendar/`, payload);
+  return response.data;
+};
+groupApi.clearTopicCalendarItem = async (groupId, date) => {
+  await axios.delete(`/api/group/${groupId}/topic-calendar/`, {
+    params: { date },
+  });
+};
 
 export let Subject = apiConstructor("/api/subject/");
 export let Topic = apiConstructor("/api/topic/");
@@ -93,8 +106,29 @@ studentApi.meAssignments = async () => {
   const response = await axios.get("/api/student/me-assignments/");
   return response.data;
 };
+studentApi.getScheduledAssignments = async (params) => {
+  const response = await axios.get("/api/student/me-assignments/", { params });
+  return response.data;
+};
 export let Student = studentApi;
 export let Users = apiConstructor("/api/user/");
 export let Attempt = apiConstructor("/api/attempt/");
 export let AttemptQuestion = apiConstructor("/api/attempt_question/");
 export let Answer = apiConstructor("/api/answer/");
+
+export const Auth = {
+  async fetchCsrf() {
+    await axios.get("/api/auth/csrf/");
+  },
+  async login(credentials) {
+    const response = await axios.post("/api/auth/login/", credentials);
+    return response.data;
+  },
+  async logout() {
+    await axios.post("/api/auth/logout/");
+  },
+  async me() {
+    const response = await axios.get("/api/auth/me/");
+    return response.data;
+  },
+};

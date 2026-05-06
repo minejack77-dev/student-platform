@@ -96,6 +96,12 @@
   gap: 12px;
 }
 
+.nav-user {
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .nav-item-link {
   color: var(--ink);
   font-size: 14px;
@@ -118,6 +124,11 @@
     gap: 10px;
     padding-bottom: 10px;
     padding-top: 10px;
+  }
+
+  .nav-wrap {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .brand-title {

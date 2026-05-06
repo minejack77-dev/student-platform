@@ -5,6 +5,58 @@ import { Group, Subject, Topic } from "@/api.js";
 
 const props = defineProps(["id"]);
 
+const WEEK_LENGTH = 7;
+const dayNameFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
+const dayNumberFormatter = new Intl.DateTimeFormat("en-US", { day: "numeric" });
+const monthDayFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+const monthRangeFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+});
+const fullDateFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+});
+
+const formatISODate = (date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseISODate = (value) => {
+  const [year, month, day] = (value || "").split("-").map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+};
+
+const startOfWeek = (date) => {
+  const value = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = value.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  value.setDate(value.getDate() + diff);
+  return value;
+};
+
+const shiftDateByDays = (value, days) => {
+  const next = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const normalizeCalendarItem = (item) => ({
+  ...item,
+  topic: item.topic ?? null,
+  topicDraft: item.topic ? String(item.topic) : "",
+});
+
 const group = ref({ students: [] });
 const loadError = ref("");
 
@@ -14,9 +66,17 @@ const assignmentForm = ref({
   subject: "",
   topic: "",
 });
+const savedAssignmentSubject = ref("");
 const assignmentLoading = ref(false);
 const assignmentError = ref("");
 const assignmentSuccess = ref("");
+
+const calendarStartDate = ref(formatISODate(startOfWeek(new Date())));
+const calendarDays = ref([]);
+const calendarLoading = ref(false);
+const calendarError = ref("");
+const calendarMessage = ref("");
+const calendarSavingDate = ref("");
 
 const searchQuery = ref("");
 const searchResults = ref([]);
@@ -60,15 +120,44 @@ const loadTopicsBySubject = async (subjectId) => {
 
 const loadTeacherAssignment = async () => {
   assignmentError.value = "";
-  const assignment = await Group.getTeacherAssignment(props.id);
-  assignmentForm.value.subject = assignment.subject ?? "";
-  assignmentForm.value.topic = assignment.topic ?? "";
-  await loadTopicsBySubject(assignmentForm.value.subject);
+  try {
+    const assignment = await Group.getTeacherAssignment(props.id);
+    assignmentForm.value.subject = assignment.subject ? String(assignment.subject) : "";
+    assignmentForm.value.topic = assignment.topic ? String(assignment.topic) : "";
+    savedAssignmentSubject.value = assignmentForm.value.subject;
+    await loadTopicsBySubject(assignmentForm.value.subject);
+  } catch (error) {
+    assignmentError.value =
+      error?.response?.data?.detail || "Could not load your assignment.";
+    assignmentForm.value.subject = "";
+    assignmentForm.value.topic = "";
+    savedAssignmentSubject.value = "";
+    topics.value = [];
+  }
+};
+
+const loadTopicCalendar = async () => {
+  calendarError.value = "";
+  calendarLoading.value = true;
+  try {
+    const response = await Group.getTopicCalendar(props.id, {
+      start_date: calendarStartDate.value,
+      days: WEEK_LENGTH,
+    });
+    calendarDays.value = (response.results ?? []).map(normalizeCalendarItem);
+  } catch (error) {
+    calendarError.value =
+      error?.response?.data?.detail || "Could not load the topic calendar.";
+    calendarDays.value = [];
+  } finally {
+    calendarLoading.value = false;
+  }
 };
 
 const saveTeacherAssignment = async () => {
   assignmentError.value = "";
   assignmentSuccess.value = "";
+  calendarMessage.value = "";
   assignmentLoading.value = true;
   try {
     const subjectId = assignmentForm.value.subject
@@ -80,15 +169,18 @@ const saveTeacherAssignment = async () => {
       await Group.clearTeacherAssignment(props.id);
       assignmentForm.value.subject = "";
       assignmentForm.value.topic = "";
+      savedAssignmentSubject.value = "";
       topics.value = [];
+      calendarDays.value = [];
       assignmentSuccess.value = "Assignment cleared for your profile.";
     } else {
       await Group.saveTeacherAssignment(props.id, {
         subject: subjectId,
         topic: topicId,
       });
+      savedAssignmentSubject.value = String(subjectId);
       assignmentSuccess.value = "Assignment saved for your profile.";
-      await loadTopicsBySubject(subjectId);
+      await Promise.all([loadTopicsBySubject(subjectId), loadTopicCalendar()]);
     }
     await loadGroup();
   } catch (error) {
@@ -105,12 +197,15 @@ const saveTeacherAssignment = async () => {
 const clearTeacherAssignment = async () => {
   assignmentError.value = "";
   assignmentSuccess.value = "";
+  calendarMessage.value = "";
   assignmentLoading.value = true;
   try {
     await Group.clearTeacherAssignment(props.id);
     assignmentForm.value.subject = "";
     assignmentForm.value.topic = "";
+    savedAssignmentSubject.value = "";
     topics.value = [];
+    calendarDays.value = [];
     assignmentSuccess.value = "Assignment removed for your profile.";
     await loadGroup();
   } catch (error) {
@@ -123,10 +218,120 @@ const clearTeacherAssignment = async () => {
 
 const onSubjectChange = async () => {
   assignmentForm.value.topic = "";
+  assignmentSuccess.value = "";
+  calendarMessage.value = "";
   await loadTopicsBySubject(assignmentForm.value.subject);
 };
 
+const shiftCalendarWeek = async (direction) => {
+  const nextStartDate = shiftDateByDays(
+    parseISODate(calendarStartDate.value),
+    direction * WEEK_LENGTH,
+  );
+  calendarStartDate.value = formatISODate(nextStartDate);
+  await loadTopicCalendar();
+};
+
+const jumpToCurrentWeek = async () => {
+  calendarStartDate.value = formatISODate(startOfWeek(new Date()));
+  await loadTopicCalendar();
+};
+
+const saveCalendarDay = async (day) => {
+  if (!day.topicDraft) {
+    return;
+  }
+
+  calendarError.value = "";
+  calendarMessage.value = "";
+  calendarSavingDate.value = day.date;
+  try {
+    const response = await Group.saveTopicCalendarItem(props.id, {
+      date: day.date,
+      topic: Number(day.topicDraft),
+    });
+    await loadTopicCalendar();
+    calendarMessage.value = `${response.topic_title} saved for ${fullDateFormatter.format(parseISODate(day.date))}.`;
+  } catch (error) {
+    calendarError.value =
+      error?.response?.data?.topic?.[0] ||
+      error?.response?.data?.detail ||
+      "Could not save this date.";
+  } finally {
+    calendarSavingDate.value = "";
+  }
+};
+
+const clearCalendarDay = async (day) => {
+  if (!day.topic && !day.topicDraft) {
+    return;
+  }
+
+  calendarError.value = "";
+  calendarMessage.value = "";
+  calendarSavingDate.value = day.date;
+  try {
+    await Group.clearTopicCalendarItem(props.id, day.date);
+    await loadTopicCalendar();
+    calendarMessage.value = `Schedule cleared for ${fullDateFormatter.format(parseISODate(day.date))}.`;
+  } catch (error) {
+    calendarError.value =
+      error?.response?.data?.detail || "Could not clear this date.";
+  } finally {
+    calendarSavingDate.value = "";
+  }
+};
+
 const studentCount = computed(() => group.value.students.length);
+const scheduleUnlocked = computed(
+  () =>
+    Boolean(savedAssignmentSubject.value) &&
+    assignmentForm.value.subject === savedAssignmentSubject.value,
+);
+const scheduleSubjectName = computed(() => {
+  return (
+    subjects.value.find((subject) => String(subject.id) === savedAssignmentSubject.value)
+      ?.name || "No subject"
+  );
+});
+const scheduleDisabledMessage = computed(() => {
+  if (!assignmentForm.value.subject) {
+    return "Choose a subject first. The weekly calendar uses that subject as its topic pool.";
+  }
+  if (!savedAssignmentSubject.value) {
+    return "Save the subject above first, then the weekly calendar will unlock.";
+  }
+  if (assignmentForm.value.subject !== savedAssignmentSubject.value) {
+    return "You changed the subject. Save it first so the weekly calendar can refresh safely.";
+  }
+  return "";
+});
+const calendarAssignedCount = computed(
+  () => calendarDays.value.filter((day) => Boolean(day.topic)).length,
+);
+const calendarRangeLabel = computed(() => {
+  if (calendarDays.value.length === 0) {
+    return "";
+  }
+  const first = parseISODate(calendarDays.value[0].date);
+  const last = parseISODate(calendarDays.value[calendarDays.value.length - 1].date);
+  if (!first || !last) {
+    return "";
+  }
+  return `${monthRangeFormatter.format(first)} • ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+});
+
+const isCalendarDayDirty = (day) =>
+  (day.topic ? String(day.topic) : "") !== String(day.topicDraft || "");
+const isToday = (value) => formatISODate(new Date()) === value;
+const isWeekend = (value) => {
+  const date = parseISODate(value);
+  const day = date?.getDay();
+  return day === 0 || day === 6;
+};
+const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
+const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
+const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
 const searchStudents = async (query) => {
   if (!query) {
@@ -213,13 +418,19 @@ watch(
     assignmentError.value = "";
     assignmentSuccess.value = "";
     assignmentForm.value = { subject: "", topic: "" };
+    savedAssignmentSubject.value = "";
     topics.value = [];
+    calendarDays.value = [];
+    calendarError.value = "";
+    calendarMessage.value = "";
+    calendarStartDate.value = formatISODate(startOfWeek(new Date()));
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = null;
     }
     await Promise.all([loadGroup(), loadSubjects()]);
     await loadTeacherAssignment();
+    await loadTopicCalendar();
   },
 );
 
@@ -247,6 +458,7 @@ watch(searchQuery, (value) => {
 onMounted(async () => {
   await Promise.all([loadGroup(), loadSubjects()]);
   await loadTeacherAssignment();
+  await loadTopicCalendar();
 });
 
 onBeforeUnmount(() => {
@@ -283,25 +495,16 @@ onBeforeUnmount(() => {
         <span class="pill">Personal for your teacher profile</span>
       </div>
       <p class="assignment-hint">
-        This subject and topic are saved only for you. Other teachers can set their own assignments independently.
+        Save the subject once, then use the weekly calendar below to assign a different topic to each date.
       </p>
 
       <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-md-12">
           <label class="form-label">Subject</label>
           <select v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
             <option value="">No subject selected</option>
-            <option v-for="subject in subjects" :key="subject.id" :value="subject.id">
+            <option v-for="subject in subjects" :key="subject.id" :value="String(subject.id)">
               {{ subject.name }}
-            </option>
-          </select>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Topic</label>
-          <select v-model="assignmentForm.topic" class="form-select" :disabled="!assignmentForm.subject">
-            <option value="">No topic selected</option>
-            <option v-for="topic in topics" :key="topic.id" :value="topic.id">
-              {{ topic.title }}
             </option>
           </select>
         </div>
@@ -323,6 +526,114 @@ onBeforeUnmount(() => {
 
       <div v-if="assignmentError" class="alert alert-danger mt-3 mb-0">{{ assignmentError }}</div>
       <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0">{{ assignmentSuccess }}</div>
+    </section>
+
+    <section class="surface-card schedule-panel">
+      <div class="schedule-header">
+        <div>
+          <div class="column-head schedule-head">
+            <h2 class="section-title">Weekly Topic Calendar</h2>
+            <span class="pill">{{ calendarAssignedCount }} of {{ calendarDays.length || WEEK_LENGTH }} dates filled</span>
+          </div>
+          <p class="assignment-hint schedule-hint">
+            Move week by week and pin the exact topic for each lesson date.
+          </p>
+        </div>
+
+        <div class="calendar-toolbar">
+          <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(-1)">
+            Previous week
+          </button>
+          <button class="btn btn-outline-primary btn-sm" type="button" @click="jumpToCurrentWeek">
+            Current week
+          </button>
+          <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(1)">
+            Next week
+          </button>
+        </div>
+      </div>
+
+      <div class="schedule-summary">
+        <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
+        <div class="schedule-subject">
+          Topic pool:
+          <strong>{{ scheduleUnlocked ? scheduleSubjectName : "locked until subject is saved" }}</strong>
+        </div>
+      </div>
+
+      <div v-if="calendarError" class="alert alert-danger mt-3 mb-0">{{ calendarError }}</div>
+      <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0">{{ calendarMessage }}</div>
+
+      <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">Loading weekly schedule...</div>
+
+      <div v-else-if="scheduleDisabledMessage" class="schedule-empty">
+        <div class="schedule-empty-title">Calendar is waiting for a saved subject</div>
+        <p class="schedule-empty-copy">{{ scheduleDisabledMessage }}</p>
+      </div>
+
+      <div v-else-if="topics.length === 0" class="schedule-empty">
+        <div class="schedule-empty-title">No active topics found</div>
+        <p class="schedule-empty-copy">
+          This subject has no active topics yet. Add some topics in the subject page, then come back here.
+        </p>
+      </div>
+
+      <div v-else class="schedule-strip">
+        <article
+          v-for="day in calendarDays"
+          :key="day.date"
+          class="schedule-day-card"
+          :class="{
+            'is-today': isToday(day.date),
+            'is-weekend': isWeekend(day.date),
+            'is-assigned': day.topic,
+          }"
+        >
+          <div class="schedule-day-top">
+            <div>
+              <div class="schedule-day-name">{{ formatDayName(day.date) }}</div>
+              <div class="schedule-day-date">{{ formatMonthDay(day.date) }}</div>
+            </div>
+            <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
+          </div>
+
+          <label class="form-label schedule-label">Topic</label>
+          <select
+            v-model="day.topicDraft"
+            class="form-select form-select-sm schedule-select"
+            :aria-label="`Topic for ${day.date}`"
+          >
+            <option value="">No topic scheduled</option>
+            <option v-for="topic in topics" :key="topic.id" :value="String(topic.id)">
+              {{ topic.title }}
+            </option>
+          </select>
+
+          <div class="schedule-topic-state">
+            <span class="schedule-topic-caption">Current</span>
+            <strong>{{ day.topic_title || "Free day" }}</strong>
+          </div>
+
+          <div class="schedule-day-actions">
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="calendarSavingDate === day.date || !day.topicDraft || !isCalendarDayDirty(day)"
+              @click="saveCalendarDay(day)"
+            >
+              {{ calendarSavingDate === day.date ? "Saving..." : "Save day" }}
+            </button>
+            <button
+              class="btn btn-outline-secondary btn-sm"
+              type="button"
+              :disabled="calendarSavingDate === day.date || (!day.topic && !day.topicDraft)"
+              @click="clearCalendarDay(day)"
+            >
+              Clear
+            </button>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="surface-card group-layout">
@@ -411,4 +722,3 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped src="./GroupDetail.css"></style>
-

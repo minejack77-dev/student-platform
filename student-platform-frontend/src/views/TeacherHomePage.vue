@@ -184,10 +184,10 @@ const subjectsCount = computed(() => subjectList.value.length);
 
     <section class="surface-card section-card">
       <div class="section-head">
-        <div>
-          <h2 class="section-title">Groups</h2>
-          <p class="section-subtitle">Open a group to manage members and your subject/topic setup.</p>
-        </div>
+      <div>
+        <h2 class="section-title">Groups</h2>
+        <p class="section-subtitle">Open a group to manage members, subject setup, and the date-based topic calendar.</p>
+      </div>
         <div class="controls-wrap">
           <div class="sort-switch">
             <button
@@ -275,7 +275,6 @@ const subjectsCount = computed(() => subjectList.value.length);
 
           <div v-if="group.teacher_assignment" class="assignment-chip">
             {{ group.teacher_assignment.subject_name }}
-            <span v-if="group.teacher_assignment.topic_title">-> {{ group.teacher_assignment.topic_title }}</span>
           </div>
           <div v-else class="assignment-chip muted">No subject assigned for you yet.</div>
 
@@ -388,4 +387,3 @@ const subjectsCount = computed(() => subjectList.value.length);
 </template>
 
 <style scoped src="./TeacherHomePage.css"></style>
-

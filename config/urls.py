@@ -25,6 +25,8 @@ from accounts import views as accounts_views
 
 router = DefaultRouter()
 router.register(r"subject", learning_views.SubjectViewSet, basename="subject")
+router.register(r"workbook", learning_views.WorkbookViewSet, basename="workbook")
+router.register(r"unit", learning_views.UnitViewSet, basename="unit")
 router.register(r"topic", learning_views.TopicViewSet, basename="topic")
 router.register(r"question", learning_views.QuestionViewSet, basename="question")
 router.register(r"group", learning_views.GroupViewSet, basename="group")
@@ -40,3 +42,9 @@ router.register(
 router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
+urlpatterns += [
+    path("api/auth/csrf/", accounts_views.CsrfCookieView.as_view(), name="auth-csrf"),
+    path("api/auth/login/", accounts_views.LoginView.as_view(), name="auth-login"),
+    path("api/auth/logout/", accounts_views.LogoutView.as_view(), name="auth-logout"),
+    path("api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"), # Возвращает текущего пользователя
+]

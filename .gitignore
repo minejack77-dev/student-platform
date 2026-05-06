@@ -6,11 +6,16 @@ __pycache__/
 venv/
 .venv/
 .env
+.uv-cache/
 
 # Django
 db.sqlite3
 media/
 staticfiles/
+.runlogs/
+
+# JavaScript
+node_modules/
 
 # OS
 .DS_Store
