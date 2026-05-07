@@ -158,8 +158,8 @@ def import_questions_from_xls(*, topic, src, is_active=True):
 
             question = Question.objects.create(
                 topic=topic,
-                instruction="",
-                text=f"{header_cell.html}\n{question_cell.html}",
+                instruction="{header_cell.html}",
+                text=f"{question_cell.html}",
                 question_type=Question.QuestionType.SINGLE_CHOICE,
                 is_active=is_active,
             )
