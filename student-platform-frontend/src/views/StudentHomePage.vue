@@ -47,6 +47,46 @@ const shiftDateByDays = (value, days) => {
 
 const router = useRouter();
 
+const statsItems = ref([]);
+const statsLoading = ref(false);
+
+const loadStats = async () => {
+  statsLoading.value = true;
+  try {
+    const response = await Student.getAllAssignments();
+    statsItems.value = response.results ?? [];
+  } catch {
+    statsItems.value = [];
+  } finally {
+    statsLoading.value = false;
+  }
+};
+
+const today = formatISODate(new Date());
+
+const getItemState = (item) => {
+  if (item.attempt_status === "completed") {
+    return item.result_outcome === "success" ? "success" : "fail";
+  }
+  if (item.attempt_status === "in_progress") {
+    return item.date === today ? "in_progress" : "expired";
+  }
+  if (!item.date || item.date < today) return "missed";
+  if (item.date > today) return "upcoming";
+  return "available";
+};
+
+const passingThreshold = 8;
+const totalQuestions = 10;
+
+const completedItems = computed(() =>
+  statsItems.value.filter((i) => i.attempt_status === "completed"),
+);
+const completedCount = computed(() => completedItems.value.length);
+const passedCount = computed(
+  () => completedItems.value.filter((i) => i.result_outcome === "success").length,
+);
+
 const calendarStartDate = ref(formatISODate(startOfWeek(new Date())));
 const calendarDays = ref([]);
 const searchQuery = ref("");
@@ -270,7 +310,7 @@ const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value)
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
 onMounted(async () => {
-  await loadSchedule();
+  await Promise.all([loadSchedule(), loadStats()]);
 });
 </script>
 
@@ -397,6 +437,72 @@ onMounted(async () => {
           </div>
         </article>
       </div>
+    </section>
+
+    <section class="surface-card section-card stats-section">
+      <h2 class="section-title">Statistics</h2>
+      <div v-if="statsLoading" class="empty-box mt-2">Loading statistics...</div>
+      <template v-else>
+        <div class="stats-grid">
+          <div class="stats-row">
+            <span class="stats-label">Completed tasks (this trimester)</span>
+            <span class="stats-value">{{ completedCount }}</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Passed</span>
+            <span class="stats-value">{{ passedCount }}</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Required for credit</span>
+            <span class="stats-value stats-future">In future</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Rating</span>
+            <span class="stats-value stats-future">In future</span>
+          </div>
+        </div>
+
+        <div v-if="statsItems.length === 0" class="empty-box mt-3">No assigned tests.</div>
+        <table v-else class="stats-table">
+          <thead>
+            <tr>
+              <th>Topic</th>
+              <th>Subject</th>
+              <th>Date</th>
+              <th>Correct</th>
+              <th>Required</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in statsItems" :key="item.schedule_entry_id">
+              <td>{{ item.topic_title }}</td>
+              <td>{{ item.subject_name }}</td>
+              <td>{{ item.date ?? "—" }}</td>
+              <td>
+                <template v-if="item.attempt_status === 'completed'">
+                  {{ item.correct_count }} / {{ item.total_questions }}
+                </template>
+                <span v-else class="stats-na">—</span>
+              </td>
+              <td>{{ passingThreshold }} / {{ totalQuestions }}</td>
+              <td>
+                <span class="entity-chip" :class="`chip-${getItemState(item)}`">
+                  {{ {
+                    success: "Passed",
+                    fail: "Failed",
+                    in_progress: "In Progress",
+                    expired: "Expired",
+                    missed: "Missed",
+                    upcoming: "Upcoming",
+                    available: "Available",
+                  }[getItemState(item)] }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
     </section>
   </div>
 </template>

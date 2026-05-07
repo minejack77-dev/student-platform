@@ -153,6 +153,63 @@ class StudentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        all_param = request.query_params.get("all", "false").lower() == "true"
+
+        if all_param:
+            schedule_entries = (
+                GroupTopicSchedule.objects.select_related(
+                    "group",
+                    "teacher__user",
+                    "topic",
+                    "topic__subject",
+                )
+                .filter(
+                    group__students=student,
+                    group__is_active=True,
+                    topic__is_active=True,
+                    topic__subject__is_active=True,
+                )
+                .order_by("scheduled_for", "group__name", "teacher__user__username")
+                .distinct()
+            )
+            attempts = (
+                Attempt.objects.select_related("schedule_entry")
+                .filter(student=student, schedule_entry__in=schedule_entries)
+                .order_by("-started_at")
+            )
+            attempts_by_schedule_entry_id = {}
+            for attempt in attempts:
+                attempts_by_schedule_entry_id.setdefault(attempt.schedule_entry_id, attempt)
+
+            items = []
+            for entry in schedule_entries:
+                attempt = attempts_by_schedule_entry_id.get(entry.id)
+                correct_count = attempt.correct_count() if attempt else None
+                total_questions = attempt.total_questions() if attempt else None
+                success = attempt.is_successful() if attempt else None
+                items.append(
+                    {
+                        "date": entry.scheduled_for,
+                        "schedule_entry_id": entry.id,
+                        "group_id": entry.group_id,
+                        "group_name": entry.group.name,
+                        "teacher_id": entry.teacher_id,
+                        "teacher_username": entry.teacher.user.username,
+                        "subject_id": entry.topic.subject_id,
+                        "subject_name": entry.topic.subject.name,
+                        "topic_id": entry.topic_id,
+                        "topic_title": entry.topic.title,
+                        "attempt_id": attempt.id if attempt else None,
+                        "attempt_status": attempt.status if attempt else None,
+                        "correct_count": correct_count,
+                        "total_questions": total_questions,
+                        "result_outcome": (
+                            "success" if success is True else "fail" if success is False else None
+                        ),
+                    }
+                )
+            return Response({"student": student.id, "results": items}, status=status.HTTP_200_OK)
+
         start_date_param = request.query_params.get("start_date")
         days_param = request.query_params.get("days", "7")
         start_date = (

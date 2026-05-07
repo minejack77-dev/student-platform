@@ -110,6 +110,10 @@ studentApi.getScheduledAssignments = async (params) => {
   const response = await axios.get("/api/student/me-assignments/", { params });
   return response.data;
 };
+studentApi.getAllAssignments = async () => {
+  const response = await axios.get("/api/student/me-assignments/", { params: { all: true } });
+  return response.data;
+};
 export let Student = studentApi;
 export let Users = apiConstructor("/api/user/");
 export let Attempt = apiConstructor("/api/attempt/");
