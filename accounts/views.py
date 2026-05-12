@@ -156,6 +156,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         all_param = request.query_params.get("all", "false").lower() == "true"
 
         if all_param:
+            # Все тесты студента
             schedule_entries = (
                 GroupTopicSchedule.objects.select_related(
                     "group",
@@ -172,6 +173,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 .order_by("scheduled_for", "group__name", "teacher__user__username")
                 .distinct()
             )
+            # Попытки студента
             attempts = (
                 Attempt.objects.select_related("schedule_entry")
                 .filter(student=student, schedule_entry__in=schedule_entries)
@@ -184,8 +186,11 @@ class StudentViewSet(viewsets.ModelViewSet):
             items = []
             for entry in schedule_entries:
                 attempt = attempts_by_schedule_entry_id.get(entry.id)
+                # Количество правильных ответов
                 correct_count = attempt.correct_count() if attempt else None
+                # Количество вопрос
                 total_questions = attempt.total_questions() if attempt else None
+                # Сдан ли тест
                 success = attempt.is_successful() if attempt else None
                 items.append(
                     {
