@@ -718,6 +718,93 @@ class GroupViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get"], url_path="ranking")
+    def ranking(self, request, pk=None):
+        group = self.get_object()
+
+        request_student = get_request_student(request)
+        request_teacher = get_request_teacher(request)
+
+        if request_student:
+            if not group.students.filter(id=request_student.id).exists():
+                return Response(
+                    {"detail": "You are not a member of this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif request_teacher:
+            if not GroupTeachingAssignment.objects.filter(
+                group=group, teacher=request_teacher
+            ).exists():
+                return Response(
+                    {"detail": "You are not assigned to this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        students = group.students.select_related("user").all()
+        schedule_entries = GroupTopicSchedule.objects.filter(
+            group=group,
+            topic__is_active=True,
+            topic__subject__is_active=True,
+        )
+        today = timezone.localdate()
+        past_entries = schedule_entries.filter(scheduled_for__lte=today)
+
+        attempts = (
+            Attempt.objects.filter(
+                student__in=students,
+                schedule_entry__in=past_entries,
+                status=Attempt.Status.COMPLETED,
+            )
+            .select_related("student")
+        )
+
+        attempts_by_student = {}
+        for attempt in attempts:
+            attempts_by_student.setdefault(attempt.student_id, []).append(attempt)
+
+        past_entry_ids = set(past_entries.values_list("id", flat=True))
+
+        rows = []
+        for student in students:
+            student_attempts = attempts_by_student.get(student.id, [])
+            completed = len(student_attempts)
+            total_past = len(past_entry_ids)
+            missed = total_past - completed
+            total = completed + missed
+            passed = sum(1 for a in student_attempts if a.is_successful())
+            total_correct = sum(a.correct_count() for a in student_attempts)
+            pass_rate = passed / total if total > 0 else 0
+            rows.append({
+                "student_id": student.id,
+                "username": student.user.username,
+                "completed": completed,
+                "missed": missed,
+                "passed": passed,
+                "total_correct": total_correct,
+                "pass_rate": round(pass_rate * 100, 1),
+            })
+
+        rows.sort(key=lambda r: (-r["pass_rate"], -r["total_correct"]))
+        for index, row in enumerate(rows, start=1):
+            row["rank"] = index
+
+        if request_student:
+            my_row = next((r for r in rows if r["student_id"] == request_student.id), None)
+            return Response({
+                "group_id": group.id,
+                "group_name": group.name,
+                "rank": my_row["rank"] if my_row else None,
+                "total": len(rows),
+            })
+
+        return Response({
+            "group_id": group.id,
+            "group_name": group.name,
+            "ranking": rows,
+        })
+
 
 class AttemptSetFilter(FilterSet):
     class Meta:

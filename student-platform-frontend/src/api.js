@@ -96,6 +96,10 @@ groupApi.clearTopicCalendarItem = async (groupId, date) => {
     params: { date },
   });
 };
+groupApi.getRanking = async (groupId) => {
+  const response = await axios.get(`/api/group/${groupId}/ranking/`);
+  return response.data;
+};
 
 export let Subject = apiConstructor("/api/subject/");
 export let Topic = apiConstructor("/api/topic/");

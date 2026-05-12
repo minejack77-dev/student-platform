@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Attempt, Student } from "@/api.js";
+import { Attempt, Student, Group } from "@/api.js";
 
 const WEEK_LENGTH = 7;
 
@@ -87,6 +87,27 @@ const completedCount = computed(() => completedItems.value.length + missedItems.
 const passedCount = computed(
   () => completedItems.value.filter((i) => i.result_outcome === "success").length,
 );
+
+const rankingData = ref(null);
+const rankingLoading = ref(false);
+
+const loadRanking = async () => {
+  const groupId = statsItems.value[0]?.group_id;
+  if (!groupId) return;
+  rankingLoading.value = true;
+  try {
+    rankingData.value = await Group.getRanking(groupId);
+  } catch {
+    rankingData.value = null;
+  } finally {
+    rankingLoading.value = false;
+  }
+};
+
+const myRank = computed(() => {
+  if (!rankingData.value || !rankingData.value.rank) return null;
+  return { rank: rankingData.value.rank, total: rankingData.value.total };
+});
 
 const calendarStartDate = ref(formatISODate(startOfWeek(new Date())));
 const calendarDays = ref([]);
@@ -312,6 +333,7 @@ const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
 onMounted(async () => {
   await Promise.all([loadSchedule(), loadStats()]);
+  await loadRanking();
 });
 </script>
 
@@ -459,7 +481,11 @@ onMounted(async () => {
           </div>
           <div class="stats-row">
             <span class="stats-label">Rating</span>
-            <span class="stats-value stats-future">In future</span>
+            <span v-if="rankingLoading" class="stats-value stats-future">Loading...</span>
+            <span v-else-if="myRank" class="stats-value">
+              #{{ myRank.rank }} / {{ myRank.total }}
+            </span>
+            <span v-else class="stats-value stats-future">—</span>
           </div>
         </div>
 
