@@ -76,8 +76,6 @@ const getItemState = (item) => {
   return "available";
 };
 
-const passingThreshold = 8;
-const totalQuestions = 10;
 
 const completedItems = computed(() =>
   statsItems.value.filter((i) => i.attempt_status === "completed"),
@@ -465,46 +463,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="statsItems.length === 0" class="empty-box mt-3">No assigned tests.</div>
-        <table v-else class="stats-table">
-          <thead>
-            <tr>
-              <th>Topic</th>
-              <th>Subject</th>
-              <th>Date</th>
-              <th>Correct</th>
-              <th>Required</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in statsItems" :key="item.schedule_entry_id">
-              <td>{{ item.topic_title }}</td>
-              <td>{{ item.subject_name }}</td>
-              <td>{{ item.date ?? "—" }}</td>
-              <td>
-                <template v-if="item.attempt_status === 'completed'">
-                  {{ item.correct_count }} / {{ item.total_questions }}
-                </template>
-                <span v-else class="stats-na">—</span>
-              </td>
-              <td>{{ passingThreshold }} / {{ totalQuestions }}</td>
-              <td>
-                <span class="entity-chip" :class="`chip-${getItemState(item)}`">
-                  {{ {
-                    success: "Passed",
-                    fail: "Failed",
-                    in_progress: "In Progress",
-                    expired: "Expired",
-                    missed: "Missed",
-                    upcoming: "Upcoming",
-                    available: "Available",
-                  }[getItemState(item)] }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
       </template>
     </section>
   </div>
