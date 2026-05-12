@@ -341,6 +341,10 @@
   width: 30px;
 }
 
+.member-info {
+  flex: 1;
+}
+
 .member-name {
   font-weight: 700;
 }
@@ -348,6 +352,31 @@
 .member-meta {
   color: var(--ink-soft);
   font-size: 12px;
+}
+
+.member-last-result {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-width: 70px;
+}
+
+.entity-chip {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.chip-success {
+  background: rgba(13, 143, 109, 0.14);
+  color: var(--success);
+}
+
+.chip-fail {
+  background: rgba(193, 61, 61, 0.14);
+  color: var(--danger);
 }
 
 .search-hint {

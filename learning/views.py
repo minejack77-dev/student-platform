@@ -743,6 +743,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         students = group.students.select_related("user").all()
+        # Запланированные тесты
         schedule_entries = GroupTopicSchedule.objects.filter(
             group=group,
             topic__is_active=True,
@@ -751,6 +752,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         past_entries = schedule_entries.filter(scheduled_for__lte=today)
 
+        # Все завершенные попытки с тестом
         attempts = (
             Attempt.objects.filter(
                 student__in=students,
@@ -760,22 +762,25 @@ class GroupViewSet(viewsets.ModelViewSet):
             .select_related("student")
         )
 
-        attempts_by_student = {}
+        attempts_by_student = {} # Попытки каждого студента
         for attempt in attempts:
             attempts_by_student.setdefault(attempt.student_id, []).append(attempt)
 
         past_entry_ids = set(past_entries.values_list("id", flat=True))
+        total_past = len(past_entry_ids)
 
         rows = []
         for student in students:
             student_attempts = attempts_by_student.get(student.id, [])
             completed = len(student_attempts)
-            total_past = len(past_entry_ids)
             missed = total_past - completed
-            total = completed + missed
+            # Количество успешных тестов
             passed = sum(1 for a in student_attempts if a.is_successful())
+            # Сумма правильных ответов по всем тестам студента
             total_correct = sum(a.correct_count() for a in student_attempts)
-            pass_rate = passed / total if total > 0 else 0
+            pass_rate = passed / total_past if total_past > 0 else 0
+
+            last_attempt = student_attempts[0] if student_attempts else None
             rows.append({
                 "student_id": student.id,
                 "username": student.user.username,
@@ -784,13 +789,23 @@ class GroupViewSet(viewsets.ModelViewSet):
                 "passed": passed,
                 "total_correct": total_correct,
                 "pass_rate": round(pass_rate * 100, 1),
+                "last_correct_count": last_attempt.correct_count() if last_attempt else None,
+                "last_total_questions": last_attempt.total_questions() if last_attempt else None,
+                "last_result": (
+                    "success" if last_attempt.is_successful() is True
+                    else "fail" if last_attempt.is_successful() is False
+                    else None
+                ) if last_attempt else None,
             })
 
+        # Сортируем студентов
         rows.sort(key=lambda r: (-r["pass_rate"], -r["total_correct"]))
+        # Добавляем рейтинг
         for index, row in enumerate(rows, start=1):
             row["rank"] = index
 
         if request_student:
+            # Запись с нашим студентом
             my_row = next((r for r in rows if r["student_id"] == request_student.id), None)
             return Response({
                 "group_id": group.id,

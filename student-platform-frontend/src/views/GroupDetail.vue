@@ -59,6 +59,7 @@ const normalizeCalendarItem = (item) => ({
 
 const group = ref({ students: [] });
 const loadError = ref("");
+const rankingByStudentId = ref({});
 
 const subjects = ref([]);
 const topics = ref([]);
@@ -97,6 +98,19 @@ const loadGroup = async () => {
     };
   } catch {
     loadError.value = "Failed to load group.";
+  }
+};
+
+const loadRanking = async () => {
+  try {
+    const response = await Group.getRanking(props.id);
+    const map = {};
+    for (const row of response.ranking ?? []) {
+      map[row.student_id] = row;
+    }
+    rankingByStudentId.value = map;
+  } catch {
+    rankingByStudentId.value = {};
   }
 };
 
@@ -428,7 +442,7 @@ watch(
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = null;
     }
-    await Promise.all([loadGroup(), loadSubjects()]);
+    await Promise.all([loadGroup(), loadSubjects(), loadRanking()]);
     await loadTeacherAssignment();
     await loadTopicCalendar();
   },
@@ -456,7 +470,7 @@ watch(searchQuery, (value) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadGroup(), loadSubjects()]);
+  await Promise.all([loadGroup(), loadSubjects(), loadRanking()]);
   await loadTeacherAssignment();
   await loadTopicCalendar();
 });
@@ -655,9 +669,22 @@ onBeforeUnmount(() => {
             :style="{ '--delay': `${index * 38}ms` }"
           >
             <div class="member-index">#{{ index + 1 }}</div>
-            <div>
+            <div class="member-info">
               <div class="member-name">{{ student.username || "Unknown" }}</div>
-              <div class="member-meta">user id: {{ student.user }}</div>
+              <div class="member-meta">
+                rank: {{ rankingByStudentId[student.id]?.rank ?? "—" }}
+              </div>
+            </div>
+            <div class="member-last-result">
+              <template v-if="rankingByStudentId[student.id]?.last_result">
+                <span
+                  class="entity-chip"
+                  :class="rankingByStudentId[student.id].last_result === 'success' ? 'chip-success' : 'chip-fail'"
+                >
+                  {{ rankingByStudentId[student.id].last_correct_count }} / {{ rankingByStudentId[student.id].last_total_questions }}
+                </span>
+              </template>
+              <span v-else class="member-meta">—</span>
             </div>
             <button
               class="ghost-danger-btn"
