@@ -1,8 +1,10 @@
+from datetime import date
+
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Student, Teacher, User
-from learning.models import Group, GroupTeachingAssignment, Subject, Topic
+from learning.models import Group, GroupTopicSchedule, GroupTeachingAssignment, Subject, Topic
 
 
 class AccountsApiTests(APITestCase):
@@ -91,7 +93,9 @@ class AccountsApiTests(APITestCase):
         self.client.force_authenticate(user)
         me_assignments_response = self.client.get("/api/student/me-assignments/")
         self.assertEqual(me_assignments_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(me_assignments_response.data, [])
+        self.assertEqual(me_assignments_response.data["student"], student_response.data["id"])
+        self.assertEqual(len(me_assignments_response.data["results"]), 7)
+        self.assertTrue(all(item["items"] == [] for item in me_assignments_response.data["results"]))
         self.assertEqual(teacher.user_id, user.id)
 
     def test_student_can_be_assigned_to_multiple_groups(self):
@@ -152,7 +156,7 @@ class AccountsApiTests(APITestCase):
         self.assertEqual(group_a.teacher_id, teacher.id)
         self.assertEqual(group_b.teacher_id, teacher.id)
 
-    def test_student_me_assignments_returns_subject_and_topic(self):
+    def test_student_me_assignments_returns_date_based_schedule(self):
         student_user = User.objects.create_user(
             username="student_assignments",
             password="StrongPass123",
@@ -171,25 +175,46 @@ class AccountsApiTests(APITestCase):
 
         group = Group.objects.create(name="Homework Group", is_active=True)
         group.students.add(student)
-        GroupTeachingAssignment.objects.create(
+        assignment = GroupTeachingAssignment.objects.create(
             group=group,
             teacher=teacher,
             subject=subject,
             topic=topic,
         )
+        schedule_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=teacher,
+            topic=topic,
+            scheduled_for="2026-05-11",
+        )
 
         self.client.force_authenticate(student_user)
-        response = self.client.get("/api/student/me-assignments/")
+        response = self.client.get(
+            "/api/student/me-assignments/",
+            {"start_date": "2026-05-11", "days": 3},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["group_id"], group.id)
-        self.assertEqual(response.data[0]["teacher_id"], teacher.id)
-        self.assertEqual(response.data[0]["teacher_username"], "teacher_for_assignments")
-        self.assertEqual(response.data[0]["subject_id"], subject.id)
-        self.assertEqual(response.data[0]["subject_name"], "Physics")
-        self.assertEqual(response.data[0]["topic_id"], topic.id)
-        self.assertEqual(response.data[0]["topic_title"], "Dynamics")
+        self.assertEqual(response.data["student"], student.id)
+        self.assertEqual(response.data["start_date"], date(2026, 5, 11))
+        self.assertEqual(response.data["days"], 3)
+        self.assertEqual(len(response.data["results"]), 3)
+        self.assertEqual(response.data["results"][0]["date"], date(2026, 5, 11))
+        self.assertEqual(len(response.data["results"][0]["items"]), 1)
+        scheduled_item = response.data["results"][0]["items"][0]
+        self.assertEqual(scheduled_item["group_id"], group.id)
+        self.assertEqual(scheduled_item["teacher_id"], teacher.id)
+        self.assertEqual(scheduled_item["teacher_username"], "teacher_for_assignments")
+        self.assertEqual(scheduled_item["subject_id"], assignment.subject_id)
+        self.assertEqual(scheduled_item["subject_name"], "Physics")
+        self.assertEqual(scheduled_item["topic_id"], topic.id)
+        self.assertEqual(scheduled_item["topic_title"], "Dynamics")
+        self.assertEqual(scheduled_item["schedule_entry_id"], schedule_entry.id)
+        self.assertIsNone(scheduled_item["attempt_id"])
+        self.assertIsNone(scheduled_item["attempt_status"])
+        self.assertIsNone(scheduled_item["correct_count"])
+        self.assertIsNone(scheduled_item["result_outcome"])
+        self.assertEqual(response.data["results"][1]["items"], [])
 
     def test_student_me_assignments_rejects_non_student_user(self):
         response = self.client.get("/api/student/me-assignments/")

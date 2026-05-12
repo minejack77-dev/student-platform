@@ -14,10 +14,13 @@ from learning.models import (
     Attempt,
     Choice,
     Group,
+    GroupTopicSchedule,
     GroupTeachingAssignment,
     Question,
     Subject,
     Topic,
+    Unit,
+    Workbook,
 )
 from learning.services.question_import import (
     SpreadsheetCell,
@@ -33,7 +36,7 @@ class LearningApiTests(APITestCase):
             password="StrongPass123",
             role=User.Role.TEACHER,
         )
-        Teacher.objects.create(user=self.auth_user)
+        self.teacher = Teacher.objects.create(user=self.auth_user)
         self.client.force_authenticate(self.auth_user)
 
     def _create_question_with_two_choices(self, topic, text):
@@ -56,6 +59,16 @@ class LearningApiTests(APITestCase):
         student = Student.objects.create(user=student_user)
         self.client.force_authenticate(student_user)
         return student
+
+    def _create_schedule_entry(self, student, topic, scheduled_for=None, group_name="Schedule Group"):
+        group = Group.objects.create(name=group_name, is_active=True)
+        group.students.add(student)
+        return GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            topic=topic,
+            scheduled_for=scheduled_for or timezone.localdate(),
+        )
 
     def test_create_question_with_choices(self):
         subject = Subject.objects.create(name="Mathematics")
@@ -174,6 +187,99 @@ class LearningApiTests(APITestCase):
         with self.assertRaises(IntegrityError):
             Topic.objects.create(subject=algebra, title="Introduction")
 
+    def test_workbook_unit_topic_hierarchy_api(self):
+        subject = Subject.objects.create(name="English")
+
+        workbook_response = self.client.post(
+            "/api/workbook/",
+            {
+                "subject": subject.id,
+                "title": "Workbook A",
+                "description": "Practice workbook",
+                "is_active": True,
+            },
+            format="json",
+        )
+        self.assertEqual(workbook_response.status_code, status.HTTP_201_CREATED)
+        workbook_id = workbook_response.data["id"]
+
+        unit_response = self.client.post(
+            "/api/unit/",
+            {
+                "workbook": workbook_id,
+                "title": "Unit 1",
+                "description": "Basics",
+                "is_active": True,
+            },
+            format="json",
+        )
+        self.assertEqual(unit_response.status_code, status.HTTP_201_CREATED)
+        unit_id = unit_response.data["id"]
+        self.assertEqual(unit_response.data["subject"], subject.id)
+
+        topic_response = self.client.post(
+            "/api/topic/",
+            {
+                "unit": unit_id,
+                "title": "Present simple",
+                "description": "Grammar practice",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(topic_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(topic_response.data["subject"], subject.id)
+        self.assertEqual(topic_response.data["workbook"], workbook_id)
+        self.assertEqual(topic_response.data["unit"], unit_id)
+
+        topic = Topic.objects.get(id=topic_response.data["id"])
+        self.assertEqual(topic.subject_id, subject.id)
+        self.assertEqual(topic.unit_id, unit_id)
+
+    def test_topic_create_with_subject_only_uses_default_unit(self):
+        subject = Subject.objects.create(name="History")
+
+        response = self.client.post(
+            "/api/topic/",
+            {
+                "subject": subject.id,
+                "title": "Ancient world",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        topic = Topic.objects.get(id=response.data["id"])
+        self.assertEqual(topic.subject_id, subject.id)
+        self.assertEqual(topic.unit.title, Topic.DEFAULT_UNIT_TITLE)
+        self.assertEqual(topic.unit.workbook.title, Topic.DEFAULT_WORKBOOK_TITLE)
+        self.assertEqual(
+            Workbook.objects.filter(subject=subject, title=Topic.DEFAULT_WORKBOOK_TITLE).count(),
+            1,
+        )
+        self.assertEqual(Unit.objects.filter(workbook=topic.unit.workbook).count(), 1)
+
+    def test_topic_rejects_subject_unit_mismatch(self):
+        math = Subject.objects.create(name="Math hierarchy")
+        physics = Subject.objects.create(name="Physics hierarchy")
+        workbook = Workbook.objects.create(subject=math, title="Math Workbook")
+        unit = Unit.objects.create(workbook=workbook, title="Algebra Unit")
+
+        response = self.client.post(
+            "/api/topic/",
+            {
+                "subject": physics.id,
+                "unit": unit.id,
+                "title": "Linear equations",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unit", response.data)
+
     def test_group_teacher_assignment_validation(self):
         math = Subject.objects.create(name="Math")
         physics = Subject.objects.create(name="Physics")
@@ -247,23 +353,109 @@ class LearningApiTests(APITestCase):
         self.assertEqual(read_teacher_1.data["subject"], algebra.id)
         self.assertEqual(read_teacher_1.data["topic"], algebra_topic.id)
 
+    def test_group_topic_calendar_save_and_list_entries(self):
+        group = Group.objects.create(name="Schedule Group")
+        subject = Subject.objects.create(name="Literature")
+        topic_a = Topic.objects.create(subject=subject, title="Poetry")
+        topic_b = Topic.objects.create(subject=subject, title="Drama")
+
+        assignment_response = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": subject.id, "topic": topic_a.id},
+            format="json",
+        )
+        self.assertEqual(assignment_response.status_code, status.HTTP_201_CREATED)
+
+        save_response = self.client.patch(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"date": "2026-05-11", "topic": topic_b.id},
+            format="json",
+        )
+        self.assertEqual(save_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(save_response.data["topic"], topic_b.id)
+        self.assertEqual(save_response.data["subject"], subject.id)
+
+        list_response = self.client.get(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"start_date": "2026-05-11", "days": 3},
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.data["assignment_subject"], subject.id)
+        self.assertEqual(len(list_response.data["results"]), 3)
+        self.assertEqual(list_response.data["results"][0]["date"], "2026-05-11")
+        self.assertEqual(list_response.data["results"][0]["topic"], topic_b.id)
+        self.assertIsNone(list_response.data["results"][1]["topic"])
+
+    def test_group_topic_calendar_requires_saved_subject(self):
+        group = Group.objects.create(name="Unbound Schedule Group")
+        subject = Subject.objects.create(name="History")
+        topic = Topic.objects.create(subject=subject, title="Ancient Rome")
+
+        response = self.client.patch(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"date": "2026-05-11", "topic": topic.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.data)
+
+    def test_group_topic_calendar_is_cleared_when_assignment_subject_changes(self):
+        group = Group.objects.create(name="Schedule Reset Group")
+        algebra = Subject.objects.create(name="Algebra Schedule")
+        geometry = Subject.objects.create(name="Geometry Schedule")
+        algebra_topic = Topic.objects.create(subject=algebra, title="Fractions")
+        geometry_topic = Topic.objects.create(subject=geometry, title="Triangles")
+
+        self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": algebra.id, "topic": algebra_topic.id},
+            format="json",
+        )
+        self.client.patch(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"date": "2026-05-11", "topic": algebra_topic.id},
+            format="json",
+        )
+
+        self.assertEqual(
+            GroupTopicSchedule.objects.filter(group=group, teacher__user=self.auth_user).count(),
+            1,
+        )
+
+        update_response = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": geometry.id, "topic": geometry_topic.id},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            GroupTopicSchedule.objects.filter(group=group, teacher__user=self.auth_user).exists()
+        )
+
     def test_student_create_attempt_generates_10_random_questions(self):
         student = self._authenticate_student("student_attempt_1")
         subject = Subject.objects.create(name="Biology")
         topic = Topic.objects.create(subject=subject, title="Cells", is_active=True)
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Biology Schedule Group",
+        )
 
         for index in range(12):
             self._create_question_with_two_choices(topic, f"Question #{index + 1}")
 
         response = self.client.post(
             "/api/attempt/",
-            {"topic": topic.id, "subject": subject.id},
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         attempt = Attempt.objects.get(id=response.data["id"])
         self.assertEqual(attempt.student_id, student.id)
+        self.assertEqual(attempt.schedule_entry_id, schedule_entry.id)
         self.assertEqual(attempt.attempt_questions.count(), 10)
         self.assertEqual(
             list(attempt.attempt_questions.order_by("order").values_list("order", flat=True)),
@@ -271,16 +463,21 @@ class LearningApiTests(APITestCase):
         )
 
     def test_finish_attempt_calculates_correct_and_wrong_answers(self):
-        self._authenticate_student("student_attempt_2")
+        student = self._authenticate_student("student_attempt_2")
         subject = Subject.objects.create(name="Physics")
         topic = Topic.objects.create(subject=subject, title="Mechanics", is_active=True)
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Physics Schedule Group",
+        )
 
         for index in range(10):
             self._create_question_with_two_choices(topic, f"Q{index + 1}")
 
         start_response = self.client.post(
             "/api/attempt/",
-            {"topic": topic.id, "subject": subject.id},
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
             format="json",
         )
         self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
@@ -341,10 +538,15 @@ class LearningApiTests(APITestCase):
         for index in range(10):
             self._create_question_with_two_choices(topic, f"Chem Q{index + 1}")
 
-        self._authenticate_student("student_attempt_owner")
+        owner_student = self._authenticate_student("student_attempt_owner")
+        schedule_entry = self._create_schedule_entry(
+            owner_student,
+            topic,
+            group_name="Chemistry Schedule Group",
+        )
         start_response = self.client.post(
             "/api/attempt/",
-            {"topic": topic.id, "subject": subject.id},
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
             format="json",
         )
         self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
@@ -371,6 +573,103 @@ class LearningApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("attempt_question", response.data)
 
+    def test_student_cannot_start_second_attempt_for_same_schedule(self):
+        student = self._authenticate_student("student_attempt_once")
+        subject = Subject.objects.create(name="Geography")
+        topic = Topic.objects.create(subject=subject, title="Maps", is_active=True)
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Geography Schedule Group",
+        )
+
+        for index in range(10):
+            self._create_question_with_two_choices(topic, f"Map Q{index + 1}")
+
+        first_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+
+        second_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", second_response.data)
+
+    def test_student_cannot_start_future_or_past_schedule_attempt(self):
+        student = self._authenticate_student("student_attempt_date_limits")
+        subject = Subject.objects.create(name="History Limits")
+        topic = Topic.objects.create(subject=subject, title="World War II", is_active=True)
+
+        for index in range(10):
+            self._create_question_with_two_choices(topic, f"History Q{index + 1}")
+
+        future_schedule = self._create_schedule_entry(
+            student,
+            topic,
+            scheduled_for=timezone.localdate() + timedelta(days=1),
+            group_name="Future Schedule Group",
+        )
+        past_schedule = self._create_schedule_entry(
+            student,
+            topic,
+            scheduled_for=timezone.localdate() - timedelta(days=1),
+            group_name="Past Schedule Group",
+        )
+
+        future_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": future_schedule.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(future_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", future_response.data)
+
+        past_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": past_schedule.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(past_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", past_response.data)
+
+    def test_student_cannot_finish_attempt_after_scheduled_day(self):
+        student = self._authenticate_student("student_attempt_expired")
+        subject = Subject.objects.create(name="Economics")
+        topic = Topic.objects.create(subject=subject, title="Inflation", is_active=True)
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            scheduled_for=timezone.localdate(),
+            group_name="Economics Schedule Group",
+        )
+
+        for index in range(10):
+            self._create_question_with_two_choices(topic, f"Eco Q{index + 1}")
+
+        start_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        attempt_id = start_response.data["id"]
+
+        with patch("learning.serializers.timezone.localdate", return_value=timezone.localdate() + timedelta(days=1)):
+            finish_response = self.client.patch(
+                f"/api/attempt/{attempt_id}/",
+                {"status": Attempt.Status.COMPLETED},
+                format="json",
+            )
+
+        self.assertEqual(finish_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", finish_response.data)
+
 
 class QuestionImportTests(APITestCase):
     def test_import_from_xls_creates_single_choice_questions(self):
@@ -378,19 +677,28 @@ class QuestionImportTests(APITestCase):
         topic = Topic.objects.create(subject=subject, title="Adjectives and adverbs")
         spreadsheet_rows = [
             [
-                SpreadsheetCell("Choose adj (adjective) or adv (adverb):", "Choose adj (adjective) or adv (adverb):"),
+                SpreadsheetCell(
+                    "Choose adj (adjective) or adv (adverb):",
+                    "Choose adj (adjective) or adv (adverb):",
+                ),
                 SpreadsheetCell("option 1", "<strong>option 1</strong>"),
                 SpreadsheetCell("option 2", "<strong>option 2</strong>"),
                 SpreadsheetCell("key", "<strong>key</strong>"),
             ],
             [
-                SpreadsheetCell("I had a bad day yesterday.", "I had a <strong>bad</strong> day yesterday."),
+                SpreadsheetCell(
+                    "I had a bad day yesterday.",
+                    "I had a <strong>bad</strong> day yesterday.",
+                ),
                 SpreadsheetCell("adj", "adj"),
                 SpreadsheetCell("adv", "adv"),
                 SpreadsheetCell("adj", "adj"),
             ],
             [
-                SpreadsheetCell("My students study well.", "My students study <strong>well</strong>."),
+                SpreadsheetCell(
+                    "My students study well.",
+                    "My students study <strong>well</strong>.",
+                ),
                 SpreadsheetCell("adj", "adj"),
                 SpreadsheetCell("adv", "adv"),
                 SpreadsheetCell("adv", "adv"),
@@ -422,13 +730,19 @@ class QuestionImportTests(APITestCase):
         topic = Topic.objects.create(subject=subject, title="Parts of speech")
         spreadsheet_rows = [
             [
-                SpreadsheetCell("Choose adj (adjective) or adv (adverb):", "Choose adj (adjective) or adv (adverb):"),
+                SpreadsheetCell(
+                    "Choose adj (adjective) or adv (adverb):",
+                    "Choose adj (adjective) or adv (adverb):",
+                ),
                 SpreadsheetCell("option 1", "option 1"),
                 SpreadsheetCell("option 2", "option 2"),
                 SpreadsheetCell("key", "key"),
             ],
             [
-                SpreadsheetCell("This road is very dangerous.", "This road is very <strong>dangerous</strong>."),
+                SpreadsheetCell(
+                    "This road is very dangerous.",
+                    "This road is very <strong>dangerous</strong>.",
+                ),
                 SpreadsheetCell("adj", "adj"),
                 SpreadsheetCell("adv", "adv"),
                 SpreadsheetCell("noun", "noun"),
@@ -500,4 +814,7 @@ class TopicAdminImportTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         import_mock.assert_not_called()
-        self.assertContains(response, "Attach a .xls file to the topic before running import.")
+        self.assertContains(
+            response,
+            "Attach a .xls file to the topic before running import.",
+        )

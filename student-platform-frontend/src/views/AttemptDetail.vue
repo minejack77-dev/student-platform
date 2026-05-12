@@ -26,6 +26,9 @@ const isLastQuestion = computed(
 );
 const attemptCompleted = computed(() => attempt.value?.status === "completed");
 const hasPendingSaves = computed(() => Object.values(savingByQuestion.value).some(Boolean));
+const attemptInteractionLocked = computed(
+  () => attempt.value?.can_interact_today === false && !attemptCompleted.value,
+);
 
 const correctCount = computed(() => {
   if (typeof attempt.value?.correct_count === "number") {
@@ -40,6 +43,8 @@ const wrongCount = computed(() => {
   }
   return totalQuestions.value - correctCount.value;
 });
+const attemptOutcome = computed(() => attempt.value?.result_outcome || null);
+const passingScore = computed(() => attempt.value?.passing_correct_answers ?? 8);
 
 const activeQuestionSaveState = computed(() => {
   if (!activeQuestion.value) {
@@ -51,6 +56,9 @@ const activeQuestionSaveState = computed(() => {
 const activeQuestionSaveLabel = computed(() => {
   if (attemptCompleted.value) {
     return "Attempt finished";
+  }
+  if (attemptInteractionLocked.value) {
+    return "Window closed";
   }
   if (activeQuestionSaveState.value === "saving") {
     return "Autosaving...";
@@ -119,7 +127,7 @@ const isChoiceSelected = (attemptQuestionId, choiceId) =>
   selectedChoicesFor(attemptQuestionId).includes(choiceId);
 
 const saveAnswer = async (attemptQuestion) => {
-  if (!attemptQuestion || attemptCompleted.value) {
+  if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
     return;
   }
   saveError.value = "";
@@ -172,7 +180,7 @@ const saveAnswer = async (attemptQuestion) => {
 };
 
 const handleChoiceChange = async (attemptQuestion, choiceId, checked) => {
-  if (!attemptQuestion || attemptCompleted.value) {
+  if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
     return;
   }
 
@@ -208,7 +216,14 @@ const nextQuestion = () => {
 };
 
 const completeAttempt = async () => {
-  if (!attempt.value || attemptCompleted.value || isCompleting.value || hasPendingSaves.value) {
+  if (
+    !attempt.value ||
+    attemptCompleted.value ||
+    !isLastQuestion.value ||
+    attemptInteractionLocked.value ||
+    isCompleting.value ||
+    hasPendingSaves.value
+  ) {
     return;
   }
 
@@ -266,6 +281,9 @@ onMounted(async () => {
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
     <div v-if="saveError" class="alert alert-danger">{{ saveError }}</div>
     <div v-if="completeError" class="alert alert-danger">{{ completeError }}</div>
+    <div v-if="attemptInteractionLocked" class="alert alert-warning">
+      This scheduled test can only be completed on its assigned date. The window is closed.
+    </div>
 
     <section v-if="isLoading" class="surface-card attempt-state">
       Loading attempt...
@@ -331,7 +349,7 @@ onMounted(async () => {
           v-if="!attemptCompleted"
           class="btn btn-primary"
           type="button"
-          :disabled="hasPendingSaves || isCompleting"
+          :disabled="!isLastQuestion || hasPendingSaves || isCompleting || attemptInteractionLocked"
           @click="completeAttempt"
         >
           {{ isCompleting ? "Finishing..." : "Finish attempt" }}
@@ -341,6 +359,11 @@ onMounted(async () => {
 
     <section v-if="attemptCompleted" class="surface-card result-panel">
       <h2 class="section-title">Result</h2>
+      <div class="attempt-result-badge" :class="attemptOutcome">
+        {{ attemptOutcome === "success" ? "Success" : "Fail" }}
+        • {{ correctCount }} / {{ totalQuestions }} correct
+        • pass from {{ passingScore }}
+      </div>
       <div class="result-grid">
         <div class="result-card success">
           <div class="result-label">Correct</div>

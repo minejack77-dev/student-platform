@@ -157,6 +157,24 @@
   gap: 12px;
 }
 
+.attempt-result-badge {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 12px;
+  width: fit-content;
+}
+
+.attempt-result-badge.success {
+  background: rgba(13, 143, 109, 0.12);
+  color: var(--success);
+}
+
+.attempt-result-badge.fail {
+  background: rgba(193, 61, 61, 0.12);
+  color: var(--danger);
+}
+
 .section-title {
   font-size: 26px;
   margin: 0;

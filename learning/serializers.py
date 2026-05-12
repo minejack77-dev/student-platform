@@ -10,10 +10,13 @@ from learning.models import (
     AttemptQuestion,
     Choice,
     Group,
+    GroupTopicSchedule,
     GroupTeachingAssignment,
     Question,
     Subject,
     Topic,
+    Unit,
+    Workbook,
 )
 
 
@@ -21,6 +24,56 @@ class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
         fields = "__all__"
+
+
+class WorkbookSerializer(serializers.ModelSerializer):
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.filter(is_active=True),
+    )
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    class Meta:
+        model = Workbook
+        fields = (
+            "id",
+            "subject",
+            "subject_name",
+            "title",
+            "description",
+            "is_active",
+            "updated_at",
+        )
+        read_only_fields = ("id", "subject_name", "updated_at")
+
+
+class UnitSerializer(serializers.ModelSerializer):
+    workbook = serializers.PrimaryKeyRelatedField(
+        queryset=Workbook.objects.filter(is_active=True),
+    )
+    workbook_title = serializers.CharField(source="workbook.title", read_only=True)
+    subject = serializers.IntegerField(source="workbook.subject_id", read_only=True)
+    subject_name = serializers.CharField(source="workbook.subject.name", read_only=True)
+
+    class Meta:
+        model = Unit
+        fields = (
+            "id",
+            "workbook",
+            "workbook_title",
+            "subject",
+            "subject_name",
+            "title",
+            "description",
+            "is_active",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "workbook_title",
+            "subject",
+            "subject_name",
+            "updated_at",
+        )
 
 
 class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
@@ -57,8 +110,61 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
         )
 
 
+class GroupTopicScheduleSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    teacher_username = serializers.CharField(
+        source="teacher.user.username", read_only=True
+    )
+    date = serializers.DateField(source="scheduled_for", read_only=True)
+    subject = serializers.IntegerField(source="topic.subject_id", read_only=True)
+    subject_name = serializers.CharField(source="topic.subject.name", read_only=True)
+    topic_title = serializers.CharField(source="topic.title", read_only=True)
+
+    class Meta:
+        model = GroupTopicSchedule
+        fields = (
+            "id",
+            "group",
+            "group_name",
+            "teacher",
+            "teacher_username",
+            "date",
+            "subject",
+            "subject_name",
+            "topic",
+            "topic_title",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class GroupTopicScheduleWriteSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    topic = serializers.PrimaryKeyRelatedField(
+        queryset=Topic.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
+
+    def validate(self, attrs):
+        if "topic" not in attrs:
+            raise serializers.ValidationError({"topic": "This field is required."})
+        return attrs
+
+
 class TopicSerializer(serializers.ModelSerializer):
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.filter(is_active=True),
+        required=False,
+    )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    unit = serializers.PrimaryKeyRelatedField(
+        queryset=Unit.objects.filter(is_active=True),
+        required=False,
+    )
+    unit_title = serializers.CharField(source="unit.title", read_only=True)
+    workbook = serializers.IntegerField(source="unit.workbook_id", read_only=True)
+    workbook_title = serializers.CharField(source="unit.workbook.title", read_only=True)
 
     class Meta:
         model = Topic
@@ -66,12 +172,72 @@ class TopicSerializer(serializers.ModelSerializer):
             "id",
             "subject",
             "subject_name",
+            "workbook",
+            "workbook_title",
+            "unit",
+            "unit_title",
             "title",
             "description",
             "is_active",
             "updated_at",
         )
-        read_only_fields = ("id", "updated_at", "subject_name")
+        validators = []
+        read_only_fields = (
+            "id",
+            "updated_at",
+            "subject_name",
+            "workbook",
+            "workbook_title",
+            "unit_title",
+        )
+
+    def _validate_unique_title(self, unit, title):
+        if unit is None or not title:
+            return
+
+        queryset = Topic.objects.filter(unit=unit, title=title)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError(
+                {"title": "Topic with this title already exists in the selected unit."}
+            )
+
+    def validate(self, attrs):
+        current_subject = getattr(self.instance, "subject", None)
+        current_unit = getattr(self.instance, "unit", None)
+        title = attrs.get("title", getattr(self.instance, "title", None))
+
+        subject_provided = "subject" in attrs
+        unit_provided = "unit" in attrs
+
+        subject = attrs.get("subject", current_subject)
+        unit = attrs.get("unit", current_unit)
+
+        if unit is not None:
+            unit_subject = unit.workbook.subject
+            if subject_provided and subject is not None and subject.id != unit_subject.id:
+                raise serializers.ValidationError(
+                    {"unit": "Unit must belong to the selected subject."}
+                )
+            attrs["subject"] = unit_subject
+            self._validate_unique_title(unit, title)
+            return attrs
+
+        if self.instance is None:
+            if subject is None:
+                raise serializers.ValidationError(
+                    {"subject": "Subject is required when unit is not set."}
+                )
+            attrs["unit"] = Topic.get_default_unit(subject)
+            self._validate_unique_title(attrs["unit"], title)
+            return attrs
+
+        if subject_provided and subject is not None and not unit_provided:
+            attrs["unit"] = Topic.get_default_unit(subject)
+
+        self._validate_unique_title(attrs.get("unit", unit), title)
+        return attrs
 
 
 class ChoiceSerializer(serializers.ModelSerializer):
@@ -225,6 +391,14 @@ class AnswerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"attempt_question": "Attempt is already finished."}
             )
+        if not attempt_question.attempt.is_accessible_on(timezone.localdate()):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "This test can only be completed on its scheduled date."
+                    )
+                }
+            )
 
         selected_choices = attrs.get("selected_choices")
         if selected_choices is not None:
@@ -273,6 +447,27 @@ class AnswerSerializer(serializers.ModelSerializer):
 
 
 class AttemptSerializer(serializers.ModelSerializer):
+    schedule_entry = serializers.PrimaryKeyRelatedField(
+        queryset=GroupTopicSchedule.objects.select_related(
+            "group",
+            "teacher__user",
+            "topic",
+            "topic__subject",
+        ),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+    schedule_entry_id = serializers.IntegerField(read_only=True)
+    schedule_date = serializers.DateField(source="schedule_entry.scheduled_for", read_only=True)
+    schedule_group_name = serializers.CharField(source="schedule_entry.group.name", read_only=True)
+    schedule_teacher_username = serializers.CharField(
+        source="schedule_entry.teacher.user.username", read_only=True
+    )
+    topic = serializers.PrimaryKeyRelatedField(
+        queryset=Topic.objects.filter(is_active=True),
+        required=False,
+    )
     subject = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.filter(is_active=True),
         write_only=True,
@@ -284,12 +479,20 @@ class AttemptSerializer(serializers.ModelSerializer):
     correct_count = serializers.SerializerMethodField(read_only=True)
     wrong_count = serializers.SerializerMethodField(read_only=True)
     total_questions = serializers.SerializerMethodField(read_only=True)
+    result_outcome = serializers.SerializerMethodField(read_only=True)
+    can_interact_today = serializers.SerializerMethodField(read_only=True)
+    passing_correct_answers = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Attempt
         fields = (
             "id",
             "student",
+            "schedule_entry",
+            "schedule_entry_id",
+            "schedule_date",
+            "schedule_group_name",
+            "schedule_teacher_username",
             "topic",
             "subject",
             "subject_name",
@@ -300,10 +503,17 @@ class AttemptSerializer(serializers.ModelSerializer):
             "correct_count",
             "wrong_count",
             "total_questions",
+            "result_outcome",
+            "can_interact_today",
+            "passing_correct_answers",
         )
         read_only_fields = (
             "id",
             "student",
+            "schedule_entry_id",
+            "schedule_date",
+            "schedule_group_name",
+            "schedule_teacher_username",
             "started_at",
             "finished_at",
             "subject_name",
@@ -311,6 +521,9 @@ class AttemptSerializer(serializers.ModelSerializer):
             "correct_count",
             "wrong_count",
             "total_questions",
+            "result_outcome",
+            "can_interact_today",
+            "passing_correct_answers",
         )
 
     def get_correct_count(self, obj):
@@ -321,6 +534,20 @@ class AttemptSerializer(serializers.ModelSerializer):
 
     def get_wrong_count(self, obj):
         return self.get_total_questions(obj) - self.get_correct_count(obj)
+
+    def get_result_outcome(self, obj):
+        success = obj.is_successful()
+        if success is None:
+            return None
+        return "success" if success else "fail"
+
+    def get_can_interact_today(self, obj):
+        if obj.status != Attempt.Status.IN_PROGRESS:
+            return False
+        return obj.is_accessible_on(timezone.localdate())
+
+    def get_passing_correct_answers(self, _obj):
+        return Attempt.PASSING_CORRECT_ANSWERS
 
     def validate_topic(self, value):
         if not value.is_active:
@@ -341,11 +568,47 @@ class AttemptSerializer(serializers.ModelSerializer):
                 {"detail": "Only students can start attempts."}
             )
 
+        schedule_entry = validated_data.pop("schedule_entry", None)
+        if schedule_entry is None:
+            raise serializers.ValidationError(
+                {"schedule_entry": "This field is required."}
+            )
+
         subject = validated_data.pop("subject", None)
-        topic = validated_data["topic"]
+        topic = validated_data.pop("topic", None) or schedule_entry.topic
+        if topic.id != schedule_entry.topic_id:
+            raise serializers.ValidationError(
+                {"topic": "Topic must match the scheduled task."}
+            )
+        if not topic.is_active:
+            raise serializers.ValidationError(
+                {"topic": "Topic must be active."}
+            )
         if subject and topic.subject_id != subject.id:
             raise serializers.ValidationError(
                 {"topic": "Topic must belong to the selected subject."}
+            )
+        if schedule_entry.topic.subject_id != topic.subject_id:
+            raise serializers.ValidationError(
+                {"schedule_entry": "Schedule entry subject does not match the topic."}
+            )
+        if not schedule_entry.group.students.filter(id=student.id).exists():
+            raise serializers.ValidationError(
+                {"schedule_entry": "This scheduled task is not assigned to your account."}
+            )
+
+        current_date = timezone.localdate()
+        if schedule_entry.scheduled_for > current_date:
+            raise serializers.ValidationError(
+                {"detail": "This test is not available yet."}
+            )
+        if schedule_entry.scheduled_for < current_date:
+            raise serializers.ValidationError(
+                {"detail": "This test date has already passed and can no longer be completed."}
+            )
+        if Attempt.objects.filter(student=student, schedule_entry=schedule_entry).exists():
+            raise serializers.ValidationError(
+                {"detail": "You already have an attempt for this scheduled test."}
             )
 
         active_questions_qs = Question.objects.filter(topic=topic, is_active=True)
@@ -358,6 +621,7 @@ class AttemptSerializer(serializers.ModelSerializer):
         attempt = Attempt.objects.create(
             student=student,
             topic=topic,
+            schedule_entry=schedule_entry,
             status=Attempt.Status.IN_PROGRESS,
         )
         AttemptQuestion.objects.bulk_create(
@@ -377,6 +641,18 @@ class AttemptSerializer(serializers.ModelSerializer):
         ):
             raise serializers.ValidationError(
                 {"status": "Completed attempt status cannot be changed."}
+            )
+        if (
+            instance.status == Attempt.Status.IN_PROGRESS
+            and status == Attempt.Status.COMPLETED
+            and not instance.is_accessible_on(timezone.localdate())
+        ):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "This test can only be completed on its scheduled date."
+                    )
+                }
             )
         if (
             status == Attempt.Status.COMPLETED

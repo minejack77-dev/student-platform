@@ -83,6 +83,19 @@ groupApi.saveTeacherAssignment = async (groupId, payload) => {
 groupApi.clearTeacherAssignment = async (groupId) => {
   await axios.delete(`/api/group/${groupId}/teacher-assignment/`);
 };
+groupApi.getTopicCalendar = async (groupId, params) => {
+  const response = await axios.get(`/api/group/${groupId}/topic-calendar/`, { params });
+  return response.data;
+};
+groupApi.saveTopicCalendarItem = async (groupId, payload) => {
+  const response = await axios.patch(`/api/group/${groupId}/topic-calendar/`, payload);
+  return response.data;
+};
+groupApi.clearTopicCalendarItem = async (groupId, date) => {
+  await axios.delete(`/api/group/${groupId}/topic-calendar/`, {
+    params: { date },
+  });
+};
 
 export let Subject = apiConstructor("/api/subject/");
 export let Topic = apiConstructor("/api/topic/");
@@ -91,6 +104,10 @@ export let Group = groupApi;
 const studentApi = apiConstructor("/api/student/");
 studentApi.meAssignments = async () => {
   const response = await axios.get("/api/student/me-assignments/");
+  return response.data;
+};
+studentApi.getScheduledAssignments = async (params) => {
+  const response = await axios.get("/api/student/me-assignments/", { params });
   return response.data;
 };
 export let Student = studentApi;

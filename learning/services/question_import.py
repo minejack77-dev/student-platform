@@ -156,10 +156,14 @@ def import_questions_from_xls(*, topic, src, is_active=True):
                     {"src": f"Row {row_number} must contain an answer key."}
                 )
 
+            question_text = question_cell.html
+            if header_cell.html:
+                question_text = f"{header_cell.html}\n{question_text}"
+
             question = Question.objects.create(
                 topic=topic,
-                instruction="{header_cell.html}",
-                text=f"{question_cell.html}",
+                instruction="",
+                text=question_text,
                 question_type=Question.QuestionType.SINGLE_CHOICE,
                 is_active=is_active,
             )

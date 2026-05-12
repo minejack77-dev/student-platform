@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
@@ -9,6 +9,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const { isAuthenticated, role, user } = storeToRefs(authStore);
+const logoutError = ref("");
 
 const pageLabel = computed(() => {
   if (route.name === "login") {
@@ -43,8 +44,17 @@ const roleLabel = computed(() => {
 });
 
 const handleLogout = async () => {
-  await authStore.logout();
-  await router.push({ name: "login" });
+  logoutError.value = "";
+  try {
+    const loggedOut = await authStore.logout();
+    if (loggedOut) {
+      await router.push({ name: "login" });
+    }
+  } catch (error) {
+    logoutError.value =
+      error?.response?.data?.detail ||
+      "Could not sign out. Please try again.";
+  }
 };
 </script>
 
@@ -90,6 +100,7 @@ const handleLogout = async () => {
 
     <main class="app-main">
       <div class="container app-container">
+        <div v-if="logoutError" class="alert alert-danger">{{ logoutError }}</div>
         <router-view v-slot="{ Component, route: activeRoute }">
           <transition name="route-fade" mode="out-in">
             <component :is="Component" :key="activeRoute.fullPath" />

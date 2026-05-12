@@ -58,11 +58,18 @@ export const useAuthStore = defineStore("auth", () => {
   };
 
   const logout = async () => {
+    await Auth.fetchCsrf();
     try {
       await Auth.logout();
-    } finally {
       clearUser();
       initialized.value = true;
+      return true;
+    } catch (error) {
+      await fetchMe();
+      if (!user.value) {
+        return true;
+      }
+      throw error;
     }
   };
 

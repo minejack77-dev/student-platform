@@ -25,6 +25,8 @@ from accounts import views as accounts_views
 
 router = DefaultRouter()
 router.register(r"subject", learning_views.SubjectViewSet, basename="subject")
+router.register(r"workbook", learning_views.WorkbookViewSet, basename="workbook")
+router.register(r"unit", learning_views.UnitViewSet, basename="unit")
 router.register(r"topic", learning_views.TopicViewSet, basename="topic")
 router.register(r"question", learning_views.QuestionViewSet, basename="question")
 router.register(r"group", learning_views.GroupViewSet, basename="group")

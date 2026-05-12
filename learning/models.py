@@ -17,29 +17,121 @@ class Subject(models.Model):
         return self.name
 
 
-class Topic(models.Model):
+class Workbook(models.Model):
     subject = models.ForeignKey(
         Subject,
         on_delete=models.PROTECT,
-        related_name="topics",
+        related_name="workbooks",
     )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    src = models.FileField(blank=True, null=True)
-
     class Meta:
-        ordering = ["title"]
+        ordering = ["subject__name", "title"]
         constraints = [
             models.UniqueConstraint(
                 fields=["subject", "title"],
-                name="uq_topic_subject_title",
+                name="uq_workbook_subject_title",
             )
         ]
 
     def __str__(self) -> str:
+        return f"{self.subject.name} | {self.title}"
+
+
+class Unit(models.Model):
+    workbook = models.ForeignKey(
+        Workbook,
+        on_delete=models.PROTECT,
+        related_name="units",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["workbook__subject__name", "workbook__title", "title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workbook", "title"],
+                name="uq_unit_workbook_title",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workbook.title} | {self.title}"
+
+
+class Topic(models.Model):
+    DEFAULT_WORKBOOK_TITLE = "General"
+    DEFAULT_UNIT_TITLE = "General"
+
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.PROTECT,
+        related_name="topics",
+    )
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name="topics",
+        blank=True,
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    src = models.FileField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["unit__workbook__title", "unit__title", "title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["unit", "title"],
+                name="uq_topic_unit_title",
+            )
+        ]
+
+    @classmethod
+    def get_default_unit(cls, subject):
+        workbook, _ = Workbook.objects.get_or_create(
+            subject=subject,
+            title=cls.DEFAULT_WORKBOOK_TITLE,
+            defaults={
+                "description": "Auto-created workbook for topics without an explicit workbook.",
+            },
+        )
+        unit, _ = Unit.objects.get_or_create(
+            workbook=workbook,
+            title=cls.DEFAULT_UNIT_TITLE,
+            defaults={
+                "description": "Auto-created unit for topics without an explicit unit.",
+            },
+        )
+        return unit
+
+    def clean(self):
+        super().clean()
+        if self.unit_id and self.subject_id:
+            unit_subject_id = self.unit.workbook.subject_id
+            if unit_subject_id != self.subject_id:
+                raise ValidationError(
+                    {"unit": "Unit must belong to the selected subject."}
+                )
+
+    def save(self, *args, **kwargs):
+        if self.unit_id and not self.subject_id:
+            self.subject_id = self.unit.workbook.subject_id
+        elif self.subject_id and not self.unit_id:
+            self.unit = self.get_default_unit(self.subject)
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        if self.unit_id:
+            return f"{self.unit.workbook.title} | {self.unit.title} | {self.title}"
         return f"{self.subject.name} | {self.title}"
 
 
@@ -95,12 +187,21 @@ class Attempt(models.Model):
         COMPLETED = "completed", "Completed"
         ABANDONED = "abandoned", "Abandoned"
 
+    PASSING_CORRECT_ANSWERS = 8
+
     student = models.ForeignKey(
         "accounts.Student",
         on_delete=models.CASCADE,
         related_name="attempts",
     )
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="attempts")
+    schedule_entry = models.ForeignKey(
+        "GroupTopicSchedule",
+        on_delete=models.PROTECT,
+        related_name="attempts",
+        null=True,
+        blank=True,
+    )
 
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -114,10 +215,31 @@ class Attempt(models.Model):
             models.Count("id")
         )["id__count"]
 
+    def total_questions(self):
+        return self.attempt_questions.count()
+
+    def is_successful(self):
+        if self.status != self.Status.COMPLETED:
+            return None
+        return self.correct_count() >= self.PASSING_CORRECT_ANSWERS
+
+    def is_accessible_on(self, current_date):
+        if not self.schedule_entry_id:
+            return True
+        return self.schedule_entry.scheduled_for == current_date
+
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "schedule_entry"],
+                condition=models.Q(schedule_entry__isnull=False),
+                name="uq_attempt_student_schedule_entry",
+            )
+        ]
         indexes = [
             models.Index(fields=["student", "started_at"]),
             models.Index(fields=["topic", "started_at"]),
+            models.Index(fields=["schedule_entry"]),
         ]
         ordering = ["-started_at"]
 
@@ -261,6 +383,45 @@ class GroupTeachingAssignment(models.Model):
         return (
             f"{self.group.name} | {self.teacher.user.username} | "
             f"{self.subject.name} | {self.topic.title if self.topic else 'No topic'}"
+        )
+
+
+class GroupTopicSchedule(models.Model):
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="topic_schedule_entries",
+    )
+    teacher = models.ForeignKey(
+        "accounts.Teacher",
+        on_delete=models.CASCADE,
+        related_name="group_topic_schedule_entries",
+    )
+    scheduled_for = models.DateField()
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.PROTECT,
+        related_name="group_topic_schedule_entries",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "teacher", "scheduled_for"],
+                name="uq_group_teacher_topic_schedule_date",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["teacher", "scheduled_for"]),
+            models.Index(fields=["group", "scheduled_for"]),
+        ]
+        ordering = ["scheduled_for", "group__name", "teacher__user__username"]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.group.name} | {self.teacher.user.username} | "
+            f"{self.scheduled_for.isoformat()} | {self.topic.title}"
         )
 
 
