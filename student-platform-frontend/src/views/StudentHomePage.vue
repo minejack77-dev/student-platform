@@ -82,7 +82,10 @@ const totalQuestions = 10;
 const completedItems = computed(() =>
   statsItems.value.filter((i) => i.attempt_status === "completed"),
 );
-const completedCount = computed(() => completedItems.value.length);
+const missedItems = computed(() =>
+  statsItems.value.filter((i) => getItemState(i) === "missed"),
+);
+const completedCount = computed(() => completedItems.value.length + missedItems.value.length);
 const passedCount = computed(
   () => completedItems.value.filter((i) => i.result_outcome === "success").length,
 );
