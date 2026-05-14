@@ -759,7 +759,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 schedule_entry__in=past_entries,
                 status=Attempt.Status.COMPLETED,
             )
-            .select_related("student")
+            .select_related("student", "schedule_entry")
         )
 
         attempts_by_student = {} # Попытки каждого студента
@@ -768,6 +768,12 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         past_entry_ids = set(past_entries.values_list("id", flat=True))
         total_past = len(past_entry_ids)
+
+        last_group_entry = past_entries.order_by("-scheduled_for").first()
+
+        attempts_by_student_entry = {}
+        for attempt in attempts:
+            attempts_by_student_entry[(attempt.student_id, attempt.schedule_entry_id)] = attempt
 
         rows = []
         for student in students:
@@ -780,7 +786,11 @@ class GroupViewSet(viewsets.ModelViewSet):
             total_correct = sum(a.correct_count() for a in student_attempts)
             pass_rate = passed / total_past if total_past > 0 else 0
 
-            last_attempt = student_attempts[0] if student_attempts else None
+            last_attempt = (
+                attempts_by_student_entry.get((student.id, last_group_entry.id))
+                if last_group_entry
+                else None
+            )
             rows.append({
                 "student_id": student.id,
                 "username": student.user.username,
