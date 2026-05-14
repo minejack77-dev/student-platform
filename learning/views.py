@@ -788,7 +788,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             total_correct = sum(a.correct_count() for a in student_attempts)
             pass_rate = passed / total_past if total_past > 0 else 0
             if last_group_entry:
-                last_attempt = attempts.filter(student=student,schedule_entry=last_group_entry)
+                last_attempt = attempts.filter(student=student, schedule_entry=last_group_entry).first()
             else:
                 last_attempt = None
             #last_attempt = (
