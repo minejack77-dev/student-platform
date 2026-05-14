@@ -208,6 +208,7 @@ class Attempt(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
     )
+    is_success = models.BooleanField(null=True, blank=True)
 
     def correct_count(self):
         return self.attempt_questions.filter(answer__is_correct=True).aggregate(
@@ -220,7 +221,7 @@ class Attempt(models.Model):
     def is_successful(self):
         if self.status != self.Status.COMPLETED:
             return None
-        return self.correct_count() >= self.PASSING_CORRECT_ANSWERS
+        return self.is_success
 
     def is_accessible_on(self, current_date):
         if not self.schedule_entry_id:
@@ -455,3 +456,6 @@ def complete_attempt(sender, instance, created, **kwargs):
     for attempt_question in instance.attempt_questions.all():
         answer, _ = Answer.objects.get_or_create(attempt_question=attempt_question)
         answer.check_answer()
+
+    is_success = instance.correct_count() >= Attempt.PASSING_CORRECT_ANSWERS
+    Attempt.objects.filter(pk=instance.pk).update(is_success=is_success)

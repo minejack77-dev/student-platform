@@ -752,50 +752,28 @@ class GroupViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         past_entries = schedule_entries.filter(scheduled_for__lte=today)
 
-        # Все завершенные попытки с тестом
-        attempts = (
-            Attempt.objects.filter(
-                student__in=students,
-                schedule_entry__in=past_entries,
-                status=Attempt.Status.COMPLETED,
-            )
-            .select_related("student", "schedule_entry")
+        attempts = Attempt.objects.filter(
+            student__in=students,
+            schedule_entry__in=past_entries,
+            status=Attempt.Status.COMPLETED,
         )
 
-        #attempts_by_student = {} # Попытки каждого студента
-        #for attempt in attempts:
-        #   attempts_by_student.setdefault(attempt.student_id, []).append(attempt)
-
-        #past_entry_ids = set(past_entries.values_list("id", flat=True))
-        #total_past = len(past_entry_ids)
         total_past = past_entries.count()
-
         last_group_entry = past_entries.order_by("-scheduled_for").first()
-
-        # attempts_by_student_entry = {}
-        #for attempt in attempts:
-        #    attempts_by_student_entry[(attempt.student_id, attempt.schedule_entry_id)] = attempt
 
         rows = []
         for student in students:
-            #student_attempts = attempts_by_student.get(student.id, [])
             student_attempts = attempts.filter(student=student)
             completed = student_attempts.count()
             missed = total_past - completed
-            # Количество успешных тестов
-            passed = sum(1 for a in student_attempts if a.is_successful())
-            # Сумма правильных ответов по всем тестам студента
+            passed = student_attempts.filter(is_success=True).count()
             total_correct = sum(a.correct_count() for a in student_attempts)
             pass_rate = passed / total_past if total_past > 0 else 0
-            if last_group_entry:
-                last_attempt = attempts.filter(student=student, schedule_entry=last_group_entry).first()
-            else:
-                last_attempt = None
-            #last_attempt = (
-            #    attempts_by_student_entry.get((student.id, last_group_entry.id))
-            #    if last_group_entry
-            #    else None
-            #)
+
+            last_attempt = (
+                student_attempts.filter(schedule_entry=last_group_entry).first()
+                if last_group_entry else None
+            )
             rows.append({
                 "student_id": student.id,
                 "username": student.user.username,
@@ -807,8 +785,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                 "last_correct_count": last_attempt.correct_count() if last_attempt else None,
                 "last_total_questions": last_attempt.total_questions() if last_attempt else None,
                 "last_result": (
-                    "success" if last_attempt.is_successful() is True
-                    else "fail" if last_attempt.is_successful() is False
+                    "success" if last_attempt.is_success is True
+                    else "fail" if last_attempt.is_success is False
                     else None
                 ) if last_attempt else None,
             })

@@ -240,8 +240,8 @@ class AttemptQuestionInline(admin.TabularInline):
 
 @admin.register(Attempt)
 class AttemptAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "topic", "status", "started_at", "finished_at")
-    list_filter = ("status", "topic__subject", "topic")
+    list_display = ("id", "student", "topic", "status", "is_success", "started_at", "finished_at")
+    list_filter = ("status", "is_success", "topic__subject", "topic")
     search_fields = ("student__user__username", "student__user__email")
     autocomplete_fields = ("student", "topic")
     inlines = (AttemptQuestionInline,)
