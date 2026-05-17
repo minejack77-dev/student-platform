@@ -4,7 +4,14 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Student, Teacher, User
-from learning.models import Group, GroupTopicSchedule, GroupTeachingAssignment, Subject, Topic
+from learning.models import (
+    Group,
+    GroupTopicSchedule,
+    GroupTeachingAssignment,
+    Question,
+    Subject,
+    Topic,
+)
 
 
 class AccountsApiTests(APITestCase):
@@ -187,6 +194,8 @@ class AccountsApiTests(APITestCase):
             topic=topic,
             scheduled_for="2026-05-11",
         )
+        for index in range(3):
+            Question.objects.create(topic=topic, text=f"Question #{index + 1}")
 
         self.client.force_authenticate(student_user)
         response = self.client.get(
@@ -210,6 +219,8 @@ class AccountsApiTests(APITestCase):
         self.assertEqual(scheduled_item["topic_id"], topic.id)
         self.assertEqual(scheduled_item["topic_title"], "Dynamics")
         self.assertEqual(scheduled_item["schedule_entry_id"], schedule_entry.id)
+        self.assertEqual(scheduled_item["active_question_count"], 3)
+        self.assertEqual(scheduled_item["required_question_count"], 10)
         self.assertIsNone(scheduled_item["attempt_id"])
         self.assertIsNone(scheduled_item["attempt_status"])
         self.assertIsNone(scheduled_item["correct_count"])

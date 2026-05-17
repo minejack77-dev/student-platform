@@ -1,18 +1,19 @@
 from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
-from django.utils.decorators import method_decorator
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django_filters import FilterSet, filters
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import OrderingFilter
-from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.models import Student, Teacher, User
 from accounts.serializers import (
@@ -26,11 +27,8 @@ from learning.models import Attempt, GroupTopicSchedule
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
-# Декоратор
-# ensure_csrf_cookie если у пользователя нет CSRF, Django вернет его
-# dispatch проверяет метод запроса
 class CsrfCookieView(APIView):
-    permission_classes = [AllowAny] # endpoint доступен всем
+    permission_classes = [AllowAny]
 
     def get(self, _request):
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -41,12 +39,7 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # Создаем объект сериализатора и передаем в него данные
         serializer = AuthLoginSerializer(data=request.data)
-        # Запускается проверка данных
-        # Если все данные правильные serializer.is_valid() вернет true
-        # raise_exception=True мы ожидаем, что все поля правильные. Если нет, клиент получит 400
-        # После валидации можно безопасно брать serializer.validated_data["username"] и прочее
         serializer.is_valid(raise_exception=True)
 
         user = authenticate(
@@ -66,9 +59,6 @@ class LoginView(APIView):
             )
 
         login(request, user)
-        # user Django-модель
-        # AuthUserSerializer(user) превращаем Python данные в удобную структуру данных, пригодную для JSON
-        # .data готовое сериализованное представление пользователя
         return Response(AuthUserSerializer(user).data, status=status.HTTP_200_OK)
 
 
@@ -103,7 +93,6 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = UserSetFilter
-    # permission_classes = [DjangoModelPermissionsOrAnonReadOnly]
 
 
 class TeacherSetFilter(FilterSet):
@@ -247,11 +236,20 @@ class StudentViewSet(viewsets.ModelViewSet):
                 "teacher__user",
                 "topic",
                 "topic__subject",
+                "task",
+            )
+            .annotate(
+                active_question_count=Count(
+                    "task__questions",
+                    filter=Q(task__questions__is_active=True),
+                    distinct=True,
+                )
             )
             .filter(
                 group__students=student,
                 group__is_active=True,
                 topic__is_active=True,
+                task__is_active=True,
                 topic__subject__is_active=True,
                 scheduled_for__range=(start_date, end_date),
             )
@@ -260,10 +258,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         )
         attempts = (
             Attempt.objects.select_related("schedule_entry")
-            .filter(
-                student=student,
-                schedule_entry__in=schedule_entries,
-            )
+            .filter(student=student, schedule_entry__in=schedule_entries)
             .order_by("-started_at")
         )
         attempts_by_schedule_entry_id = {}
@@ -287,12 +282,20 @@ class StudentViewSet(viewsets.ModelViewSet):
                     "subject_name": entry.topic.subject.name,
                     "topic_id": entry.topic_id,
                     "topic_title": entry.topic.title,
+                    "task_id": entry.task_id,
+                    "task_title": entry.task.title if entry.task else entry.topic.title,
+                    "active_question_count": entry.active_question_count,
+                    "required_question_count": Attempt.QUESTIONS_PER_ATTEMPT,
                     "attempt_id": attempt.id if attempt else None,
                     "attempt_status": attempt.status if attempt else None,
                     "correct_count": correct_count,
                     "total_questions": total_questions,
                     "result_outcome": (
-                        "success" if success is True else "fail" if success is False else None
+                        "success"
+                        if success is True
+                        else "fail"
+                        if success is False
+                        else None
                     ),
                 }
             )

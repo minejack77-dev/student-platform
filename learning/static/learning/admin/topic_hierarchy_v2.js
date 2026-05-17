@@ -17,7 +17,7 @@
     }).length > 0;
   }
 
-  function loadOptions($select, params, callback) {
+  function loadOptions($select, params, selectedValue, callback) {
     var url = $select.data("options-url");
     resetSelect($select);
     if (!url) {
@@ -31,6 +31,9 @@
       (payload.results || []).forEach(function (item) {
         $select.append(new Option(item.text, item.id, false, false));
       });
+      if (selectedValue && $select.find('option[value="' + selectedValue + '"]').length) {
+        $select.val(String(selectedValue));
+      }
       if (callback) {
         callback(payload.results || []);
       }
@@ -46,21 +49,36 @@
       return;
     }
 
+    function syncWorkbookAndUnit(workbookValue, unitValue) {
+      if (!$subject.val()) {
+        resetSelect($workbook);
+        resetSelect($unit);
+        return;
+      }
+
+      loadOptions($workbook, { subject: $subject.val() }, workbookValue, function () {
+        var activeWorkbookValue = $workbook.val();
+        if (!activeWorkbookValue) {
+          resetSelect($unit);
+          return;
+        }
+        loadOptions($unit, { workbook: activeWorkbookValue }, unitValue);
+      });
+    }
+
     $subject.on("change", function () {
-      loadOptions($workbook, { subject: $subject.val() });
-      resetSelect($unit);
+      syncWorkbookAndUnit($workbook.val(), $unit.val());
     });
 
     $workbook.on("change", function () {
-      loadOptions($unit, { workbook: $workbook.val() });
+      loadOptions($unit, { workbook: $workbook.val() }, $unit.val());
     });
 
-    if ($subject.val() && !$workbook.val() && !hasRealOptions($workbook)) {
-      loadOptions($workbook, { subject: $subject.val() });
-    }
-
-    if ($workbook.val() && !$unit.val() && !hasRealOptions($unit)) {
-      loadOptions($unit, { workbook: $workbook.val() });
+    if ($subject.val()) {
+      syncWorkbookAndUnit($workbook.val(), $unit.val());
+    } else if (!hasRealOptions($workbook)) {
+      resetSelect($workbook);
+      resetSelect($unit);
     }
   });
 })();

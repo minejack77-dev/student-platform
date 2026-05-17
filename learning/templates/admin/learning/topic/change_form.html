@@ -1,0 +1,30 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+{{ block.super }}
+{% if change and original and import_from_src_url %}
+<li>
+  <form action="{{ import_from_src_url }}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="button">Import From File</button>
+  </form>
+</li>
+{% endif %}
+{% endblock %}
+
+{% block after_field_sets %}
+{{ block.super }}
+{% if change and original %}
+<div class="submit-row">
+  <div style="margin-right: auto; color: var(--body-quiet-color, #666);">
+    Save after choosing a .xls or .xlsx file in <strong>Src</strong>, then run import.
+  </div>
+  {% if import_from_src_url %}
+  <form action="{{ import_from_src_url }}" method="post" style="display: inline;">
+    {% csrf_token %}
+    <button type="submit" class="button">Import From File</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

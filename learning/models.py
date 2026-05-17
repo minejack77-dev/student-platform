@@ -84,6 +84,7 @@ class Topic(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
+    src = models.FileField(blank=True, null=True)
 
     class Meta:
         ordering = ["unit__workbook__title", "unit__title", "title"]
@@ -134,6 +135,46 @@ class Topic(models.Model):
         return f"{self.subject.name} | {self.title}"
 
 
+class Task(models.Model):
+    DEFAULT_TITLE = "Default task"
+
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.CASCADE,
+        related_name="tasks",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    src = models.FileField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["topic__unit__workbook__title", "topic__unit__title", "topic__title", "title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "title"],
+                name="uq_task_topic_title",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.topic.title} | {self.title}"
+
+    @classmethod
+    def get_default_for_topic(cls, topic):
+        task, _ = cls.objects.get_or_create(
+            topic=topic,
+            title=cls.DEFAULT_TITLE,
+            defaults={
+                "description": topic.description,
+                "is_active": topic.is_active,
+                "src": topic.src,
+            },
+        )
+        return task
+
+
 class Question(models.Model):
     # оставляем только multiple choice
     class QuestionType(models.TextChoices):
@@ -142,6 +183,13 @@ class Question(models.Model):
 
     topic = models.ForeignKey(
         "Topic", on_delete=models.CASCADE, related_name="questions"
+    )
+    task = models.ForeignKey(
+        "Task",
+        on_delete=models.CASCADE,
+        related_name="questions",
+        null=True,
+        blank=True,
     )
     instruction = models.TextField(blank=True)
     text = models.TextField()
@@ -161,8 +209,16 @@ class Question(models.Model):
         # отдельной кнопкой/валидацией в админке или при публикации.
         super().clean()
 
+    def save(self, *args, **kwargs):
+        if self.topic_id and not self.task_id:
+            self.task = Task.get_default_for_topic(self.topic)
+        elif self.task_id and not self.topic_id:
+            self.topic = self.task.topic
+        return super().save(*args, **kwargs)
+
     def __str__(self) -> str:
-        return f"[{self.topic.title}] {self.text[:60]}"
+        owner = self.task.title if self.task_id else self.topic.title
+        return f"[{owner}] {self.text[:60]}"
 
 
 class Choice(models.Model):
@@ -187,6 +243,7 @@ class Attempt(models.Model):
         ABANDONED = "abandoned", "Abandoned"
 
     PASSING_CORRECT_ANSWERS = 8
+    QUESTIONS_PER_ATTEMPT = 10
 
     student = models.ForeignKey(
         "accounts.Student",
@@ -194,6 +251,13 @@ class Attempt(models.Model):
         related_name="attempts",
     )
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="attempts")
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.PROTECT,
+        related_name="attempts",
+        null=True,
+        blank=True,
+    )
     schedule_entry = models.ForeignKey(
         "GroupTopicSchedule",
         on_delete=models.PROTECT,
@@ -243,10 +307,17 @@ class Attempt(models.Model):
         ]
         ordering = ["-started_at"]
 
+    def save(self, *args, **kwargs):
+        if self.schedule_entry_id and not self.task_id:
+            self.task = self.schedule_entry.task
+        elif self.topic_id and not self.task_id:
+            self.task = Task.get_default_for_topic(self.topic)
+        return super().save(*args, **kwargs)
+
     def __str__(self) -> str:
         return (
             f"Attempt #{self.pk} | {self.student.user.username} | "
-            f"{self.topic.title} | {self.status}"
+            f"{self.task.title if self.task_id else self.topic.title} | {self.status}"
         )
 
 
@@ -357,6 +428,13 @@ class GroupTeachingAssignment(models.Model):
         blank=True,
         related_name="teaching_assignments",
     )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="teaching_assignments",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -374,15 +452,28 @@ class GroupTeachingAssignment(models.Model):
             raise ValidationError(
                 {"topic": "Topic must belong to the selected subject."}
             )
+        if self.task_id:
+            if self.task.topic.subject_id != self.subject_id:
+                raise ValidationError(
+                    {"task": "Task must belong to the selected subject."}
+                )
+            if self.topic_id and self.task.topic_id != self.topic_id:
+                raise ValidationError(
+                    {"task": "Task must belong to the selected topic."}
+                )
 
     def save(self, *args, **kwargs):
+        if self.task_id and not self.topic_id:
+            self.topic = self.task.topic
+        elif self.topic_id and not self.task_id:
+            self.task = Task.get_default_for_topic(self.topic)
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return (
             f"{self.group.name} | {self.teacher.user.username} | "
-            f"{self.subject.name} | {self.topic.title if self.topic else 'No topic'}"
+            f"{self.subject.name} | {self.task.title if self.task else self.topic.title if self.topic else 'No task'}"
         )
 
 
@@ -403,13 +494,20 @@ class GroupTopicSchedule(models.Model):
         on_delete=models.PROTECT,
         related_name="group_topic_schedule_entries",
     )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.PROTECT,
+        related_name="group_topic_schedule_entries",
+        null=True,
+        blank=True,
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["group", "teacher", "scheduled_for"],
-                name="uq_group_teacher_topic_schedule_date",
+                fields=["group", "teacher", "scheduled_for", "task"],
+                name="uq_group_teacher_task_schedule_date",
             )
         ]
         indexes = [
@@ -418,10 +516,23 @@ class GroupTopicSchedule(models.Model):
         ]
         ordering = ["scheduled_for", "group__name", "teacher__user__username"]
 
+    def clean(self):
+        super().clean()
+        if self.task_id and self.task.topic_id != self.topic_id:
+            raise ValidationError({"task": "Task must belong to the selected topic."})
+
+    def save(self, *args, **kwargs):
+        if self.task_id:
+            self.topic = self.task.topic
+        elif self.topic_id and not self.task_id:
+            self.task = Task.get_default_for_topic(self.topic)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self) -> str:
         return (
             f"{self.group.name} | {self.teacher.user.username} | "
-            f"{self.scheduled_for.isoformat()} | {self.topic.title}"
+            f"{self.scheduled_for.isoformat()} | {self.task.title if self.task_id else self.topic.title}"
         )
 
 

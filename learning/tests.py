@@ -1,7 +1,13 @@
 from datetime import timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from zipfile import ZipFile
 
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -16,9 +22,16 @@ from learning.models import (
     GroupTeachingAssignment,
     Question,
     Subject,
+    Task,
     Topic,
     Unit,
     Workbook,
+)
+from learning.services.question_import import (
+    SpreadsheetCell,
+    _read_spreadsheet_rows,
+    _render_rich_text_html,
+    import_questions_from_xls,
 )
 
 
@@ -426,6 +439,91 @@ class LearningApiTests(APITestCase):
             GroupTopicSchedule.objects.filter(group=group, teacher__user=self.auth_user).exists()
         )
 
+    def test_group_topic_calendar_delete_attempt_check_is_scoped_to_group_entry(self):
+        subject = Subject.objects.create(name="Scoped Attempts")
+        topic = Topic.objects.create(subject=subject, title="Shared Topic")
+        task = Task.get_default_for_topic(topic)
+        group_with_attempt = Group.objects.create(name="Group With Attempt")
+        group_without_attempt = Group.objects.create(name="Group Without Attempt")
+        student_user = User.objects.create_user(
+            username="student_scoped_attempt",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+        group_with_attempt.students.add(student)
+
+        schedule_with_attempt = GroupTopicSchedule.objects.create(
+            group=group_with_attempt,
+            teacher=self.teacher,
+            scheduled_for="2026-05-11",
+            task=task,
+        )
+        schedule_without_attempt = GroupTopicSchedule.objects.create(
+            group=group_without_attempt,
+            teacher=self.teacher,
+            scheduled_for="2026-05-11",
+            task=task,
+        )
+        Attempt.objects.create(
+            student=student,
+            topic=topic,
+            task=task,
+            schedule_entry=schedule_with_attempt,
+        )
+
+        delete_available_response = self.client.delete(
+            f"/api/group/{group_without_attempt.id}/topic-calendar/",
+            {"schedule_entry": schedule_without_attempt.id},
+        )
+
+        self.assertEqual(delete_available_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(
+            GroupTopicSchedule.objects.filter(id=schedule_without_attempt.id).exists()
+        )
+        self.assertTrue(
+            GroupTopicSchedule.objects.filter(id=schedule_with_attempt.id).exists()
+        )
+
+        delete_blocked_response = self.client.delete(
+            f"/api/group/{group_with_attempt.id}/topic-calendar/",
+            {"schedule_entry": schedule_with_attempt.id},
+        )
+
+        self.assertEqual(delete_blocked_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(
+            GroupTopicSchedule.objects.filter(id=schedule_with_attempt.id).exists()
+        )
+
+    def test_task_import_questions_api_uses_uploaded_file(self):
+        subject = Subject.objects.create(name="Task Import API")
+        topic = Topic.objects.create(subject=subject, title="Task Import Topic")
+        task = Task.objects.create(topic=topic, title="Task Import Pool")
+        uploaded_file = SimpleUploadedFile(
+            "questions.xlsx",
+            b"fake spreadsheet bytes",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            with self.settings(MEDIA_ROOT=temp_dir):
+                with patch("learning.views.import_questions_from_xls", return_value=[]) as import_mock:
+                    response = self.client.post(
+                        f"/api/task/{task.id}/import-questions/",
+                        {"src": uploaded_file, "is_active": "false"},
+                        format="multipart",
+                    )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        self.assertEqual(response.data["imported_count"], 0)
+        self.assertTrue(task.src.name.endswith(".xlsx"))
+        import_mock.assert_called_once()
+        _, kwargs = import_mock.call_args
+        self.assertEqual(kwargs["task"].id, task.id)
+        self.assertEqual(kwargs["src"].name, task.src.name)
+        self.assertFalse(kwargs["is_active"])
+
     def test_student_create_attempt_generates_10_random_questions(self):
         student = self._authenticate_student("student_attempt_1")
         subject = Subject.objects.create(name="Biology")
@@ -454,6 +552,43 @@ class LearningApiTests(APITestCase):
             list(attempt.attempt_questions.order_by("order").values_list("order", flat=True)),
             list(range(1, 11)),
         )
+
+    def test_student_create_attempt_uses_scheduled_task_question_pool(self):
+        student = self._authenticate_student("student_attempt_task_pool")
+        subject = Subject.objects.create(name="Task Pool Subject")
+        topic = Topic.objects.create(
+            subject=subject,
+            title="Task Pool Topic",
+            is_active=True,
+        )
+        scheduled_task = Task.objects.create(topic=topic, title="Scheduled task")
+        self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Default Pool Group",
+        )
+        schedule_entry = GroupTopicSchedule.objects.create(
+            group=Group.objects.create(name="Task Pool Group", is_active=True),
+            teacher=self.teacher,
+            task=scheduled_task,
+            scheduled_for=timezone.localdate(),
+        )
+        schedule_entry.group.students.add(student)
+
+        for index in range(12):
+            self._create_question_with_two_choices(
+                topic,
+                f"Default pool question #{index + 1}",
+            )
+
+        response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("task", response.data)
 
     def test_finish_attempt_calculates_correct_and_wrong_answers(self):
         student = self._authenticate_student("student_attempt_2")
@@ -662,3 +797,222 @@ class LearningApiTests(APITestCase):
 
         self.assertEqual(finish_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", finish_response.data)
+
+
+class QuestionImportTests(APITestCase):
+    def _write_minimal_xlsx(self, path):
+        shared_strings = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="12" uniqueCount="8">
+  <si><t>Choose adj or adv:</t></si>
+  <si><t>option 1</t></si>
+  <si><t>option 2</t></si>
+  <si><t>key</t></si>
+  <si><r><t>I had a </t></r><r><rPr><b/></rPr><t>bad</t></r><r><t> day.</t></r></si>
+  <si><t>adj</t></si>
+  <si><t>adv</t></si>
+  <si><t>My students study well.</t></si>
+</sst>
+"""
+        sheet = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c></row>
+    <row r="2"><c r="A2" t="s"><v>4</v></c><c r="B2" t="s"><v>5</v></c><c r="C2" t="s"><v>6</v></c><c r="D2" t="s"><v>5</v></c></row>
+    <row r="3"><c r="A3" t="s"><v>7</v></c><c r="B3" t="s"><v>5</v></c><c r="C3" t="s"><v>6</v></c><c r="D3" t="s"><v>6</v></c></row>
+  </sheetData>
+</worksheet>
+"""
+        with ZipFile(path, "w") as archive:
+            archive.writestr("xl/sharedStrings.xml", shared_strings)
+            archive.writestr("xl/worksheets/sheet1.xml", sheet)
+
+    def test_import_from_xls_creates_single_choice_questions(self):
+        subject = Subject.objects.create(name="English")
+        topic = Topic.objects.create(subject=subject, title="Adjectives and adverbs")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell(
+                    "Choose adj (adjective) or adv (adverb):",
+                    "Choose adj (adjective) or adv (adverb):",
+                ),
+                SpreadsheetCell("option 1", "<strong>option 1</strong>"),
+                SpreadsheetCell("option 2", "<strong>option 2</strong>"),
+                SpreadsheetCell("key", "<strong>key</strong>"),
+            ],
+            [
+                SpreadsheetCell(
+                    "I had a bad day yesterday.",
+                    "I had a <strong>bad</strong> day yesterday.",
+                ),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("adj", "adj"),
+            ],
+            [
+                SpreadsheetCell(
+                    "My students study well.",
+                    "My students study <strong>well</strong>.",
+                ),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("adv", "adv"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            questions = import_questions_from_xls(topic=topic, src="1.xls")
+
+        self.assertEqual(len(questions), 2)
+        first_question = questions[0]
+        self.assertEqual(first_question.instruction, "")
+        self.assertEqual(
+            first_question.text,
+            "Choose adj (adjective) or adv (adverb):\nI had a <strong>bad</strong> day yesterday.",
+        )
+        self.assertEqual(first_question.question_type, Question.QuestionType.SINGLE_CHOICE)
+        self.assertEqual(first_question.choices.count(), 2)
+        self.assertEqual(
+            list(first_question.choices.values_list("text", "is_correct", "order")),
+            [("adj", True, 1), ("adv", False, 2)],
+        )
+
+    def test_read_xlsx_rows_supports_shared_strings_and_rich_text(self):
+        with TemporaryDirectory() as temp_dir:
+            src_path = Path(temp_dir) / "questions.xlsx"
+            self._write_minimal_xlsx(src_path)
+
+            rows = _read_spreadsheet_rows(src_path)
+
+        self.assertEqual(rows[0][0].plain, "Choose adj or adv:")
+        self.assertEqual(rows[1][0].plain, "I had a bad day.")
+        self.assertEqual(rows[1][0].html, "I had a <strong>bad</strong> day.")
+
+    def test_import_from_xlsx_creates_questions_for_task(self):
+        subject = Subject.objects.create(name="English XLSX")
+        topic = Topic.objects.create(subject=subject, title="Adjectives XLSX")
+        task = Task.objects.create(topic=topic, title="Task XLSX")
+
+        with TemporaryDirectory() as temp_dir:
+            src_path = Path(temp_dir) / "questions.xlsx"
+            self._write_minimal_xlsx(src_path)
+
+            questions = import_questions_from_xls(task=task, src=src_path)
+
+        self.assertEqual(len(questions), 2)
+        self.assertTrue(Question.objects.filter(task=task).exists())
+        self.assertFalse(Question.objects.filter(task__isnull=True).exists())
+
+    def test_import_from_xls_rejects_rows_without_matching_answer_key(self):
+        subject = Subject.objects.create(name="English grammar")
+        topic = Topic.objects.create(subject=subject, title="Parts of speech")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell(
+                    "Choose adj (adjective) or adv (adverb):",
+                    "Choose adj (adjective) or adv (adverb):",
+                ),
+                SpreadsheetCell("option 1", "option 1"),
+                SpreadsheetCell("option 2", "option 2"),
+                SpreadsheetCell("key", "key"),
+            ],
+            [
+                SpreadsheetCell(
+                    "This road is very dangerous.",
+                    "This road is very <strong>dangerous</strong>.",
+                ),
+                SpreadsheetCell("adj", "adj"),
+                SpreadsheetCell("adv", "adv"),
+                SpreadsheetCell("noun", "noun"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            with self.assertRaises(ValidationError):
+                import_questions_from_xls(topic=topic, src="1.xls")
+
+        self.assertEqual(Question.objects.count(), 0)
+        self.assertEqual(Choice.objects.count(), 0)
+
+    def test_render_rich_text_html_wraps_bold_runs(self):
+        class Font:
+            def __init__(self, weight):
+                self.weight = weight
+                self.bold = 0
+
+        class Workbook:
+            font_list = [Font(400), Font(700)]
+
+        html = _render_rich_text_html(
+            plain_text="Hello world!",
+            runlist=[(0, 0), (6, 1)],
+            workbook=Workbook(),
+        )
+
+        self.assertEqual(html, "Hello <strong>world!</strong>")
+
+
+class TopicAdminImportTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username="admin",
+            email="admin@example.com",
+            password="StrongPass123",
+        )
+        self.client.force_login(self.admin_user)
+        self.subject = Subject.objects.create(name="English Admin")
+        self.topic = Topic.objects.create(subject=self.subject, title="Grammar")
+
+    def test_import_button_uses_attached_file(self):
+        self.topic.src = "imports/1.xls"
+        self.topic.save(update_fields=["src"])
+
+        with patch("learning.admin.import_questions_from_xls", return_value=[]) as import_mock:
+            response = self.client.post(
+                reverse("admin:learning_topic_import_from_src", args=[self.topic.pk]),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        import_mock.assert_called_once_with(
+            topic=self.topic,
+            src=self.topic.src,
+            is_active=self.topic.is_active,
+        )
+
+    def test_import_button_requires_attached_file(self):
+        with patch("learning.admin.import_questions_from_xls") as import_mock:
+            response = self.client.post(
+                reverse("admin:learning_topic_import_from_src", args=[self.topic.pk]),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        import_mock.assert_not_called()
+        self.assertContains(
+            response,
+            "Attach a .xls or .xlsx file to the topic before running import.",
+        )
+
+    def test_task_import_button_uses_attached_file(self):
+        task = Task.objects.create(topic=self.topic, title="Admin task import")
+        task.src = "imports/1.xlsx"
+        task.save(update_fields=["src"])
+
+        with patch("learning.admin.import_questions_from_xls", return_value=[]) as import_mock:
+            response = self.client.post(
+                reverse("admin:learning_task_import_from_src", args=[task.pk]),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        import_mock.assert_called_once_with(
+            task=task,
+            src=task.src,
+            is_active=task.is_active,
+        )

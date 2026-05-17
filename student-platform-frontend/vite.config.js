@@ -5,6 +5,28 @@ import vue from "@vitejs/plugin-vue";
 import vueDevTools from "vite-plugin-vue-devtools";
 
 const HOST = "http://127.0.0.1:8000";
+const BACKEND_URL = new URL(HOST);
+
+const rewriteProxyHeaders = (req) => {
+  if (req.headers?.referer) {
+    try {
+      const refererUrl = new URL(req.headers.referer);
+      refererUrl.protocol = BACKEND_URL.protocol;
+      refererUrl.host = BACKEND_URL.host;
+      req.headers.referer = refererUrl.toString();
+    } catch (_error) {
+      // Keep the original referer if it is not a valid absolute URL.
+    }
+  }
+
+  if (req.headers?.host) {
+    req.headers.host = BACKEND_URL.host;
+  }
+
+  if (req.headers?.origin) {
+    req.headers.origin = BACKEND_URL.origin;
+  }
+};
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue(), vueDevTools()],
@@ -33,22 +55,7 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
         bypass: (req) => {
-          if (req.headers && req.headers.referer)
-            req.headers.referer = req.headers.referer.replace(
-              "http://127.0.0.1:5173",
-              HOST,
-            );
-          req.headers.host = req.headers.host.replace(
-            "http://127.0.0.1:5173",
-            HOST,
-          );
-
-          if (req.headers && req.headers.origin) {
-            req.headers.origin = req.headers.origin.replace(
-              "http://127.0.0.1:5173",
-              HOST,
-            );
-          }
+          rewriteProxyHeaders(req);
         },
       },
       "^/media": {
@@ -66,20 +73,7 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
         bypass: (req) => {
-          if (req.headers && req.headers.referer) {
-            req.headers.referer = req.headers.referer.replace(
-              "http://127.0.0.1:5173",
-              HOST,
-            );
-          }
-          req.headers.host = req.headers.host.replace("127.0.0.1:5173", HOST);
-
-          if (req.headers && req.headers.origin) {
-            req.headers.origin = req.headers.origin.replace(
-              "http://127.0.0.1:5173",
-              HOST,
-            );
-          }
+          rewriteProxyHeaders(req);
         },
       },
     },

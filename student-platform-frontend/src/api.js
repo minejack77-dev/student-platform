@@ -91,9 +91,9 @@ groupApi.saveTopicCalendarItem = async (groupId, payload) => {
   const response = await axios.patch(`/api/group/${groupId}/topic-calendar/`, payload);
   return response.data;
 };
-groupApi.clearTopicCalendarItem = async (groupId, date) => {
+groupApi.clearTopicCalendarItem = async (groupId, params) => {
   await axios.delete(`/api/group/${groupId}/topic-calendar/`, {
-    params: { date },
+    params: typeof params === "string" ? { date: params } : params,
   });
 };
 groupApi.getRanking = async (groupId) => {
@@ -103,6 +103,14 @@ groupApi.getRanking = async (groupId) => {
 
 export let Subject = apiConstructor("/api/subject/");
 export let Topic = apiConstructor("/api/topic/");
+const taskApi = apiConstructor("/api/task/");
+taskApi.importQuestions = async (taskId, payload) => {
+  const response = await axios.post(`/api/task/${taskId}/import-questions/`, payload, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+export let Task = taskApi;
 export let Question = apiConstructor("/api/question/");
 export let Group = groupApi;
 const studentApi = apiConstructor("/api/student/");

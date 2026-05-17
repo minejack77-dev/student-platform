@@ -26,7 +26,11 @@ SECRET_KEY = "django-insecure-hj_(y!jv8(rcr6)htbvkp-jh+@3yich5(p*%ofxi17eo9wv&e1
 DEBUG = True
 
 ALLOWED_HOSTS = []
-CSRF_TRUSTED_ORIGINS = ["http://127.0.0.1:5173"]
+DEV_FRONTEND_PORTS = range(5173, 5181)
+CSRF_TRUSTED_ORIGINS = [
+    *(f"http://127.0.0.1:{port}" for port in DEV_FRONTEND_PORTS),
+    *(f"http://localhost:{port}" for port in DEV_FRONTEND_PORTS),
+]
 
 
 # Application definition

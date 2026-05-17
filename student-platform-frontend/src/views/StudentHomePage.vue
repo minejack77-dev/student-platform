@@ -123,7 +123,7 @@ const enrichCalendarResponse = (response) => {
     ...day,
     items: (day.items ?? []).map((item, index) => ({
       ...item,
-      task_key: `${day.date}-${item.group_id}-${item.topic_id}-${item.teacher_id}-${index}`,
+      task_key: `${day.date}-${item.group_id}-${item.task_id || item.topic_id}-${item.teacher_id}-${index}`,
     })),
   }));
 };
@@ -183,12 +183,38 @@ const startTask = async (task) => {
     });
   } catch (error) {
     actionError.value =
-      error?.response?.data?.topic?.[0] ||
-      error?.response?.data?.detail ||
-      "Could not start the task.";
+      getApiErrorMessage(error?.response?.data) || "Could not start the task.";
   } finally {
     startingTaskKey.value = "";
   }
+};
+
+const getApiErrorMessage = (data) => {
+  if (!data) {
+    return "";
+  }
+  if (typeof data === "string") {
+    return data;
+  }
+
+  const fields = [
+    "detail",
+    "task",
+    "schedule_entry",
+    "topic",
+    "subject",
+    "non_field_errors",
+  ];
+  for (const field of fields) {
+    const value = data[field];
+    if (Array.isArray(value) && value.length > 0) {
+      return value[0];
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return "";
 };
 
 const compareToToday = (value) => {
@@ -205,6 +231,9 @@ const getTaskState = (task, date) => {
   }
   if (task.attempt_status === "in_progress") {
     return compareToToday(date) === 0 ? "in_progress" : "expired";
+  }
+  if ((task.active_question_count ?? 0) < (task.required_question_count ?? 10)) {
+    return "not_ready";
   }
   const relation = compareToToday(date);
   if (relation < 0) {
@@ -236,6 +265,9 @@ const getTaskStateLabel = (task, date) => {
   if (state === "upcoming") {
     return "Locked";
   }
+  if (state === "not_ready") {
+    return "Not ready";
+  }
   return "Available today";
 };
 
@@ -255,6 +287,9 @@ const getTaskStateCopy = (task, date) => {
   }
   if (state === "upcoming") {
     return `Available on ${monthDayFormatter.format(parseISODate(date))}.`;
+  }
+  if (state === "not_ready") {
+    return `${task.active_question_count ?? 0}/${task.required_question_count ?? 10} active questions in this task.`;
   }
   return "You can take this test today.";
 };
@@ -284,7 +319,7 @@ const filteredCalendarDays = computed(() => {
   return calendarDays.value.map((day) => ({
     ...day,
     items: day.items.filter((task) =>
-      [task.topic_title, task.group_name, task.teacher_username, task.subject_name]
+      [task.task_title, task.topic_title, task.group_name, task.teacher_username, task.subject_name]
         .map((value) => (value || "").toLowerCase())
         .some((value) => value.includes(query)),
     ),
@@ -318,7 +353,7 @@ const calendarRangeLabel = computed(() => {
   if (!first || !last) {
     return "";
   }
-  return `${monthRangeFormatter.format(first)} • ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+  return `${monthRangeFormatter.format(first)} - ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
 });
 
 const isToday = (value) => formatISODate(new Date()) === value;
@@ -399,7 +434,7 @@ onMounted(async () => {
             v-model="searchQuery"
             class="form-control"
             type="text"
-            placeholder="Search by topic, group, subject, or teacher"
+            placeholder="Search by task, topic, group, subject, or teacher"
           />
         </div>
       </div>
@@ -425,38 +460,45 @@ onMounted(async () => {
             <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
           </div>
 
-          <div v-if="day.items.length === 0" class="schedule-empty-card">
-            {{ searchQuery.trim() ? "No matching tasks for this day." : "No tasks scheduled." }}
-          </div>
+          <div class="schedule-day-body">
+            <div v-if="day.items.length === 0" class="schedule-empty-card">
+              {{ searchQuery.trim() ? "No matching tasks for this day." : "No tasks scheduled." }}
+            </div>
 
-          <div v-else class="day-task-list">
-            <article
-              v-for="task in day.items"
-              :key="task.task_key"
-              class="day-task-item"
-              :class="`state-${getTaskState(task, day.date)}`"
-            >
-              <div class="day-task-head">
-                <h3 class="day-task-title">{{ task.topic_title }}</h3>
-                <span class="entity-chip" :class="`chip-${getTaskState(task, day.date)}`">
-                  {{ getTaskStateLabel(task, day.date) }}
-                </span>
-              </div>
-
-              <div class="day-task-meta">{{ task.subject_name }}</div>
-              <div class="assignment-chip">Group: {{ task.group_name }}</div>
-              <div class="day-task-meta">Teacher: {{ task.teacher_username }}</div>
-              <div class="task-status-copy">{{ getTaskStateCopy(task, day.date) }}</div>
-
-              <button
-                class="btn btn-primary btn-sm action-btn"
-                type="button"
-                :disabled="startingTaskKey === task.task_key || !canStartOrContinueTask(task, day.date)"
-                @click="startTask(task)"
+            <div v-else class="day-task-list">
+              <article
+                v-for="task in day.items"
+                :key="task.task_key"
+                class="day-task-item"
+                :class="`state-${getTaskState(task, day.date)}`"
               >
-                {{ startingTaskKey === task.task_key ? "Opening..." : getTaskButtonLabel(task, day.date) }}
-              </button>
-            </article>
+                <div class="day-task-main">
+                  <div class="day-task-head">
+                    <h3 class="day-task-title">{{ task.task_title || task.topic_title }}</h3>
+                    <span class="entity-chip" :class="`chip-${getTaskState(task, day.date)}`">
+                      {{ getTaskStateLabel(task, day.date) }}
+                    </span>
+                  </div>
+                  <div class="day-task-meta">{{ task.topic_title }} / {{ task.subject_name }}</div>
+                </div>
+
+                <div class="day-task-context">
+                  <div class="assignment-chip">Group: {{ task.group_name }}</div>
+                  <div class="day-task-meta">Teacher: {{ task.teacher_username }}</div>
+                </div>
+
+                <div class="task-status-copy">{{ getTaskStateCopy(task, day.date) }}</div>
+
+                <button
+                  class="btn btn-primary btn-sm action-btn"
+                  type="button"
+                  :disabled="startingTaskKey === task.task_key || !canStartOrContinueTask(task, day.date)"
+                  @click="startTask(task)"
+                >
+                  {{ startingTaskKey === task.task_key ? "Opening..." : getTaskButtonLabel(task, day.date) }}
+                </button>
+              </article>
+            </div>
           </div>
         </article>
       </div>
