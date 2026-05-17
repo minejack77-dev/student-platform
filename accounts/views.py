@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
@@ -173,11 +174,20 @@ class StudentViewSet(viewsets.ModelViewSet):
                 "teacher__user",
                 "topic",
                 "topic__subject",
+                "task",
+            )
+            .annotate(
+                active_question_count=Count(
+                    "task__questions",
+                    filter=Q(task__questions__is_active=True),
+                    distinct=True,
+                )
             )
             .filter(
                 group__students=student,
                 group__is_active=True,
                 topic__is_active=True,
+                task__is_active=True,
                 topic__subject__is_active=True,
                 scheduled_for__range=(start_date, end_date),
             )
@@ -210,6 +220,10 @@ class StudentViewSet(viewsets.ModelViewSet):
                     "subject_name": entry.topic.subject.name,
                     "topic_id": entry.topic_id,
                     "topic_title": entry.topic.title,
+                    "task_id": entry.task_id,
+                    "task_title": entry.task.title if entry.task else entry.topic.title,
+                    "active_question_count": entry.active_question_count,
+                    "required_question_count": Attempt.QUESTIONS_PER_ATTEMPT,
                     "attempt_id": attempt.id if attempt else None,
                     "attempt_status": attempt.status if attempt else None,
                     "correct_count": correct_count,

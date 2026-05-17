@@ -135,11 +135,10 @@
 }
 
 .schedule-strip {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  grid-template-columns: repeat(7, minmax(160px, 1fr));
   margin-top: 16px;
-  overflow-x: auto;
   padding-bottom: 4px;
 }
 
@@ -148,12 +147,12 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 250, 255, 0.9)),
     var(--surface-strong);
   border: 1px solid rgba(18, 43, 70, 0.12);
-  border-radius: 20px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-2);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 248px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  min-height: 0;
   padding: 14px;
   position: relative;
 }
@@ -234,12 +233,47 @@
   z-index: 1;
 }
 
+.schedule-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.schedule-task-row {
+  align-items: end;
+  border-top: 1px solid rgba(18, 43, 70, 0.1);
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(160px, 0.8fr) minmax(150px, auto);
+  padding-top: 10px;
+}
+
+.schedule-task-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.schedule-task-row .schedule-label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.schedule-task-row .schedule-select {
+  grid-column: 1;
+  grid-row: 2;
+}
+
 .schedule-topic-state {
   background: rgba(255, 255, 255, 0.72);
   border: 1px dashed rgba(18, 43, 70, 0.14);
-  border-radius: 14px;
-  margin-top: auto;
-  min-height: 66px;
+  border-radius: var(--radius-md);
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  margin-top: 0;
+  min-height: 64px;
   padding: 10px 12px;
   position: relative;
   z-index: 1;
@@ -256,14 +290,24 @@
 }
 
 .schedule-day-actions {
+  align-self: center;
   display: flex;
   gap: 8px;
+  grid-column: 3;
+  grid-row: 1 / span 2;
   position: relative;
   z-index: 1;
 }
 
 .schedule-day-actions .btn {
   flex: 1 1 0;
+}
+
+.add-task-btn {
+  align-self: center;
+  position: relative;
+  white-space: nowrap;
+  z-index: 1;
 }
 
 .schedule-empty {
@@ -429,8 +473,12 @@
     justify-content: flex-start;
   }
 
-  .schedule-strip {
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  .schedule-day-card {
+    grid-template-columns: 1fr;
+  }
+
+  .add-task-btn {
+    justify-self: start;
   }
 }
 
@@ -451,7 +499,15 @@
     flex-direction: column;
   }
 
-  .schedule-strip {
+  .schedule-task-row {
     grid-template-columns: 1fr;
+  }
+
+  .schedule-task-row .schedule-label,
+  .schedule-task-row .schedule-select,
+  .schedule-topic-state,
+  .schedule-day-actions {
+    grid-column: 1;
+    grid-row: auto;
   }
 }

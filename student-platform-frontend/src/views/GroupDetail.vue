@@ -1,7 +1,7 @@
 <script setup>
 import axios from "axios";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Group, Subject, Topic } from "@/api.js";
+import { Group, Subject, Task } from "@/api.js";
 
 const props = defineProps(["id"]);
 
@@ -51,17 +51,58 @@ const shiftDateByDays = (value, days) => {
   return next;
 };
 
-const normalizeCalendarItem = (item) => ({
-  ...item,
-  topic: item.topic ?? null,
-  topicDraft: item.topic ? String(item.topic) : "",
+let draftTaskCounter = 0;
+
+const createDraftCalendarTask = (date) => ({
+  clientKey: `${date}-draft-${draftTaskCounter += 1}`,
+  id: null,
+  date,
+  topic: null,
+  topic_title: null,
+  task: null,
+  task_title: null,
+  taskDraft: "",
 });
+
+const normalizeCalendarEntry = (item) => ({
+  ...item,
+  clientKey: item.id ? `entry-${item.id}` : `empty-${item.date}`,
+  topic: item.topic ?? null,
+  task: item.task ?? null,
+  taskDraft: item.task ? String(item.task) : "",
+});
+
+const normalizeCalendarResponse = (response) => {
+  const days = [];
+  const daysByDate = new Map();
+
+  for (const item of response.results ?? []) {
+    if (!daysByDate.has(item.date)) {
+      const day = {
+        ...item,
+        items: [],
+      };
+      daysByDate.set(item.date, day);
+      days.push(day);
+    }
+
+    const entry = normalizeCalendarEntry(item);
+    if (entry.id || entry.task) {
+      daysByDate.get(item.date).items.push(entry);
+    }
+  }
+
+  return days.map((day) => ({
+    ...day,
+    items: day.items.length > 0 ? day.items : [createDraftCalendarTask(day.date)],
+  }));
+};
 
 const group = ref({ students: [] });
 const loadError = ref("");
 
 const subjects = ref([]);
-const topics = ref([]);
+const tasks = ref([]);
 const assignmentForm = ref({
   subject: "",
   topic: "",
@@ -76,7 +117,7 @@ const calendarDays = ref([]);
 const calendarLoading = ref(false);
 const calendarError = ref("");
 const calendarMessage = ref("");
-const calendarSavingDate = ref("");
+const calendarSavingKey = ref("");
 
 const searchQuery = ref("");
 const searchResults = ref([]);
@@ -105,17 +146,17 @@ const loadSubjects = async () => {
   subjects.value = response.results ?? response;
 };
 
-const loadTopicsBySubject = async (subjectId) => {
+const loadTasksBySubject = async (subjectId) => {
   if (!subjectId) {
-    topics.value = [];
+    tasks.value = [];
     return;
   }
-  const response = await Topic.filter({
+  const response = await Task.filter({
     subject: subjectId,
     is_active: true,
     ordering: "title",
   });
-  topics.value = response.results ?? response;
+  tasks.value = response.results ?? response;
 };
 
 const loadTeacherAssignment = async () => {
@@ -125,14 +166,14 @@ const loadTeacherAssignment = async () => {
     assignmentForm.value.subject = assignment.subject ? String(assignment.subject) : "";
     assignmentForm.value.topic = assignment.topic ? String(assignment.topic) : "";
     savedAssignmentSubject.value = assignmentForm.value.subject;
-    await loadTopicsBySubject(assignmentForm.value.subject);
+    await loadTasksBySubject(assignmentForm.value.subject);
   } catch (error) {
     assignmentError.value =
       error?.response?.data?.detail || "Could not load your assignment.";
     assignmentForm.value.subject = "";
     assignmentForm.value.topic = "";
     savedAssignmentSubject.value = "";
-    topics.value = [];
+    tasks.value = [];
   }
 };
 
@@ -144,7 +185,7 @@ const loadTopicCalendar = async () => {
       start_date: calendarStartDate.value,
       days: WEEK_LENGTH,
     });
-    calendarDays.value = (response.results ?? []).map(normalizeCalendarItem);
+    calendarDays.value = normalizeCalendarResponse(response);
   } catch (error) {
     calendarError.value =
       error?.response?.data?.detail || "Could not load the topic calendar.";
@@ -163,24 +204,23 @@ const saveTeacherAssignment = async () => {
     const subjectId = assignmentForm.value.subject
       ? Number(assignmentForm.value.subject)
       : null;
-    const topicId = assignmentForm.value.topic ? Number(assignmentForm.value.topic) : null;
-
-    if (!subjectId) {
-      await Group.clearTeacherAssignment(props.id);
-      assignmentForm.value.subject = "";
-      assignmentForm.value.topic = "";
-      savedAssignmentSubject.value = "";
-      topics.value = [];
-      calendarDays.value = [];
-      assignmentSuccess.value = "Assignment cleared for your profile.";
-    } else {
-      await Group.saveTeacherAssignment(props.id, {
-        subject: subjectId,
-        topic: topicId,
-      });
-      savedAssignmentSubject.value = String(subjectId);
-      assignmentSuccess.value = "Assignment saved for your profile.";
-      await Promise.all([loadTopicsBySubject(subjectId), loadTopicCalendar()]);
+      if (!subjectId) {
+        await Group.clearTeacherAssignment(props.id);
+        assignmentForm.value.subject = "";
+        assignmentForm.value.topic = "";
+        savedAssignmentSubject.value = "";
+        tasks.value = [];
+        calendarDays.value = [];
+        assignmentSuccess.value = "Assignment cleared for your profile.";
+      } else {
+        await Group.saveTeacherAssignment(props.id, {
+          subject: subjectId,
+          topic: null,
+          task: null,
+        });
+        savedAssignmentSubject.value = String(subjectId);
+        assignmentSuccess.value = "Assignment saved for your profile.";
+        await Promise.all([loadTasksBySubject(subjectId), loadTopicCalendar()]);
     }
     await loadGroup();
   } catch (error) {
@@ -204,7 +244,7 @@ const clearTeacherAssignment = async () => {
     assignmentForm.value.subject = "";
     assignmentForm.value.topic = "";
     savedAssignmentSubject.value = "";
-    topics.value = [];
+    tasks.value = [];
     calendarDays.value = [];
     assignmentSuccess.value = "Assignment removed for your profile.";
     await loadGroup();
@@ -220,7 +260,7 @@ const onSubjectChange = async () => {
   assignmentForm.value.topic = "";
   assignmentSuccess.value = "";
   calendarMessage.value = "";
-  await loadTopicsBySubject(assignmentForm.value.subject);
+  await loadTasksBySubject(assignmentForm.value.subject);
 };
 
 const shiftCalendarWeek = async (direction) => {
@@ -237,48 +277,60 @@ const jumpToCurrentWeek = async () => {
   await loadTopicCalendar();
 };
 
-const saveCalendarDay = async (day) => {
-  if (!day.topicDraft) {
-    return;
-  }
+const addCalendarTask = (day) => {
+  day.items.push(createDraftCalendarTask(day.date));
+};
 
-  calendarError.value = "";
-  calendarMessage.value = "";
-  calendarSavingDate.value = day.date;
-  try {
-    const response = await Group.saveTopicCalendarItem(props.id, {
-      date: day.date,
-      topic: Number(day.topicDraft),
-    });
-    await loadTopicCalendar();
-    calendarMessage.value = `${response.topic_title} saved for ${fullDateFormatter.format(parseISODate(day.date))}.`;
-  } catch (error) {
-    calendarError.value =
-      error?.response?.data?.topic?.[0] ||
-      error?.response?.data?.detail ||
-      "Could not save this date.";
-  } finally {
-    calendarSavingDate.value = "";
+const removeCalendarDraft = (day, item) => {
+  day.items = day.items.filter((entry) => entry.clientKey !== item.clientKey);
+  if (day.items.length === 0) {
+    day.items.push(createDraftCalendarTask(day.date));
   }
 };
 
-const clearCalendarDay = async (day) => {
-  if (!day.topic && !day.topicDraft) {
+const saveCalendarTask = async (day, item) => {
+  if (!item.taskDraft) {
     return;
   }
 
   calendarError.value = "";
   calendarMessage.value = "";
-  calendarSavingDate.value = day.date;
+  calendarSavingKey.value = item.clientKey;
   try {
-    await Group.clearTopicCalendarItem(props.id, day.date);
+    const response = await Group.saveTopicCalendarItem(props.id, {
+      date: day.date,
+      task: Number(item.taskDraft),
+    });
     await loadTopicCalendar();
-    calendarMessage.value = `Schedule cleared for ${fullDateFormatter.format(parseISODate(day.date))}.`;
+    calendarMessage.value = `${response.task_title || response.topic_title} saved for ${fullDateFormatter.format(parseISODate(day.date))}.`;
+  } catch (error) {
+    calendarError.value =
+      error?.response?.data?.task?.[0] ||
+      error?.response?.data?.detail ||
+      "Could not save this date.";
+  } finally {
+    calendarSavingKey.value = "";
+  }
+};
+
+const clearCalendarTask = async (day, item) => {
+  if (!item.id) {
+    removeCalendarDraft(day, item);
+    return;
+  }
+
+  calendarError.value = "";
+  calendarMessage.value = "";
+  calendarSavingKey.value = item.clientKey;
+  try {
+    await Group.clearTopicCalendarItem(props.id, { schedule_entry: item.id });
+    await loadTopicCalendar();
+    calendarMessage.value = `Task removed from ${fullDateFormatter.format(parseISODate(day.date))}.`;
   } catch (error) {
     calendarError.value =
       error?.response?.data?.detail || "Could not clear this date.";
   } finally {
-    calendarSavingDate.value = "";
+    calendarSavingKey.value = "";
   }
 };
 
@@ -296,7 +348,7 @@ const scheduleSubjectName = computed(() => {
 });
 const scheduleDisabledMessage = computed(() => {
   if (!assignmentForm.value.subject) {
-    return "Choose a subject first. The weekly calendar uses that subject as its topic pool.";
+    return "Choose a subject first. The weekly calendar uses that subject as its task pool.";
   }
   if (!savedAssignmentSubject.value) {
     return "Save the subject above first, then the weekly calendar will unlock.";
@@ -307,7 +359,10 @@ const scheduleDisabledMessage = computed(() => {
   return "";
 });
 const calendarAssignedCount = computed(
-  () => calendarDays.value.filter((day) => Boolean(day.topic)).length,
+  () => calendarDays.value.reduce(
+    (sum, day) => sum + day.items.filter((item) => Boolean(item.task)).length,
+    0,
+  ),
 );
 const calendarRangeLabel = computed(() => {
   if (calendarDays.value.length === 0) {
@@ -321,8 +376,8 @@ const calendarRangeLabel = computed(() => {
   return `${monthRangeFormatter.format(first)} • ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
 });
 
-const isCalendarDayDirty = (day) =>
-  (day.topic ? String(day.topic) : "") !== String(day.topicDraft || "");
+const isCalendarTaskDirty = (item) =>
+  (item.task ? String(item.task) : "") !== String(item.taskDraft || "");
 const isToday = (value) => formatISODate(new Date()) === value;
 const isWeekend = (value) => {
   const date = parseISODate(value);
@@ -419,7 +474,7 @@ watch(
     assignmentSuccess.value = "";
     assignmentForm.value = { subject: "", topic: "" };
     savedAssignmentSubject.value = "";
-    topics.value = [];
+    tasks.value = [];
     calendarDays.value = [];
     calendarError.value = "";
     calendarMessage.value = "";
@@ -532,11 +587,11 @@ onBeforeUnmount(() => {
       <div class="schedule-header">
         <div>
           <div class="column-head schedule-head">
-            <h2 class="section-title">Weekly Topic Calendar</h2>
-            <span class="pill">{{ calendarAssignedCount }} of {{ calendarDays.length || WEEK_LENGTH }} dates filled</span>
+            <h2 class="section-title">Weekly Task Calendar</h2>
+            <span class="pill">{{ calendarAssignedCount }} tasks scheduled</span>
           </div>
           <p class="assignment-hint schedule-hint">
-            Move week by week and pin the exact topic for each lesson date.
+            Move week by week and pin the exact task for each lesson date.
           </p>
         </div>
 
@@ -556,7 +611,7 @@ onBeforeUnmount(() => {
       <div class="schedule-summary">
         <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
         <div class="schedule-subject">
-          Topic pool:
+          Task pool:
           <strong>{{ scheduleUnlocked ? scheduleSubjectName : "locked until subject is saved" }}</strong>
         </div>
       </div>
@@ -571,10 +626,10 @@ onBeforeUnmount(() => {
         <p class="schedule-empty-copy">{{ scheduleDisabledMessage }}</p>
       </div>
 
-      <div v-else-if="topics.length === 0" class="schedule-empty">
-        <div class="schedule-empty-title">No active topics found</div>
+      <div v-else-if="tasks.length === 0" class="schedule-empty">
+        <div class="schedule-empty-title">No active tasks found</div>
         <p class="schedule-empty-copy">
-          This subject has no active topics yet. Add some topics in the subject page, then come back here.
+          This subject has no active tasks yet. Add tasks in a topic page, then come back here.
         </p>
       </div>
 
@@ -586,7 +641,7 @@ onBeforeUnmount(() => {
           :class="{
             'is-today': isToday(day.date),
             'is-weekend': isWeekend(day.date),
-            'is-assigned': day.topic,
+            'is-assigned': day.items.some((item) => item.task),
           }"
         >
           <div class="schedule-day-top">
@@ -597,41 +652,53 @@ onBeforeUnmount(() => {
             <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
           </div>
 
-          <label class="form-label schedule-label">Topic</label>
-          <select
-            v-model="day.topicDraft"
-            class="form-select form-select-sm schedule-select"
-            :aria-label="`Topic for ${day.date}`"
-          >
-            <option value="">No topic scheduled</option>
-            <option v-for="topic in topics" :key="topic.id" :value="String(topic.id)">
-              {{ topic.title }}
-            </option>
-          </select>
+          <div class="schedule-task-list">
+            <article
+              v-for="item in day.items"
+              :key="item.clientKey"
+              class="schedule-task-row"
+            >
+              <label class="form-label schedule-label">Task</label>
+              <select
+                v-model="item.taskDraft"
+                class="form-select form-select-sm schedule-select"
+                :aria-label="`Task for ${day.date}`"
+              >
+                <option value="">No task scheduled</option>
+                <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
+                  {{ taskItem.topic_title }} - {{ taskItem.title }}
+                </option>
+              </select>
 
-          <div class="schedule-topic-state">
-            <span class="schedule-topic-caption">Current</span>
-            <strong>{{ day.topic_title || "Free day" }}</strong>
+              <div class="schedule-topic-state">
+                <span class="schedule-topic-caption">Current</span>
+                <strong>{{ item.task_title || item.topic_title || "Free slot" }}</strong>
+              </div>
+
+              <div class="schedule-day-actions">
+                <button
+                  class="btn btn-primary btn-sm"
+                  type="button"
+                  :disabled="calendarSavingKey === item.clientKey || !item.taskDraft || !isCalendarTaskDirty(item)"
+                  @click="saveCalendarTask(day, item)"
+                >
+                  {{ calendarSavingKey === item.clientKey ? "Saving..." : "Save" }}
+                </button>
+                <button
+                  class="btn btn-outline-secondary btn-sm"
+                  type="button"
+                  :disabled="calendarSavingKey === item.clientKey || (!item.id && day.items.length === 1 && !item.taskDraft)"
+                  @click="clearCalendarTask(day, item)"
+                >
+                  Clear
+                </button>
+              </div>
+            </article>
           </div>
 
-          <div class="schedule-day-actions">
-            <button
-              class="btn btn-primary btn-sm"
-              type="button"
-              :disabled="calendarSavingDate === day.date || !day.topicDraft || !isCalendarDayDirty(day)"
-              @click="saveCalendarDay(day)"
-            >
-              {{ calendarSavingDate === day.date ? "Saving..." : "Save day" }}
-            </button>
-            <button
-              class="btn btn-outline-secondary btn-sm"
-              type="button"
-              :disabled="calendarSavingDate === day.date || (!day.topic && !day.topicDraft)"
-              @click="clearCalendarDay(day)"
-            >
-              Clear
-            </button>
-          </div>
+          <button class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
+            Add another task
+          </button>
         </article>
       </div>
     </section>
