@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
@@ -742,8 +742,6 @@ class GroupViewSet(viewsets.ModelViewSet):
         else:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
-        students = group.students.select_related("user").all()
-        # Запланированные тесты
         schedule_entries = GroupTopicSchedule.objects.filter(
             group=group,
             topic__is_active=True,
@@ -752,35 +750,59 @@ class GroupViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         past_entries = schedule_entries.filter(scheduled_for__lte=today)
 
-        attempts = Attempt.objects.filter(
-            student__in=students,
-            schedule_entry__in=past_entries,
-            status=Attempt.Status.COMPLETED,
-        )
-
         total_past = past_entries.count()
         last_group_entry = past_entries.order_by("-scheduled_for").first()
 
+        students = Student.objects.select_related("user").filter(groups=group).annotate(
+            completed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                ),
+                distinct=True,
+            ),
+            passed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__is_success=True,
+                ),
+                distinct=True,
+            ),
+            total_correct=Count(
+                "attempts__attempt_questions",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__attempt_questions__answer__is_correct=True,
+                ),
+                distinct=True,
+            ),
+        )
+
+        last_attempts = {
+            a.student_id: a
+            for a in Attempt.objects.filter(
+                student__in=students,
+                schedule_entry=last_group_entry,
+                status=Attempt.Status.COMPLETED,
+            )
+        } if last_group_entry else {}
+
         rows = []
         for student in students:
-            student_attempts = attempts.filter(student=student)
-            completed = student_attempts.count()
-            missed = total_past - completed
-            passed = student_attempts.filter(is_success=True).count()
-            total_correct = sum(a.correct_count() for a in student_attempts)
-            pass_rate = passed / total_past if total_past > 0 else 0
-
-            last_attempt = (
-                student_attempts.filter(schedule_entry=last_group_entry).first()
-                if last_group_entry else None
-            )
+            last_attempt = last_attempts.get(student.id)
+            missed = total_past - student.completed
+            pass_rate = student.passed / total_past if total_past > 0 else 0
             rows.append({
                 "student_id": student.id,
                 "username": student.user.username,
-                "completed": completed,
+                "completed": student.completed,
                 "missed": missed,
-                "passed": passed,
-                "total_correct": total_correct,
+                "passed": student.passed,
+                "total_correct": student.total_correct,
                 "pass_rate": round(pass_rate * 100, 1),
                 "last_correct_count": last_attempt.correct_count() if last_attempt else None,
                 "last_total_questions": last_attempt.total_questions() if last_attempt else None,
