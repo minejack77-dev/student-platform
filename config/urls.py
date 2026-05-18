@@ -22,6 +22,7 @@ from django.conf.urls import include
 from rest_framework.routers import DefaultRouter
 from learning import views as learning_views
 from accounts import views as accounts_views
+from django.views.generic import TemplateView
 
 router = DefaultRouter()
 router.register(r"subject", learning_views.SubjectViewSet, basename="subject")
@@ -47,5 +48,8 @@ urlpatterns += [
     path("api/auth/csrf/", accounts_views.CsrfCookieView.as_view(), name="auth-csrf"),
     path("api/auth/login/", accounts_views.LoginView.as_view(), name="auth-login"),
     path("api/auth/logout/", accounts_views.LogoutView.as_view(), name="auth-logout"),
-    path("api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"), # Возвращает текущего пользователя
+    path(
+        "api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"
+    ),  # Возвращает текущего пользователя
+    path("", TemplateView.as_view(template_name="index.html"), name="index"),
 ]
