@@ -176,7 +176,9 @@ def _read_xlsx_cell(cell, shared_strings) -> SpreadsheetCell:
         return _xlsx_cell_from_runs(_xlsx_text_runs(inline))
 
     value_node = cell.find("main:v", XLSX_NS)
-    value = _stringify_spreadsheet_cell(value_node.text if value_node is not None else "")
+    value = _stringify_spreadsheet_cell(
+        value_node.text if value_node is not None else ""
+    )
     html = escape(value)
     return SpreadsheetCell(plain=value, html=html)
 
@@ -185,7 +187,9 @@ def _read_xlsx_rows(src_path) -> list[list[SpreadsheetCell]]:
     with ZipFile(src_path) as archive:
         sheet_path = "xl/worksheets/sheet1.xml"
         if sheet_path not in archive.namelist():
-            raise ValidationError({"src": "Spreadsheet must contain at least one sheet."})
+            raise ValidationError(
+                {"src": "Spreadsheet must contain at least one sheet."}
+            )
 
         shared_strings = _read_xlsx_shared_strings(archive)
         root = ElementTree.fromstring(archive.read(sheet_path))
@@ -280,12 +284,12 @@ def import_questions_from_xls(*, task=None, topic=None, src, is_active=True):
 
             question_text = question_cell.html
             if header_cell.html:
-                question_text = f"{header_cell.html}\n{question_text}"
+                question_text = f"{question_text}"
 
             question = Question.objects.create(
                 topic=topic,
                 task=task,
-                instruction="",
+                instruction=f"{header_cell.html}",
                 text=question_text,
                 question_type=Question.QuestionType.SINGLE_CHOICE,
                 is_active=is_active,
