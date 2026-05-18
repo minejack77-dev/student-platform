@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from accounts.models import Student, Teacher
@@ -19,6 +20,7 @@ from learning.models import (
     GroupTeachingAssignment,
     Question,
     Subject,
+    Task,
     Topic,
     Unit,
     Workbook,
@@ -39,10 +41,12 @@ from learning.serializers import (
     QuestionSerializer,
     StudentBriefSerializer,
     SubjectSerializer,
+    TaskSerializer,
     TopicSerializer,
     UnitSerializer,
     WorkbookSerializer,
 )
+from learning.services.question_import import import_questions_from_xls
 
 
 def get_request_teacher(request):
@@ -170,8 +174,73 @@ class TopicViewSet(viewsets.ModelViewSet):
     ordering = ("unit__workbook__title", "unit__title", "title")
 
 
+class TaskSetFilter(FilterSet):
+    title = filters.CharFilter(field_name="title", lookup_expr="icontains")
+    topic = filters.NumberFilter(field_name="topic_id")
+    subject = filters.NumberFilter(field_name="topic__subject_id")
+
+    class Meta:
+        model = Task
+        fields = ("id", "title", "topic", "subject", "is_active")
+
+
+class TaskViewSet(viewsets.ModelViewSet):
+    queryset = Task.objects.select_related("topic", "topic__subject").all()
+    serializer_class = TaskSerializer
+    filter_backends = (DjangoFilterBackend, OrderingFilter)
+    filterset_class = TaskSetFilter
+    ordering_fields = ("title", "updated_at", "id", "topic")
+    ordering = ("topic__title", "title")
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="import-questions",
+        parser_classes=(MultiPartParser, FormParser),
+    )
+    def import_questions(self, request, pk=None):
+        task = self.get_object()
+        uploaded_file = request.FILES.get("src")
+        if uploaded_file is None:
+            return Response(
+                {"src": "Question file is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task.src = uploaded_file
+        task.save(update_fields=["src", "updated_at"])
+        is_active = str(request.data.get("is_active", "true")).lower() not in (
+            "false",
+            "0",
+            "no",
+        )
+
+        try:
+            questions = import_questions_from_xls(
+                task=task,
+                src=task.src,
+                is_active=is_active,
+            )
+        except Exception as exc:
+            payload = getattr(exc, "message_dict", None)
+            if payload is None:
+                messages = getattr(exc, "messages", None)
+                payload = {"detail": " ".join(messages) if messages else str(exc)}
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(task)
+        return Response(
+            {
+                "imported_count": len(questions),
+                "task": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class QuestionSetFilter(FilterSet):
     topic = filters.NumberFilter(field_name="topic_id")
+    task = filters.NumberFilter(field_name="task_id")
     text = filters.CharFilter(field_name="text", lookup_expr="icontains")
     question_type = filters.ChoiceFilter(
         field_name="question_type", choices=Question.QuestionType.choices
@@ -179,7 +248,7 @@ class QuestionSetFilter(FilterSet):
 
     class Meta:
         model = Question
-        fields = ("id", "topic", "text", "question_type", "is_active")
+        fields = ("id", "topic", "task", "text", "question_type", "is_active")
 
 
 class QuestionViewSet(viewsets.ModelViewSet):
@@ -196,18 +265,26 @@ class QuestionViewSet(viewsets.ModelViewSet):
     def _touch_topic(self, topic_id):
         Topic.objects.filter(id=topic_id).update(updated_at=timezone.now())
 
+    def _touch_task(self, task_id):
+        if task_id:
+            Task.objects.filter(id=task_id).update(updated_at=timezone.now())
+
     def perform_create(self, serializer):
         question = serializer.save()
         self._touch_topic(question.topic_id)
+        self._touch_task(question.task_id)
 
     def perform_update(self, serializer):
         question = serializer.save()
         self._touch_topic(question.topic_id)
+        self._touch_task(question.task_id)
 
     def perform_destroy(self, instance):
         topic_id = instance.topic_id
+        task_id = instance.task_id
         instance.delete()
         self._touch_topic(topic_id)
+        self._touch_task(task_id)
 
 
 class GroupSetFilter(FilterSet):
@@ -259,6 +336,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             "students__user",
             "teaching_assignments__subject",
             "teaching_assignments__topic",
+            "teaching_assignments__task",
             "teaching_assignments__teacher__user",
         )
         .all()
@@ -279,7 +357,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     def _get_teacher_assignment(self, group, teacher):
         return (
             GroupTeachingAssignment.objects.select_related(
-                "group", "teacher__user", "subject", "topic"
+                "group", "teacher__user", "subject", "topic", "task"
             )
             .filter(group=group, teacher=teacher)
             .first()
@@ -289,10 +367,46 @@ class GroupViewSet(viewsets.ModelViewSet):
         queryset = GroupTopicSchedule.objects.filter(group=group, teacher=teacher)
         if exclude_subject_id is not None:
             queryset = queryset.exclude(topic__subject_id=exclude_subject_id)
+        if queryset.filter(attempts__isnull=False).exists():
+            raise ProtectedError(
+                "This schedule already has student attempts and cannot be removed.",
+                [],
+            )
         deleted_count, _details = queryset.delete()
         if deleted_count:
             self._touch_group(group.id)
         return deleted_count
+
+    def _delete_schedule_queryset(self, queryset):
+        if queryset.filter(attempts__isnull=False).exists():
+            return (
+                None,
+                Response(
+                    {
+                        "detail": (
+                            "This scheduled task already has student attempts in this group "
+                            "and cannot be removed."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+        try:
+            deleted_count, _details = queryset.delete()
+        except ProtectedError:
+            return (
+                None,
+                Response(
+                    {
+                        "detail": (
+                            "This scheduled task already has student attempts in this group "
+                            "and cannot be removed."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+        return deleted_count, None
 
     def _build_empty_topic_schedule_item(self, group, teacher, scheduled_for, assignment=None):
         return {
@@ -306,6 +420,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             "subject_name": assignment.subject.name if assignment else None,
             "topic": None,
             "topic_title": None,
+            "task": None,
+            "task_title": None,
             "updated_at": None,
         }
 
@@ -337,6 +453,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                         "subject_name": None,
                         "topic": None,
                         "topic_title": None,
+                        "task": None,
+                        "task_title": None,
                         "updated_at": None,
                     },
                     status=status.HTTP_200_OK,
@@ -376,8 +494,12 @@ class GroupViewSet(viewsets.ModelViewSet):
             "topic",
             getattr(assignment, "topic", None),
         )
+        task = write_serializer.validated_data.get(
+            "task",
+            getattr(assignment, "task", None),
+        )
 
-        if subject is None and topic is None:
+        if subject is None and topic is None and task is None:
             try:
                 if assignment:
                     assignment.delete()
@@ -402,6 +524,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                     "subject_name": None,
                     "topic": None,
                     "topic_title": None,
+                    "task": None,
+                    "task_title": None,
                     "updated_at": None,
                 },
                 status=status.HTTP_200_OK,
@@ -414,11 +538,13 @@ class GroupViewSet(viewsets.ModelViewSet):
                 teacher=teacher,
                 subject=subject,
                 topic=topic,
+                task=task,
             )
             created = True
         else:
             assignment.subject = subject
             assignment.topic = topic
+            assignment.task = task
         assignment.save()
         try:
             self._delete_topic_schedule(group, teacher, exclude_subject_id=assignment.subject_id)
@@ -487,6 +613,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     "group",
                     "teacher__user",
                     "topic",
+                    "task",
                     "topic__subject",
                 )
                 .filter(
@@ -496,15 +623,15 @@ class GroupViewSet(viewsets.ModelViewSet):
                 )
                 .order_by("scheduled_for")
             )
-            entries_by_date = {
-                entry.scheduled_for: entry for entry in schedule_entries
-            }
+            entries_by_date = {}
+            for entry in schedule_entries:
+                entries_by_date.setdefault(entry.scheduled_for, []).append(entry)
 
             results = []
             for index in range(days):
                 current_date = start_date + timedelta(days=index)
-                entry = entries_by_date.get(current_date)
-                if entry is None:
+                entries = entries_by_date.get(current_date, [])
+                if not entries:
                     results.append(
                         self._build_empty_topic_schedule_item(
                             group,
@@ -514,7 +641,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                         )
                     )
                 else:
-                    results.append(GroupTopicScheduleSerializer(entry).data)
+                    for entry in entries:
+                        results.append(GroupTopicScheduleSerializer(entry).data)
 
             return Response(
                 {
@@ -532,29 +660,36 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         if request.method == "DELETE":
+            entry_id = (
+                request.query_params.get("schedule_entry")
+                or request.data.get("schedule_entry")
+            )
             date_param = request.query_params.get("date") or request.data.get("date")
             scheduled_for = parse_date(date_param) if date_param else None
-            if scheduled_for is None:
-                return Response(
-                    {"detail": "Date is required in query parameter or request body."},
-                    status=status.HTTP_400_BAD_REQUEST,
+            if entry_id:
+                queryset = GroupTopicSchedule.objects.filter(
+                    id=entry_id,
+                    group=group,
+                    teacher=teacher,
                 )
-
-            try:
-                deleted_count, _details = GroupTopicSchedule.objects.filter(
+            elif scheduled_for is not None:
+                task_id = request.query_params.get("task") or request.data.get("task")
+                queryset = GroupTopicSchedule.objects.filter(
                     group=group,
                     teacher=teacher,
                     scheduled_for=scheduled_for,
-                ).delete()
-            except ProtectedError:
+                )
+                if task_id:
+                    queryset = queryset.filter(task_id=task_id)
+            else:
                 return Response(
-                    {
-                        "detail": (
-                            "This schedule already has student attempts and cannot be removed."
-                        )
-                    },
+                    {"detail": "Schedule id or date is required."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            deleted_count, error_response = self._delete_schedule_queryset(queryset)
+            if error_response is not None:
+                return error_response
             if deleted_count:
                 self._touch_group(group.id)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -563,24 +698,20 @@ class GroupViewSet(viewsets.ModelViewSet):
         write_serializer.is_valid(raise_exception=True)
 
         scheduled_for = write_serializer.validated_data["date"]
-        topic = write_serializer.validated_data["topic"]
+        task = write_serializer.validated_data.get("task")
+        topic = write_serializer.validated_data.get("topic")
+        if task is not None:
+            topic = task.topic
 
-        if topic is None:
-            try:
-                deleted_count, _details = GroupTopicSchedule.objects.filter(
-                    group=group,
-                    teacher=teacher,
-                    scheduled_for=scheduled_for,
-                ).delete()
-            except ProtectedError:
-                return Response(
-                    {
-                        "detail": (
-                            "This schedule already has student attempts and cannot be removed."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if topic is None and task is None:
+            queryset = GroupTopicSchedule.objects.filter(
+                group=group,
+                teacher=teacher,
+                scheduled_for=scheduled_for,
+            )
+            deleted_count, error_response = self._delete_schedule_queryset(queryset)
+            if error_response is not None:
+                return error_response
             if deleted_count:
                 self._touch_group(group.id)
             return Response(
@@ -597,7 +728,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response(
                 {
                     "detail": (
-                        "Save a subject in this group before assigning topics to dates."
+                        "Save a subject in this group before assigning tasks to dates."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -605,7 +736,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         if topic.subject_id != assignment.subject_id:
             return Response(
-                {"topic": "Topic must belong to your saved subject for this group."},
+                {"task": "Task must belong to your saved subject for this group."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -613,6 +744,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             group=group,
             teacher=teacher,
             scheduled_for=scheduled_for,
+            task=task,
             defaults={"topic": topic},
         )
         self._touch_group(group.id)
@@ -718,6 +850,123 @@ class GroupViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get"], url_path="ranking")
+    def ranking(self, request, pk=None):
+        group = self.get_object()
+
+        request_student = get_request_student(request)
+        request_teacher = get_request_teacher(request)
+
+        if request_student:
+            if not group.students.filter(id=request_student.id).exists():
+                return Response(
+                    {"detail": "You are not a member of this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif request_teacher:
+            if not GroupTeachingAssignment.objects.filter(
+                group=group, teacher=request_teacher
+            ).exists():
+                return Response(
+                    {"detail": "You are not assigned to this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        schedule_entries = GroupTopicSchedule.objects.filter(
+            group=group,
+            topic__is_active=True,
+            topic__subject__is_active=True,
+        )
+        today = timezone.localdate()
+        past_entries = schedule_entries.filter(scheduled_for__lte=today)
+
+        total_past = past_entries.count()
+        last_group_entry = past_entries.order_by("-scheduled_for").first()
+
+        students = Student.objects.select_related("user").filter(groups=group).annotate(
+            completed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                ),
+                distinct=True,
+            ),
+            passed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__is_success=True,
+                ),
+                distinct=True,
+            ),
+            total_correct=Count(
+                "attempts__attempt_questions",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__attempt_questions__answer__is_correct=True,
+                ),
+                distinct=True,
+            ),
+        )
+
+        last_attempts = {
+            a.student_id: a
+            for a in Attempt.objects.filter(
+                student__in=students,
+                schedule_entry=last_group_entry,
+                status=Attempt.Status.COMPLETED,
+            )
+        } if last_group_entry else {}
+
+        rows = []
+        for student in students:
+            last_attempt = last_attempts.get(student.id)
+            missed = total_past - student.completed
+            pass_rate = student.passed / total_past if total_past > 0 else 0
+            rows.append({
+                "student_id": student.id,
+                "username": student.user.username,
+                "completed": student.completed,
+                "missed": missed,
+                "passed": student.passed,
+                "total_correct": student.total_correct,
+                "pass_rate": round(pass_rate * 100, 1),
+                "last_correct_count": last_attempt.correct_count() if last_attempt else None,
+                "last_total_questions": last_attempt.total_questions() if last_attempt else None,
+                "last_result": (
+                    "success" if last_attempt.is_success is True
+                    else "fail" if last_attempt.is_success is False
+                    else None
+                ) if last_attempt else None,
+            })
+
+        # Сортируем студентов
+        rows.sort(key=lambda r: (-r["pass_rate"], -r["total_correct"]))
+        # Добавляем рейтинг
+        for index, row in enumerate(rows, start=1):
+            row["rank"] = index
+
+        if request_student:
+            # Запись с нашим студентом
+            my_row = next((r for r in rows if r["student_id"] == request_student.id), None)
+            return Response({
+                "group_id": group.id,
+                "group_name": group.name,
+                "rank": my_row["rank"] if my_row else None,
+                "total": len(rows),
+            })
+
+        return Response({
+            "group_id": group.id,
+            "group_name": group.name,
+            "ranking": rows,
+        })
+
 
 class AttemptSetFilter(FilterSet):
     class Meta:
@@ -729,6 +978,7 @@ class AttemptViewSet(viewsets.ModelViewSet):
     queryset = Attempt.objects.select_related(
         "topic",
         "topic__subject",
+        "task",
         "student__user",
         "schedule_entry",
         "schedule_entry__group",

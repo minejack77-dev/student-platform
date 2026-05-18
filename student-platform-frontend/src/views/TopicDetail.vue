@@ -1,70 +1,61 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
-import { Question, Topic } from "@/api.js";
-import {
-  extractRichTextLines,
-  plainTextFromRichText,
-  sanitizeInlineRichText,
-} from "@/utils/richText.js";
+import { Question, Task, Topic } from "@/api.js";
+import { sanitizeInlineRichText } from "@/utils/richText.js";
 
 const props = defineProps(["id"]);
 
 const topic = ref({});
+const tasks = ref([]);
+const selectedTaskId = ref("");
 const questions = ref([]);
 const loadError = ref("");
-const saveError = ref("");
-const saveSuccess = ref("");
+const importError = ref("");
+const importSuccess = ref("");
 const deleteError = ref("");
-const isSaving = ref(false);
+const isImporting = ref(false);
 const deletingQuestionId = ref(null);
-const questionsEditorRef = ref(null);
-
-const bulkForm = ref({
-  question_type: "single_choice",
+const questionFile = ref(null);
+const fileInputRef = ref(null);
+const importForm = ref({
   is_active: true,
-  instruction: "",
-  shared_choice_one: "",
-  shared_choice_two: "",
-  questions_html: "",
-  keys_raw: "",
 });
+const taskForm = ref({
+  title: "",
+  description: "",
+  is_active: true,
+});
+const taskSaveError = ref("");
+const taskSaveSuccess = ref("");
+const isTaskSaving = ref(false);
 
-const resetBulkForm = () => {
-  bulkForm.value = {
-    question_type: "single_choice",
-    is_active: true,
-    instruction: "",
-    shared_choice_one: "",
-    shared_choice_two: "",
-    questions_html: "",
-    keys_raw: "",
-  };
-  if (questionsEditorRef.value) {
-    questionsEditorRef.value.innerHTML = "";
+const getApiErrorMessage = (data) => {
+  if (!data) {
+    return "";
   }
+  if (typeof data === "string") {
+    return data;
+  }
+
+  const fields = ["detail", "src", "task", "topic", "non_field_errors"];
+  for (const field of fields) {
+    const value = data[field];
+    if (Array.isArray(value) && value.length > 0) {
+      return value[0];
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return "";
 };
 
-const getNonEmptyLines = (value) =>
-  (value || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-const enteredQuestionsCount = computed(
-  () => extractRichTextLines(bulkForm.value.questions_html).length,
-);
-const enteredKeysCount = computed(() => getNonEmptyLines(bulkForm.value.keys_raw).length);
-
-const onQuestionsEditorInput = () => {
-  bulkForm.value.questions_html = questionsEditorRef.value?.innerHTML || "";
-};
-
-const applyQuestionsEditorFormat = (command) => {
-  questionsEditorRef.value?.focus();
-  if (typeof document !== "undefined") {
-    document.execCommand(command, false);
+const resetImportForm = () => {
+  questionFile.value = null;
+  importForm.value = { is_active: true };
+  if (fileInputRef.value) {
+    fileInputRef.value.value = "";
   }
-  onQuestionsEditorInput();
 };
 
 const getTopic = async () => {
@@ -72,171 +63,110 @@ const getTopic = async () => {
   topic.value = response;
 };
 
+const getTasks = async () => {
+  const response = await Task.filter({ topic: props.id, ordering: "title" });
+  tasks.value = response.results ?? response;
+  if (!selectedTaskId.value && tasks.value.length > 0) {
+    selectedTaskId.value = String(tasks.value[0].id);
+  }
+};
+
 const getQuestions = async () => {
-  const response = await Question.filter({ topic: props.id });
+  if (!selectedTaskId.value) {
+    questions.value = [];
+    return;
+  }
+  const response = await Question.filter({
+    task: selectedTaskId.value,
+    page_size: 200,
+  });
   questions.value = response.results ?? response;
 };
 
 const loadTopicPage = async () => {
   loadError.value = "";
   try {
-    await Promise.all([getTopic(), getQuestions()]);
+    await Promise.all([getTopic(), getTasks()]);
+    await getQuestions();
   } catch {
     loadError.value = "Failed to load topic data.";
   }
 };
 
-const parseKeyIndexes = (rawLine) => {
-  const tokens = rawLine
-    .split(/[\s,;]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-  if (tokens.length === 0) {
-    return { indexes: [], error: "At least one index is required." };
-  }
-
-  const indexes = [];
-  for (const token of tokens) {
-    if (!/^\d+$/.test(token)) {
-      return { indexes: [], error: `Invalid key token "${token}". Use numbers only.` };
-    }
-    indexes.push(Number(token));
-  }
-  return { indexes: [...new Set(indexes)], error: "" };
-};
-
-const buildBulkPayloads = () => {
-  const questionLines = extractRichTextLines(bulkForm.value.questions_html);
-  const keyLines = getNonEmptyLines(bulkForm.value.keys_raw);
-  const sharedChoices = [
-    (bulkForm.value.shared_choice_one || "").trim(),
-    (bulkForm.value.shared_choice_two || "").trim(),
-  ];
-  const instruction = (bulkForm.value.instruction || "").trim();
-
-  if (questionLines.length === 0) {
-    return { payloads: [], error: "Add at least one question line." };
-  }
-  if (!sharedChoices[0] || !sharedChoices[1]) {
-    return { payloads: [], error: "Fill both shared answer options." };
-  }
-  if (questionLines.length !== keyLines.length) {
-    return {
-      payloads: [],
-      error: `Questions count (${questionLines.length}) and keys count (${keyLines.length}) must match.`,
-    };
-  }
-
-  const payloads = [];
-  for (let index = 0; index < questionLines.length; index += 1) {
-    const questionLineNumber = index + 1;
-    const text = questionLines[index];
-    const textPlain = plainTextFromRichText(text);
-
-    if (!textPlain) {
-      return {
-        payloads: [],
-        error: `Question line ${questionLineNumber}: question text is required.`,
-      };
-    }
-
-    const parsedKeys = parseKeyIndexes(keyLines[index]);
-    if (parsedKeys.error) {
-      return {
-        payloads: [],
-        error: `Key line ${questionLineNumber}: ${parsedKeys.error}`,
-      };
-    }
-
-    const outOfRangeIndex = parsedKeys.indexes.find(
-      (keyIndex) => keyIndex < 1 || keyIndex > sharedChoices.length,
-    );
-    if (outOfRangeIndex) {
-      return {
-        payloads: [],
-        error: `Key line ${questionLineNumber}: index ${outOfRangeIndex} is out of range (1..${sharedChoices.length}).`,
-      };
-    }
-
-    if (bulkForm.value.question_type === "single_choice" && parsedKeys.indexes.length !== 1) {
-      return {
-        payloads: [],
-        error: `Key line ${questionLineNumber}: single choice requires exactly one correct index.`,
-      };
-    }
-
-    const correctIndexSet = new Set(parsedKeys.indexes);
-    const choices = sharedChoices.map((option, optionIndex) => ({
-      text: option,
-      is_correct: correctIndexSet.has(optionIndex + 1),
-      order: optionIndex + 1,
-    }));
-
-    payloads.push({
-      topic: Number(props.id),
-      instruction,
-      text,
-      question_type: bulkForm.value.question_type,
-      is_active: bulkForm.value.is_active,
-      choices,
-    });
-  }
-
-  return { payloads, error: "" };
-};
-
-const createQuestions = async () => {
-  saveError.value = "";
-  saveSuccess.value = "";
-  deleteError.value = "";
-
-  const { payloads, error } = buildBulkPayloads();
-  if (error) {
-    saveError.value = error;
+const createTask = async () => {
+  taskSaveError.value = "";
+  taskSaveSuccess.value = "";
+  const title = taskForm.value.title.trim();
+  if (!title) {
+    taskSaveError.value = "Task title is required.";
     return;
   }
 
-  isSaving.value = true;
-  let createdCount = 0;
-  const failedLines = [];
+  isTaskSaving.value = true;
   try {
-    for (let index = 0; index < payloads.length; index += 1) {
-      try {
-        await Question.save(payloads[index]);
-        createdCount += 1;
-      } catch (requestError) {
-        const errorText =
-          requestError?.response?.data?.choices?.[0] ||
-          requestError?.response?.data?.text?.[0] ||
-          requestError?.response?.data?.detail ||
-          "Request failed.";
-        failedLines.push(`Line ${index + 1}: ${errorText}`);
-      }
-    }
-
-    if (failedLines.length === 0) {
-      saveSuccess.value = `Added ${createdCount} question(s).`;
-      resetBulkForm();
-    } else {
-      const preview = failedLines.slice(0, 3).join(" ");
-      const tail =
-        failedLines.length > 3 ? ` And ${failedLines.length - 3} more error(s).` : "";
-      saveError.value = `Created ${createdCount} of ${payloads.length}. ${preview}${tail}`;
-      if (createdCount > 0) {
-        saveSuccess.value = `Partially added: ${createdCount} question(s).`;
-      }
-    }
-
+    const createdTask = await Task.save({
+      topic: Number(props.id),
+      title,
+      description: taskForm.value.description.trim(),
+      is_active: taskForm.value.is_active,
+    });
+    taskForm.value = { title: "", description: "", is_active: true };
+    selectedTaskId.value = String(createdTask.id);
+    taskSaveSuccess.value = "Task created.";
+    await getTasks();
     await getQuestions();
+  } catch (error) {
+    taskSaveError.value =
+      error?.response?.data?.title?.[0] ||
+      error?.response?.data?.detail ||
+      "Could not create task.";
   } finally {
-    isSaving.value = false;
+    isTaskSaving.value = false;
+  }
+};
+
+const onQuestionFileChange = (event) => {
+  importError.value = "";
+  importSuccess.value = "";
+  questionFile.value = event.target.files?.[0] ?? null;
+};
+
+const importQuestions = async () => {
+  importError.value = "";
+  importSuccess.value = "";
+  deleteError.value = "";
+
+  if (!selectedTaskId.value) {
+    importError.value = "Create or select a task first.";
+    return;
+  }
+  if (!questionFile.value) {
+    importError.value = "Choose a .xls or .xlsx file.";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("src", questionFile.value);
+  formData.append("is_active", importForm.value.is_active ? "true" : "false");
+
+  isImporting.value = true;
+  try {
+    const response = await Task.importQuestions(selectedTaskId.value, formData);
+    importSuccess.value = `Imported ${response.imported_count} question(s).`;
+    resetImportForm();
+    await Promise.all([getTasks(), getQuestions()]);
+  } catch (error) {
+    importError.value =
+      getApiErrorMessage(error?.response?.data) || "Could not import questions.";
+  } finally {
+    isImporting.value = false;
   }
 };
 
 const deleteQuestion = async (questionId) => {
   deleteError.value = "";
-  saveSuccess.value = "";
-  saveError.value = "";
+  importSuccess.value = "";
+  importError.value = "";
   deletingQuestionId.value = questionId;
 
   try {
@@ -262,20 +192,34 @@ const questionTypeLabel = (value) => {
 const renderRichText = (value) => sanitizeInlineRichText(value || "");
 
 const questionsCount = computed(() => questions.value.length);
+const tasksCount = computed(() => tasks.value.length);
+const selectedTask = computed(() =>
+  tasks.value.find((task) => String(task.id) === String(selectedTaskId.value)),
+);
+const selectedFileName = computed(() => questionFile.value?.name || "No file selected");
 
 watch(
   () => props.id,
   async () => {
-    resetBulkForm();
-    saveError.value = "";
-    saveSuccess.value = "";
+    selectedTaskId.value = "";
+    importError.value = "";
+    importSuccess.value = "";
     deleteError.value = "";
+    resetImportForm();
     await loadTopicPage();
   },
 );
 
 onMounted(async () => {
   await loadTopicPage();
+});
+
+watch(selectedTaskId, async () => {
+  importError.value = "";
+  importSuccess.value = "";
+  deleteError.value = "";
+  resetImportForm();
+  await getQuestions();
 });
 </script>
 
@@ -294,7 +238,11 @@ onMounted(async () => {
           <div class="metric-value">{{ topic.is_active ? "Active" : "Inactive" }}</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Questions</div>
+          <div class="metric-label">Tasks</div>
+          <div class="metric-value">{{ tasksCount }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Selected questions</div>
           <div class="metric-value">{{ questionsCount }}</div>
         </div>
       </div>
@@ -304,146 +252,97 @@ onMounted(async () => {
 
     <section class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">Create Questions</h2>
-        <span class="pill">
-          {{ bulkForm.question_type === "single_choice" ? "One correct" : "Many correct" }}
-        </span>
+        <h2 class="section-title">Tasks in Topic</h2>
+        <span class="pill">{{ tasksCount }} total</span>
       </div>
 
       <div class="row g-3 align-items-end">
-        <div class="col-md-7">
-          <label class="form-label">Question type</label>
-          <select v-model="bulkForm.question_type" class="form-select">
-            <option value="single_choice">Single choice</option>
-            <option value="multiple_choice">Multiple choice</option>
+        <div class="col-md-4">
+          <label class="form-label">Current task</label>
+          <select v-model="selectedTaskId" class="form-select">
+            <option value="">No task selected</option>
+            <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
+              {{ taskItem.title }}
+            </option>
           </select>
         </div>
-        <div class="col-md-5">
-          <label class="form-label d-block">Question state</label>
-          <div class="form-check mt-2">
-            <input id="question-active" v-model="bulkForm.is_active" class="form-check-input" type="checkbox" />
-            <label class="form-check-label" for="question-active">Active</label>
-          </div>
+        <div class="col-md-3">
+          <label class="form-label">New task title</label>
+          <input v-model="taskForm.title" class="form-control" type="text" placeholder="Task title" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Description</label>
+          <input v-model="taskForm.description" class="form-control" type="text" placeholder="Optional" />
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary w-100" type="button" :disabled="isTaskSaving" @click="createTask">
+            {{ isTaskSaving ? "Creating..." : "Create task" }}
+          </button>
         </div>
       </div>
 
-      <div class="mt-3">
-        <label class="form-label">Instruction for all added questions</label>
-        <textarea
-          v-model="bulkForm.instruction"
-          class="form-control"
-          rows="3"
-          placeholder="Example: Read the question and choose the correct option."
-        />
+      <div class="form-check mt-3">
+        <input id="task-active" v-model="taskForm.is_active" class="form-check-input" type="checkbox" />
+        <label class="form-check-label" for="task-active">Active</label>
       </div>
 
-      <div class="options-grid">
-        <div>
-          <label class="form-label">Shared option 1</label>
-          <input
-            v-model="bulkForm.shared_choice_one"
-            class="form-control"
-            type="text"
-            placeholder="First answer option for all questions"
-          />
-        </div>
-        <div>
-          <label class="form-label">Shared option 2</label>
-          <input
-            v-model="bulkForm.shared_choice_two"
-            class="form-control"
-            type="text"
-            placeholder="Second answer option for all questions"
-          />
-        </div>
+      <div v-if="selectedTask" class="field-hint mt-3">
+        Selected pool: {{ selectedTask.title }}.
       </div>
-
-      <div class="bulk-grid">
-        <div>
-          <div class="bulk-head">
-            <label class="form-label mb-0">Questions list</label>
-            <span class="pill">{{ enteredQuestionsCount }} lines</span>
-          </div>
-          <div class="editor-toolbar">
-            <button
-              class="editor-btn"
-              type="button"
-              title="Bold"
-              @mousedown.prevent
-              @click="applyQuestionsEditorFormat('bold')"
-            >
-              <strong>B</strong>
-            </button>
-            <button
-              class="editor-btn"
-              type="button"
-              title="Italic"
-              @mousedown.prevent
-              @click="applyQuestionsEditorFormat('italic')"
-            >
-              <em>I</em>
-            </button>
-            <button
-              class="editor-btn"
-              type="button"
-              title="Underline"
-              @mousedown.prevent
-              @click="applyQuestionsEditorFormat('underline')"
-            >
-              <u>U</u>
-            </button>
-            <button
-              class="editor-btn"
-              type="button"
-              title="Clear formatting"
-              @mousedown.prevent
-              @click="applyQuestionsEditorFormat('removeFormat')"
-            >
-              Clear
-            </button>
-          </div>
-          <div
-            ref="questionsEditorRef"
-            class="rich-editor"
-            contenteditable="true"
-            data-placeholder="Question text line 1&#10;Question text line 2&#10;Question text line 3"
-            @input="onQuestionsEditorInput"
-          />
-          <p class="field-hint">
-            One question per line. Use Enter for next question. Formatting (bold, italic, underline) is saved.
-          </p>
-        </div>
-
-        <div>
-          <div class="bulk-head">
-            <label class="form-label mb-0">Answer keys</label>
-            <span class="pill">{{ enteredKeysCount }} lines</span>
-          </div>
-          <textarea
-            v-model="bulkForm.keys_raw"
-            class="form-control bulk-textarea"
-            rows="10"
-            placeholder="2&#10;1&#10;1,2"
-          />
-          <p class="field-hint">
-            One key line per question. Use option numbers (1-based). With two options use <code>1</code>, <code>2</code> or <code>1,2</code>.
-          </p>
-        </div>
-      </div>
-
-      <div v-if="saveError" class="alert alert-danger mt-3">{{ saveError }}</div>
-      <div v-if="saveSuccess" class="alert alert-success mt-3">{{ saveSuccess }}</div>
-
-      <div class="panel-actions">
-        <button class="btn btn-primary" :disabled="isSaving" type="button" @click="createQuestions">
-          {{ isSaving ? "Saving..." : "Add questions" }}
-        </button>
-      </div>
+      <div v-if="taskSaveError" class="alert alert-danger mt-3">{{ taskSaveError }}</div>
+      <div v-if="taskSaveSuccess" class="alert alert-success mt-3">{{ taskSaveSuccess }}</div>
     </section>
 
     <section class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">Questions in Topic</h2>
+        <h2 class="section-title">Import Questions</h2>
+        <span class="pill">.xls / .xlsx</span>
+      </div>
+
+      <div class="import-grid">
+        <div>
+          <label class="form-label">Question file</label>
+          <label class="file-drop">
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept=".xls,.xlsx"
+              class="file-input"
+              @change="onQuestionFileChange"
+            />
+            <span class="file-name">{{ selectedFileName }}</span>
+            <span class="file-action">Choose file</span>
+          </label>
+        </div>
+
+        <div class="import-state">
+          <label class="form-label d-block">Question state</label>
+          <div class="form-check mt-2">
+            <input id="import-active" v-model="importForm.is_active" class="form-check-input" type="checkbox" />
+            <label class="form-check-label" for="import-active">Active</label>
+          </div>
+        </div>
+
+        <button
+          class="btn btn-primary import-btn"
+          type="button"
+          :disabled="isImporting || !selectedTaskId"
+          @click="importQuestions"
+        >
+          {{ isImporting ? "Importing..." : "Import questions" }}
+        </button>
+      </div>
+
+      <div v-if="selectedTask" class="field-hint mt-3">
+        Import target: {{ selectedTask.title }}.
+      </div>
+      <div v-if="importError" class="alert alert-danger mt-3">{{ importError }}</div>
+      <div v-if="importSuccess" class="alert alert-success mt-3">{{ importSuccess }}</div>
+    </section>
+
+    <section class="surface-card panel-card">
+      <div class="panel-head">
+        <h2 class="section-title">Questions in Task</h2>
         <span class="pill">{{ questionsCount }} total</span>
       </div>
 
@@ -479,7 +378,7 @@ onMounted(async () => {
 
         <ul class="choice-list">
           <li v-for="choice in question.choices" :key="choice.id" :class="{ 'choice-correct-text': choice.is_correct }">
-            {{ choice.text }}
+            <span v-html="renderRichText(choice.text)" />
             <span v-if="choice.is_correct"> (correct)</span>
           </li>
         </ul>

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Attempt, Student } from "@/api.js";
+import { Attempt, Student, Group } from "@/api.js";
 
 const WEEK_LENGTH = 7;
 
@@ -47,6 +47,68 @@ const shiftDateByDays = (value, days) => {
 
 const router = useRouter();
 
+const statsItems = ref([]);
+const statsLoading = ref(false);
+
+const loadStats = async () => {
+  statsLoading.value = true;
+  try {
+    const response = await Student.getAllAssignments();
+    statsItems.value = response.results ?? [];
+  } catch {
+    statsItems.value = [];
+  } finally {
+    statsLoading.value = false;
+  }
+};
+
+const today = formatISODate(new Date());
+
+const getItemState = (item) => {
+  if (item.attempt_status === "completed") {
+    return item.result_outcome === "success" ? "success" : "fail";
+  }
+  if (item.attempt_status === "in_progress") {
+    return item.date === today ? "in_progress" : "expired";
+  }
+  if (!item.date || item.date < today) return "missed";
+  if (item.date > today) return "upcoming";
+  return "available";
+};
+
+
+const completedItems = computed(() =>
+  statsItems.value.filter((i) => i.attempt_status === "completed"),
+);
+const missedItems = computed(() =>
+  statsItems.value.filter((i) => getItemState(i) === "missed"),
+);
+const completedCount = computed(() => completedItems.value.length + missedItems.value.length);
+const passedCount = computed(
+  () => completedItems.value.filter((i) => i.result_outcome === "success").length,
+);
+
+const rankingData = ref(null);
+const rankingLoading = ref(false);
+
+const loadRanking = async () => {
+  const groupId = statsItems.value[0]?.group_id;
+  if (!groupId) return;
+  rankingLoading.value = true;
+  try {
+    rankingData.value = await Group.getRanking(groupId);
+  } catch {
+    rankingData.value = null;
+  } finally {
+    rankingLoading.value = false;
+  }
+};
+
+const myRank = computed(() => {
+  if (!rankingData.value || !rankingData.value.rank) return null;
+  return { rank: rankingData.value.rank, total: rankingData.value.total };
+});
+
 const calendarStartDate = ref(formatISODate(startOfWeek(new Date())));
 const calendarDays = ref([]);
 const searchQuery = ref("");
@@ -61,7 +123,7 @@ const enrichCalendarResponse = (response) => {
     ...day,
     items: (day.items ?? []).map((item, index) => ({
       ...item,
-      task_key: `${day.date}-${item.group_id}-${item.topic_id}-${item.teacher_id}-${index}`,
+      task_key: `${day.date}-${item.group_id}-${item.task_id || item.topic_id}-${item.teacher_id}-${index}`,
     })),
   }));
 };
@@ -121,12 +183,38 @@ const startTask = async (task) => {
     });
   } catch (error) {
     actionError.value =
-      error?.response?.data?.topic?.[0] ||
-      error?.response?.data?.detail ||
-      "Could not start the task.";
+      getApiErrorMessage(error?.response?.data) || "Could not start the task.";
   } finally {
     startingTaskKey.value = "";
   }
+};
+
+const getApiErrorMessage = (data) => {
+  if (!data) {
+    return "";
+  }
+  if (typeof data === "string") {
+    return data;
+  }
+
+  const fields = [
+    "detail",
+    "task",
+    "schedule_entry",
+    "topic",
+    "subject",
+    "non_field_errors",
+  ];
+  for (const field of fields) {
+    const value = data[field];
+    if (Array.isArray(value) && value.length > 0) {
+      return value[0];
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return "";
 };
 
 const compareToToday = (value) => {
@@ -143,6 +231,9 @@ const getTaskState = (task, date) => {
   }
   if (task.attempt_status === "in_progress") {
     return compareToToday(date) === 0 ? "in_progress" : "expired";
+  }
+  if ((task.active_question_count ?? 0) < (task.required_question_count ?? 10)) {
+    return "not_ready";
   }
   const relation = compareToToday(date);
   if (relation < 0) {
@@ -174,6 +265,9 @@ const getTaskStateLabel = (task, date) => {
   if (state === "upcoming") {
     return "Locked";
   }
+  if (state === "not_ready") {
+    return "Not ready";
+  }
   return "Available today";
 };
 
@@ -193,6 +287,9 @@ const getTaskStateCopy = (task, date) => {
   }
   if (state === "upcoming") {
     return `Available on ${monthDayFormatter.format(parseISODate(date))}.`;
+  }
+  if (state === "not_ready") {
+    return `${task.active_question_count ?? 0}/${task.required_question_count ?? 10} active questions in this task.`;
   }
   return "You can take this test today.";
 };
@@ -222,7 +319,7 @@ const filteredCalendarDays = computed(() => {
   return calendarDays.value.map((day) => ({
     ...day,
     items: day.items.filter((task) =>
-      [task.topic_title, task.group_name, task.teacher_username, task.subject_name]
+      [task.task_title, task.topic_title, task.group_name, task.teacher_username, task.subject_name]
         .map((value) => (value || "").toLowerCase())
         .some((value) => value.includes(query)),
     ),
@@ -256,7 +353,7 @@ const calendarRangeLabel = computed(() => {
   if (!first || !last) {
     return "";
   }
-  return `${monthRangeFormatter.format(first)} • ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+  return `${monthRangeFormatter.format(first)} - ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
 });
 
 const isToday = (value) => formatISODate(new Date()) === value;
@@ -270,7 +367,8 @@ const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value)
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
 onMounted(async () => {
-  await loadSchedule();
+  await Promise.all([loadSchedule(), loadStats()]);
+  await loadRanking();
 });
 </script>
 
@@ -336,7 +434,7 @@ onMounted(async () => {
             v-model="searchQuery"
             class="form-control"
             type="text"
-            placeholder="Search by topic, group, subject, or teacher"
+            placeholder="Search by task, topic, group, subject, or teacher"
           />
         </div>
       </div>
@@ -362,41 +460,78 @@ onMounted(async () => {
             <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
           </div>
 
-          <div v-if="day.items.length === 0" class="schedule-empty-card">
-            {{ searchQuery.trim() ? "No matching tasks for this day." : "No tasks scheduled." }}
-          </div>
+          <div class="schedule-day-body">
+            <div v-if="day.items.length === 0" class="schedule-empty-card">
+              {{ searchQuery.trim() ? "No matching tasks for this day." : "No tasks scheduled." }}
+            </div>
 
-          <div v-else class="day-task-list">
-            <article
-              v-for="task in day.items"
-              :key="task.task_key"
-              class="day-task-item"
-              :class="`state-${getTaskState(task, day.date)}`"
-            >
-              <div class="day-task-head">
-                <h3 class="day-task-title">{{ task.topic_title }}</h3>
-                <span class="entity-chip" :class="`chip-${getTaskState(task, day.date)}`">
-                  {{ getTaskStateLabel(task, day.date) }}
-                </span>
-              </div>
-
-              <div class="day-task-meta">{{ task.subject_name }}</div>
-              <div class="assignment-chip">Group: {{ task.group_name }}</div>
-              <div class="day-task-meta">Teacher: {{ task.teacher_username }}</div>
-              <div class="task-status-copy">{{ getTaskStateCopy(task, day.date) }}</div>
-
-              <button
-                class="btn btn-primary btn-sm action-btn"
-                type="button"
-                :disabled="startingTaskKey === task.task_key || !canStartOrContinueTask(task, day.date)"
-                @click="startTask(task)"
+            <div v-else class="day-task-list">
+              <article
+                v-for="task in day.items"
+                :key="task.task_key"
+                class="day-task-item"
+                :class="`state-${getTaskState(task, day.date)}`"
               >
-                {{ startingTaskKey === task.task_key ? "Opening..." : getTaskButtonLabel(task, day.date) }}
-              </button>
-            </article>
+                <div class="day-task-main">
+                  <div class="day-task-head">
+                    <h3 class="day-task-title">{{ task.task_title || task.topic_title }}</h3>
+                    <span class="entity-chip" :class="`chip-${getTaskState(task, day.date)}`">
+                      {{ getTaskStateLabel(task, day.date) }}
+                    </span>
+                  </div>
+                  <div class="day-task-meta">{{ task.topic_title }} / {{ task.subject_name }}</div>
+                </div>
+
+                <div class="day-task-context">
+                  <div class="assignment-chip">Group: {{ task.group_name }}</div>
+                  <div class="day-task-meta">Teacher: {{ task.teacher_username }}</div>
+                </div>
+
+                <div class="task-status-copy">{{ getTaskStateCopy(task, day.date) }}</div>
+
+                <button
+                  class="btn btn-primary btn-sm action-btn"
+                  type="button"
+                  :disabled="startingTaskKey === task.task_key || !canStartOrContinueTask(task, day.date)"
+                  @click="startTask(task)"
+                >
+                  {{ startingTaskKey === task.task_key ? "Opening..." : getTaskButtonLabel(task, day.date) }}
+                </button>
+              </article>
+            </div>
           </div>
         </article>
       </div>
+    </section>
+
+    <section class="surface-card section-card stats-section">
+      <h2 class="section-title">Statistics</h2>
+      <div v-if="statsLoading" class="empty-box mt-2">Loading statistics...</div>
+      <template v-else>
+        <div class="stats-grid">
+          <div class="stats-row">
+            <span class="stats-label">Completed tasks (this trimester)</span>
+            <span class="stats-value">{{ completedCount }}</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Passed</span>
+            <span class="stats-value">{{ passedCount }}</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Required for credit</span>
+            <span class="stats-value stats-future">In future</span>
+          </div>
+          <div class="stats-row">
+            <span class="stats-label">Rating</span>
+            <span v-if="rankingLoading" class="stats-value stats-future">Loading...</span>
+            <span v-else-if="myRank" class="stats-value">
+              #{{ myRank.rank }} / {{ myRank.total }}
+            </span>
+            <span v-else class="stats-value stats-future">—</span>
+          </div>
+        </div>
+
+      </template>
     </section>
   </div>
 </template>

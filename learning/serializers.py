@@ -14,6 +14,7 @@ from learning.models import (
     GroupTeachingAssignment,
     Question,
     Subject,
+    Task,
     Topic,
     Unit,
     Workbook,
@@ -83,6 +84,7 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     topic_title = serializers.CharField(source="topic.title", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True)
 
     class Meta:
         model = GroupTeachingAssignment
@@ -96,6 +98,8 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
             "subject_name",
             "topic",
             "topic_title",
+            "task",
+            "task_title",
             "updated_at",
         )
         read_only_fields = (
@@ -106,6 +110,7 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
             "teacher_username",
             "subject_name",
             "topic_title",
+            "task_title",
             "updated_at",
         )
 
@@ -119,6 +124,7 @@ class GroupTopicScheduleSerializer(serializers.ModelSerializer):
     subject = serializers.IntegerField(source="topic.subject_id", read_only=True)
     subject_name = serializers.CharField(source="topic.subject.name", read_only=True)
     topic_title = serializers.CharField(source="topic.title", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True)
 
     class Meta:
         model = GroupTopicSchedule
@@ -133,6 +139,8 @@ class GroupTopicScheduleSerializer(serializers.ModelSerializer):
             "subject_name",
             "topic",
             "topic_title",
+            "task",
+            "task_title",
             "updated_at",
         )
         read_only_fields = fields
@@ -140,6 +148,11 @@ class GroupTopicScheduleSerializer(serializers.ModelSerializer):
 
 class GroupTopicScheduleWriteSerializer(serializers.Serializer):
     date = serializers.DateField()
+    task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
     topic = serializers.PrimaryKeyRelatedField(
         queryset=Topic.objects.filter(is_active=True),
         required=False,
@@ -147,8 +160,8 @@ class GroupTopicScheduleWriteSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        if "topic" not in attrs:
-            raise serializers.ValidationError({"topic": "This field is required."})
+        if "task" not in attrs and "topic" not in attrs:
+            raise serializers.ValidationError({"task": "This field is required."})
         return attrs
 
 
@@ -240,6 +253,30 @@ class TopicSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class TaskSerializer(serializers.ModelSerializer):
+    topic = serializers.PrimaryKeyRelatedField(
+        queryset=Topic.objects.filter(is_active=True),
+    )
+    topic_title = serializers.CharField(source="topic.title", read_only=True)
+    subject = serializers.IntegerField(source="topic.subject_id", read_only=True)
+    subject_name = serializers.CharField(source="topic.subject.name", read_only=True)
+
+    class Meta:
+        model = Task
+        fields = (
+            "id",
+            "topic",
+            "topic_title",
+            "subject",
+            "subject_name",
+            "title",
+            "description",
+            "is_active",
+            "updated_at",
+        )
+        read_only_fields = ("id", "topic_title", "subject", "subject_name", "updated_at")
+
+
 class ChoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Choice
@@ -249,12 +286,20 @@ class ChoiceSerializer(serializers.ModelSerializer):
 
 class QuestionSerializer(serializers.ModelSerializer):
     choices = ChoiceSerializer(many=True)
+    task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
+    task_title = serializers.CharField(source="task.title", read_only=True)
 
     class Meta:
         model = Question
         fields = (
             "id",
             "topic",
+            "task",
+            "task_title",
             "instruction",
             "text",
             "question_type",
@@ -264,18 +309,18 @@ class QuestionSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at")
 
-    def validate_choices(self, choices):
-        if not choices:
-            raise serializers.ValidationError("At least one answer choice is required.")
-        for idx, choice in enumerate(choices, start=1):
-            text = (choice.get("text") or "").strip()
-            if not text:
-                raise serializers.ValidationError(
-                    f"Choice #{idx} must have non-empty text."
-                )
-        return choices
-
     def validate(self, attrs):
+        task = attrs.get("task", getattr(self.instance, "task", None))
+        topic = attrs.get("topic", getattr(self.instance, "topic", None))
+        if task is not None:
+            if topic is not None and task.topic_id != topic.id:
+                raise serializers.ValidationError(
+                    {"task": "Task must belong to the selected topic."}
+                )
+            attrs["topic"] = task.topic
+        elif self.instance is None and topic is None:
+            raise serializers.ValidationError({"task": "This field is required."})
+
         question_type = attrs.get(
             "question_type",
             getattr(
@@ -307,6 +352,17 @@ class QuestionSerializer(serializers.ModelSerializer):
                 }
             )
         return attrs
+
+    def validate_choices(self, choices):
+        if not choices:
+            raise serializers.ValidationError("At least one answer choice is required.")
+        for idx, choice in enumerate(choices, start=1):
+            text = (choice.get("text") or "").strip()
+            if not text:
+                raise serializers.ValidationError(
+                    f"Choice #{idx} must have non-empty text."
+                )
+        return choices
 
     def _replace_choices(self, question, choices_data):
         question.choices.all().delete()
@@ -453,6 +509,7 @@ class AttemptSerializer(serializers.ModelSerializer):
             "teacher__user",
             "topic",
             "topic__subject",
+            "task",
         ),
         write_only=True,
         required=False,
@@ -476,6 +533,7 @@ class AttemptSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source="topic.subject.name", read_only=True)
     topic_title = serializers.CharField(source="topic.title", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True)
     correct_count = serializers.SerializerMethodField(read_only=True)
     wrong_count = serializers.SerializerMethodField(read_only=True)
     total_questions = serializers.SerializerMethodField(read_only=True)
@@ -497,6 +555,8 @@ class AttemptSerializer(serializers.ModelSerializer):
             "subject",
             "subject_name",
             "topic_title",
+            "task",
+            "task_title",
             "started_at",
             "finished_at",
             "status",
@@ -518,6 +578,7 @@ class AttemptSerializer(serializers.ModelSerializer):
             "finished_at",
             "subject_name",
             "topic_title",
+            "task_title",
             "correct_count",
             "wrong_count",
             "total_questions",
@@ -576,9 +637,18 @@ class AttemptSerializer(serializers.ModelSerializer):
 
         subject = validated_data.pop("subject", None)
         topic = validated_data.pop("topic", None) or schedule_entry.topic
+        task = schedule_entry.task
+        if task is None:
+            raise serializers.ValidationError(
+                {"schedule_entry": "Scheduled task is missing a task reference."}
+            )
         if topic.id != schedule_entry.topic_id:
             raise serializers.ValidationError(
                 {"topic": "Topic must match the scheduled task."}
+            )
+        if task.topic_id != topic.id:
+            raise serializers.ValidationError(
+                {"task": "Task must belong to the scheduled topic."}
             )
         if not topic.is_active:
             raise serializers.ValidationError(
@@ -611,16 +681,24 @@ class AttemptSerializer(serializers.ModelSerializer):
                 {"detail": "You already have an attempt for this scheduled test."}
             )
 
-        active_questions_qs = Question.objects.filter(topic=topic, is_active=True)
-        if active_questions_qs.count() < 10:
+        active_questions_qs = Question.objects.filter(task=task, is_active=True)
+        if active_questions_qs.count() < Attempt.QUESTIONS_PER_ATTEMPT:
             raise serializers.ValidationError(
-                {"topic": "At least 10 active questions are required for this topic."}
+                {
+                    "task": (
+                        f"At least {Attempt.QUESTIONS_PER_ATTEMPT} active questions "
+                        "are required for this task."
+                    )
+                }
             )
 
-        questions = list(active_questions_qs.order_by("?")[:10])
+        questions = list(
+            active_questions_qs.order_by("?")[: Attempt.QUESTIONS_PER_ATTEMPT]
+        )
         attempt = Attempt.objects.create(
             student=student,
             topic=topic,
+            task=task,
             schedule_entry=schedule_entry,
             status=Attempt.Status.IN_PROGRESS,
         )
@@ -677,6 +755,7 @@ class QuestionInlineSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "topic",
+            "task",
             "instruction",
             "text",
             "question_type",
@@ -749,7 +828,7 @@ class GroupSerializer(serializers.ModelSerializer):
             )
         else:
             assignment = (
-                obj.teaching_assignments.select_related("subject", "topic", "teacher__user")
+                obj.teaching_assignments.select_related("subject", "topic", "task", "teacher__user")
                 .filter(teacher_id=teacher.id)
                 .first()
             )
@@ -768,6 +847,8 @@ class GroupSerializer(serializers.ModelSerializer):
             "subject_name": assignment.subject.name,
             "topic": assignment.topic_id,
             "topic_title": assignment.topic.title if assignment.topic else None,
+            "task": assignment.task_id,
+            "task_title": assignment.task.title if assignment.task else None,
             "updated_at": assignment.updated_at,
         }
 
@@ -783,39 +864,70 @@ class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
     )
+    task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
 
     def validate(self, attrs):
         current_subject = getattr(self.instance, "subject", None)
         current_topic = getattr(self.instance, "topic", None)
+        current_task = getattr(self.instance, "task", None)
 
         subject_provided = "subject" in attrs
         topic_provided = "topic" in attrs
+        task_provided = "task" in attrs
 
         subject = attrs.get("subject", current_subject)
         topic = attrs.get("topic", current_topic)
+        task = attrs.get("task", current_task)
 
         if subject_provided and attrs.get("subject") is None and not topic_provided:
             attrs["topic"] = None
+            attrs["task"] = None
             topic = None
+            task = None
+        if (
+            topic_provided
+            and not task_provided
+            and current_task
+            and topic
+            and current_task.topic_id != topic.id
+        ):
+            attrs["task"] = None
+            task = None
 
-        if subject is None and topic is not None:
+        if subject is None and (topic is not None or task is not None):
             raise serializers.ValidationError(
-                {"subject": "Subject is required when topic is set."}
+                {"subject": "Subject is required when topic or task is set."}
             )
         if topic and subject and topic.subject_id != subject.id:
             raise serializers.ValidationError(
                 {"topic": "Topic must belong to the selected subject."}
             )
+        if task:
+            if subject and task.topic.subject_id != subject.id:
+                raise serializers.ValidationError(
+                    {"task": "Task must belong to the selected subject."}
+                )
+            if topic and task.topic_id != topic.id:
+                raise serializers.ValidationError(
+                    {"task": "Task must belong to the selected topic."}
+                )
+            attrs["topic"] = task.topic
 
         # If only subject changed and the old topic no longer belongs to it, clear topic.
         if (
             subject_provided
             and not topic_provided
+            and not task_provided
             and current_topic
             and subject
             and current_topic.subject_id != subject.id
         ):
             attrs["topic"] = None
+            attrs["task"] = None
         return attrs
 
 

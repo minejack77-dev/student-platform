@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py makemigrations learning --name add_is_success_to_attempt)",
+      "Bash(.venv\\\\Scripts\\\\python.exe manage.py makemigrations learning --name add_is_success_to_attempt)"
+    ]
+  }
+}
