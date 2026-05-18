@@ -137,6 +137,8 @@ class Topic(models.Model):
 
 class Task(models.Model):
     DEFAULT_TITLE = "Default task"
+    DEFAULT_QUESTIONS_PER_ATTEMPT = 10
+    DEFAULT_PASSING_CORRECT_ANSWERS = 8
 
     topic = models.ForeignKey(
         Topic,
@@ -148,6 +150,12 @@ class Task(models.Model):
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
     src = models.FileField(blank=True, null=True)
+    questions_per_attempt = models.PositiveSmallIntegerField(
+        default=DEFAULT_QUESTIONS_PER_ATTEMPT
+    )
+    passing_correct_answers = models.PositiveSmallIntegerField(
+        default=DEFAULT_PASSING_CORRECT_ANSWERS
+    )
 
     class Meta:
         ordering = ["topic__unit__workbook__title", "topic__unit__title", "topic__title", "title"]
@@ -160,6 +168,25 @@ class Task(models.Model):
 
     def __str__(self) -> str:
         return f"{self.topic.title} | {self.title}"
+
+    def clean(self):
+        super().clean()
+        if self.questions_per_attempt < 1:
+            raise ValidationError(
+                {"questions_per_attempt": "Question count must be at least 1."}
+            )
+        if self.passing_correct_answers < 1:
+            raise ValidationError(
+                {"passing_correct_answers": "Passing threshold must be at least 1."}
+            )
+        if self.passing_correct_answers > self.questions_per_attempt:
+            raise ValidationError(
+                {
+                    "passing_correct_answers": (
+                        "Passing threshold cannot exceed question count."
+                    )
+                }
+            )
 
     @classmethod
     def get_default_for_topic(cls, topic):
@@ -242,8 +269,8 @@ class Attempt(models.Model):
         COMPLETED = "completed", "Completed"
         ABANDONED = "abandoned", "Abandoned"
 
-    PASSING_CORRECT_ANSWERS = 8
-    QUESTIONS_PER_ATTEMPT = 10
+    PASSING_CORRECT_ANSWERS = Task.DEFAULT_PASSING_CORRECT_ANSWERS
+    QUESTIONS_PER_ATTEMPT = Task.DEFAULT_QUESTIONS_PER_ATTEMPT
 
     student = models.ForeignKey(
         "accounts.Student",
@@ -286,6 +313,16 @@ class Attempt(models.Model):
         if self.status != self.Status.COMPLETED:
             return None
         return self.is_success
+
+    def passing_correct_answers(self):
+        if self.task_id:
+            return self.task.passing_correct_answers
+        return self.PASSING_CORRECT_ANSWERS
+
+    def questions_per_attempt(self):
+        if self.task_id:
+            return self.task.questions_per_attempt
+        return self.QUESTIONS_PER_ATTEMPT
 
     def is_accessible_on(self, current_date):
         if not self.schedule_entry_id:
@@ -568,5 +605,5 @@ def complete_attempt(sender, instance, created, **kwargs):
         answer, _ = Answer.objects.get_or_create(attempt_question=attempt_question)
         answer.check_answer()
 
-    is_success = instance.correct_count() >= Attempt.PASSING_CORRECT_ANSWERS
+    is_success = instance.correct_count() >= instance.passing_correct_answers()
     Attempt.objects.filter(pk=instance.pk).update(is_success=is_success)

@@ -271,8 +271,24 @@ class TopicAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    fields = ("topic", "title", "description", "src", "is_active")
-    list_display = ("title", "topic", "subject", "is_active", "updated_at")
+    fields = (
+        "topic",
+        "title",
+        "description",
+        "questions_per_attempt",
+        "passing_correct_answers",
+        "src",
+        "is_active",
+    )
+    list_display = (
+        "title",
+        "topic",
+        "subject",
+        "questions_per_attempt",
+        "passing_correct_answers",
+        "is_active",
+        "updated_at",
+    )
     list_filter = ("is_active", "topic__subject", "topic")
     search_fields = ("title", "topic__title", "topic__subject__name")
     autocomplete_fields = ("topic",)

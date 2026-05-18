@@ -524,6 +524,47 @@ class LearningApiTests(APITestCase):
         self.assertEqual(kwargs["src"].name, task.src.name)
         self.assertFalse(kwargs["is_active"])
 
+    def test_create_task_accepts_attempt_settings(self):
+        subject = Subject.objects.create(name="Task Settings API")
+        topic = Topic.objects.create(subject=subject, title="Task Settings Topic")
+
+        response = self.client.post(
+            "/api/task/",
+            {
+                "topic": topic.id,
+                "title": "Short quiz",
+                "questions_per_attempt": 5,
+                "passing_correct_answers": 3,
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["questions_per_attempt"], 5)
+        self.assertEqual(response.data["passing_correct_answers"], 3)
+        task = Task.objects.get(id=response.data["id"])
+        self.assertEqual(task.questions_per_attempt, 5)
+        self.assertEqual(task.passing_correct_answers, 3)
+
+    def test_create_task_rejects_passing_threshold_above_question_count(self):
+        subject = Subject.objects.create(name="Task Settings Validation")
+        topic = Topic.objects.create(subject=subject, title="Task Settings Validation Topic")
+
+        response = self.client.post(
+            "/api/task/",
+            {
+                "topic": topic.id,
+                "title": "Impossible quiz",
+                "questions_per_attempt": 5,
+                "passing_correct_answers": 6,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("passing_correct_answers", response.data)
+
     def test_student_create_attempt_generates_10_random_questions(self):
         student = self._authenticate_student("student_attempt_1")
         subject = Subject.objects.create(name="Biology")
@@ -552,6 +593,50 @@ class LearningApiTests(APITestCase):
             list(attempt.attempt_questions.order_by("order").values_list("order", flat=True)),
             list(range(1, 11)),
         )
+
+    def test_student_create_attempt_uses_task_question_count(self):
+        student = self._authenticate_student("student_attempt_custom_count")
+        subject = Subject.objects.create(name="Custom Count Subject")
+        topic = Topic.objects.create(
+            subject=subject,
+            title="Custom Count Topic",
+            is_active=True,
+        )
+        task = Task.objects.create(
+            topic=topic,
+            title="Five question quiz",
+            questions_per_attempt=5,
+            passing_correct_answers=3,
+        )
+        schedule_entry = GroupTopicSchedule.objects.create(
+            group=Group.objects.create(name="Custom Count Group", is_active=True),
+            teacher=self.teacher,
+            task=task,
+            scheduled_for=timezone.localdate(),
+        )
+        schedule_entry.group.students.add(student)
+
+        for index in range(7):
+            question = Question.objects.create(
+                topic=topic,
+                task=task,
+                text=f"Custom count question #{index + 1}",
+                question_type=Question.QuestionType.SINGLE_CHOICE,
+                is_active=True,
+            )
+            Choice.objects.create(question=question, text="Correct", is_correct=True, order=1)
+            Choice.objects.create(question=question, text="Wrong", is_correct=False, order=2)
+
+        response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        attempt = Attempt.objects.get(id=response.data["id"])
+        self.assertEqual(attempt.attempt_questions.count(), 5)
+        self.assertEqual(response.data["passing_correct_answers"], 3)
 
     def test_student_create_attempt_uses_scheduled_task_question_pool(self):
         student = self._authenticate_student("student_attempt_task_pool")
@@ -659,6 +744,72 @@ class LearningApiTests(APITestCase):
             Answer.objects.filter(attempt_question__attempt=attempt, is_correct=False).count(),
             7,
         )
+
+    def test_finish_attempt_uses_task_passing_threshold(self):
+        student = self._authenticate_student("student_attempt_custom_pass")
+        subject = Subject.objects.create(name="Custom Pass Subject")
+        topic = Topic.objects.create(
+            subject=subject,
+            title="Custom Pass Topic",
+            is_active=True,
+        )
+        task = Task.objects.create(
+            topic=topic,
+            title="Pass from three",
+            questions_per_attempt=5,
+            passing_correct_answers=3,
+        )
+        schedule_entry = GroupTopicSchedule.objects.create(
+            group=Group.objects.create(name="Custom Pass Group", is_active=True),
+            teacher=self.teacher,
+            task=task,
+            scheduled_for=timezone.localdate(),
+        )
+        schedule_entry.group.students.add(student)
+
+        for index in range(5):
+            question = Question.objects.create(
+                topic=topic,
+                task=task,
+                text=f"Custom pass question #{index + 1}",
+                question_type=Question.QuestionType.SINGLE_CHOICE,
+                is_active=True,
+            )
+            Choice.objects.create(question=question, text="Correct", is_correct=True, order=1)
+            Choice.objects.create(question=question, text="Wrong", is_correct=False, order=2)
+
+        start_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        attempt = Attempt.objects.get(id=start_response.data["id"])
+
+        attempt_questions = list(attempt.attempt_questions.select_related("question"))
+        for attempt_question in attempt_questions[:3]:
+            correct_choice = attempt_question.question.choices.get(is_correct=True)
+            self.client.post(
+                "/api/answer/",
+                {
+                    "attempt_question": attempt_question.id,
+                    "selected_choices": [correct_choice.id],
+                },
+                format="json",
+            )
+
+        finish_response = self.client.patch(
+            f"/api/attempt/{attempt.id}/",
+            {"status": Attempt.Status.COMPLETED},
+            format="json",
+        )
+
+        self.assertEqual(finish_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(finish_response.data["correct_count"], 3)
+        self.assertEqual(finish_response.data["passing_correct_answers"], 3)
+        self.assertEqual(finish_response.data["result_outcome"], "success")
+        attempt.refresh_from_db()
+        self.assertTrue(attempt.is_success)
 
     def test_student_cannot_submit_answer_for_foreign_attempt(self):
         subject = Subject.objects.create(name="Chemistry")
@@ -867,10 +1018,13 @@ class QuestionImportTests(APITestCase):
 
         self.assertEqual(len(questions), 2)
         first_question = questions[0]
-        self.assertEqual(first_question.instruction, "")
+        self.assertEqual(
+            first_question.instruction,
+            "Choose adj (adjective) or adv (adverb):",
+        )
         self.assertEqual(
             first_question.text,
-            "Choose adj (adjective) or adv (adverb):\nI had a <strong>bad</strong> day yesterday.",
+            "I had a <strong>bad</strong> day yesterday.",
         )
         self.assertEqual(first_question.question_type, Question.QuestionType.SINGLE_CHOICE)
         self.assertEqual(first_question.choices.count(), 2)
@@ -904,6 +1058,60 @@ class QuestionImportTests(APITestCase):
         self.assertEqual(len(questions), 2)
         self.assertTrue(Question.objects.filter(task=task).exists())
         self.assertFalse(Question.objects.filter(task__isnull=True).exists())
+
+    def test_import_creates_all_answer_options_from_row(self):
+        subject = Subject.objects.create(name="English many options")
+        topic = Topic.objects.create(subject=subject, title="Verb practice")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell("Complete the sentence", "Complete the sentence"),
+                SpreadsheetCell("Option 1", "Option 1"),
+                SpreadsheetCell("Option 2", "Option 2"),
+                SpreadsheetCell("Option 3", "Option 3"),
+                SpreadsheetCell("Option 4", "Option 4"),
+                SpreadsheetCell("Option 5", "Option 5"),
+                SpreadsheetCell("Option 6", "Option 6"),
+                SpreadsheetCell("Option 7", "Option 7"),
+                SpreadsheetCell("Option 8", "Option 8"),
+                SpreadsheetCell("Key", "Key"),
+            ],
+            [
+                SpreadsheetCell(
+                    "Students __________ to speak English well.",
+                    "Students __________ to speak English well.",
+                ),
+                SpreadsheetCell("want", "want"),
+                SpreadsheetCell("plan", "plan"),
+                SpreadsheetCell("need", "need"),
+                SpreadsheetCell("decide", "decide"),
+                SpreadsheetCell("hope", "hope"),
+                SpreadsheetCell("promise", "promise"),
+                SpreadsheetCell("learn", "learn"),
+                SpreadsheetCell("try", "try"),
+                SpreadsheetCell("want", "want"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            questions = import_questions_from_xls(topic=topic, src="many-options.xlsx")
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(
+            list(questions[0].choices.values_list("text", "is_correct", "order")),
+            [
+                ("want", True, 1),
+                ("plan", False, 2),
+                ("need", False, 3),
+                ("decide", False, 4),
+                ("hope", False, 5),
+                ("promise", False, 6),
+                ("learn", False, 7),
+                ("try", False, 8),
+            ],
+        )
 
     def test_import_from_xls_rejects_rows_without_matching_answer_key(self):
         subject = Subject.objects.create(name="English grammar")

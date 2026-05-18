@@ -304,9 +304,11 @@ onMounted(async () => {
       </div>
 
       <h2 class="question-text" v-html="renderRichText(activeQuestion.question.text)" />
-      <p v-if="activeQuestion.question.instruction" class="question-instruction">
-        {{ activeQuestion.question.instruction }}
-      </p>
+      <p
+        v-if="activeQuestion.question.instruction"
+        class="question-instruction"
+        v-html="renderRichText(activeQuestion.question.instruction)"
+      />
 
       <div class="choices-list">
         <label
@@ -322,7 +324,7 @@ onMounted(async () => {
             :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
             @change="handleChoiceChange(activeQuestion, choice.id, $event.target.checked)"
           />
-          <span>{{ choice.text }}</span>
+          <span v-html="renderRichText(choice.text)" />
         </label>
       </div>
 
