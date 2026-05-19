@@ -23,11 +23,20 @@ const importForm = ref({
 const taskForm = ref({
   title: "",
   description: "",
+  questions_per_attempt: 10,
+  passing_correct_answers: 8,
   is_active: true,
+});
+const currentTaskForm = ref({
+  questions_per_attempt: 10,
+  passing_correct_answers: 8,
 });
 const taskSaveError = ref("");
 const taskSaveSuccess = ref("");
 const isTaskSaving = ref(false);
+const currentTaskSaveError = ref("");
+const currentTaskSaveSuccess = ref("");
+const isCurrentTaskSaving = ref(false);
 
 const getApiErrorMessage = (data) => {
   if (!data) {
@@ -37,7 +46,15 @@ const getApiErrorMessage = (data) => {
     return data;
   }
 
-  const fields = ["detail", "src", "task", "topic", "non_field_errors"];
+  const fields = [
+    "detail",
+    "src",
+    "task",
+    "topic",
+    "questions_per_attempt",
+    "passing_correct_answers",
+    "non_field_errors",
+  ];
   for (const field of fields) {
     const value = data[field];
     if (Array.isArray(value) && value.length > 0) {
@@ -48,6 +65,21 @@ const getApiErrorMessage = (data) => {
     }
   }
   return "";
+};
+
+const validateAttemptSettings = (form) => {
+  const questionsPerAttempt = Number(form.questions_per_attempt);
+  const passingCorrectAnswers = Number(form.passing_correct_answers);
+  if (!Number.isInteger(questionsPerAttempt) || questionsPerAttempt < 1) {
+    return { error: "Question count must be at least 1." };
+  }
+  if (!Number.isInteger(passingCorrectAnswers) || passingCorrectAnswers < 1) {
+    return { error: "Passing threshold must be at least 1." };
+  }
+  if (passingCorrectAnswers > questionsPerAttempt) {
+    return { error: "Passing threshold cannot exceed question count." };
+  }
+  return { questionsPerAttempt, passingCorrectAnswers };
 };
 
 const resetImportForm = () => {
@@ -101,6 +133,11 @@ const createTask = async () => {
     taskSaveError.value = "Task title is required.";
     return;
   }
+  const settings = validateAttemptSettings(taskForm.value);
+  if (settings.error) {
+    taskSaveError.value = settings.error;
+    return;
+  }
 
   isTaskSaving.value = true;
   try {
@@ -108,9 +145,17 @@ const createTask = async () => {
       topic: Number(props.id),
       title,
       description: taskForm.value.description.trim(),
+      questions_per_attempt: settings.questionsPerAttempt,
+      passing_correct_answers: settings.passingCorrectAnswers,
       is_active: taskForm.value.is_active,
     });
-    taskForm.value = { title: "", description: "", is_active: true };
+    taskForm.value = {
+      title: "",
+      description: "",
+      questions_per_attempt: 10,
+      passing_correct_answers: 8,
+      is_active: true,
+    };
     selectedTaskId.value = String(createdTask.id);
     taskSaveSuccess.value = "Task created.";
     await getTasks();
@@ -118,10 +163,44 @@ const createTask = async () => {
   } catch (error) {
     taskSaveError.value =
       error?.response?.data?.title?.[0] ||
+      getApiErrorMessage(error?.response?.data) ||
       error?.response?.data?.detail ||
       "Could not create task.";
   } finally {
     isTaskSaving.value = false;
+  }
+};
+
+const updateCurrentTaskSettings = async () => {
+  currentTaskSaveError.value = "";
+  currentTaskSaveSuccess.value = "";
+  if (!selectedTask.value) {
+    currentTaskSaveError.value = "Select a task first.";
+    return;
+  }
+
+  const settings = validateAttemptSettings(currentTaskForm.value);
+  if (settings.error) {
+    currentTaskSaveError.value = settings.error;
+    return;
+  }
+
+  isCurrentTaskSaving.value = true;
+  try {
+    const updatedTask = await Task.save({
+      id: selectedTask.value.id,
+      questions_per_attempt: settings.questionsPerAttempt,
+      passing_correct_answers: settings.passingCorrectAnswers,
+    });
+    tasks.value = tasks.value.map((task) =>
+      task.id === updatedTask.id ? updatedTask : task,
+    );
+    currentTaskSaveSuccess.value = "Task settings saved.";
+  } catch (error) {
+    currentTaskSaveError.value =
+      getApiErrorMessage(error?.response?.data) || "Could not save task settings.";
+  } finally {
+    isCurrentTaskSaving.value = false;
   }
 };
 
@@ -218,9 +297,29 @@ watch(selectedTaskId, async () => {
   importError.value = "";
   importSuccess.value = "";
   deleteError.value = "";
+  currentTaskSaveError.value = "";
+  currentTaskSaveSuccess.value = "";
   resetImportForm();
   await getQuestions();
 });
+
+watch(
+  selectedTask,
+  (task) => {
+    if (!task) {
+      currentTaskForm.value = {
+        questions_per_attempt: 10,
+        passing_correct_answers: 8,
+      };
+      return;
+    }
+    currentTaskForm.value = {
+      questions_per_attempt: task.questions_per_attempt ?? 10,
+      passing_correct_answers: task.passing_correct_answers ?? 8,
+    };
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -256,41 +355,114 @@ watch(selectedTaskId, async () => {
         <span class="pill">{{ tasksCount }} total</span>
       </div>
 
-      <div class="row g-3 align-items-end">
-        <div class="col-md-4">
-          <label class="form-label">Current task</label>
-          <select v-model="selectedTaskId" class="form-select">
-            <option value="">No task selected</option>
-            <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
-              {{ taskItem.title }}
-            </option>
-          </select>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">New task title</label>
-          <input v-model="taskForm.title" class="form-control" type="text" placeholder="Task title" />
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">Description</label>
-          <input v-model="taskForm.description" class="form-control" type="text" placeholder="Optional" />
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-primary w-100" type="button" :disabled="isTaskSaving" @click="createTask">
-            {{ isTaskSaving ? "Creating..." : "Create task" }}
-          </button>
-        </div>
-      </div>
+      <div class="task-sections">
+        <div class="task-subsection current-task-section">
+          <h3 class="task-subsection-title">Current task</h3>
 
-      <div class="form-check mt-3">
-        <input id="task-active" v-model="taskForm.is_active" class="form-check-input" type="checkbox" />
-        <label class="form-check-label" for="task-active">Active</label>
-      </div>
+          <div class="task-settings-grid">
+            <div>
+              <label class="form-label">Task</label>
+              <select v-model="selectedTaskId" class="form-select">
+                <option value="">No task selected</option>
+                <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
+                  {{ taskItem.title }}
+                </option>
+              </select>
+            </div>
 
-      <div v-if="selectedTask" class="field-hint mt-3">
-        Selected pool: {{ selectedTask.title }}.
+            <div>
+              <label class="form-label">Questions</label>
+              <input
+                v-model.number="currentTaskForm.questions_per_attempt"
+                class="form-control"
+                :disabled="!selectedTask"
+                min="1"
+                step="1"
+                type="number"
+              />
+            </div>
+
+            <div>
+              <label class="form-label">Pass from</label>
+              <input
+                v-model.number="currentTaskForm.passing_correct_answers"
+                class="form-control"
+                :disabled="!selectedTask"
+                min="1"
+                :max="currentTaskForm.questions_per_attempt"
+                step="1"
+                type="number"
+              />
+            </div>
+
+            <button
+              class="btn btn-outline-primary task-settings-btn"
+              type="button"
+              :disabled="!selectedTask || isCurrentTaskSaving"
+              @click="updateCurrentTaskSettings"
+            >
+              {{ isCurrentTaskSaving ? "Saving..." : "Save settings" }}
+            </button>
+          </div>
+
+          <div v-if="selectedTask" class="field-hint mt-3">
+            Selected pool: {{ selectedTask.title }}.
+          </div>
+          <div v-if="currentTaskSaveError" class="alert alert-danger mt-3">{{ currentTaskSaveError }}</div>
+          <div v-if="currentTaskSaveSuccess" class="alert alert-success mt-3">{{ currentTaskSaveSuccess }}</div>
+        </div>
+
+        <div class="task-subsection">
+          <h3 class="task-subsection-title">New task</h3>
+
+          <div class="new-task-grid">
+            <div>
+              <label class="form-label">Title</label>
+              <input v-model="taskForm.title" class="form-control" type="text" placeholder="Task title" />
+            </div>
+
+            <div>
+              <label class="form-label">Description</label>
+              <input v-model="taskForm.description" class="form-control" type="text" placeholder="Optional" />
+            </div>
+
+            <div>
+              <label class="form-label">Questions</label>
+              <input
+                v-model.number="taskForm.questions_per_attempt"
+                class="form-control"
+                min="1"
+                step="1"
+                type="number"
+              />
+            </div>
+
+            <div>
+              <label class="form-label">Pass from</label>
+              <input
+                v-model.number="taskForm.passing_correct_answers"
+                class="form-control"
+                min="1"
+                :max="taskForm.questions_per_attempt"
+                step="1"
+                type="number"
+              />
+            </div>
+
+            <button class="btn btn-primary new-task-btn" type="button" :disabled="isTaskSaving" @click="createTask">
+              {{ isTaskSaving ? "Creating..." : "Create task" }}
+            </button>
+          </div>
+
+          <div class="form-check mt-3">
+            <input id="task-active" v-model="taskForm.is_active" class="form-check-input" type="checkbox" />
+            <label class="form-check-label" for="task-active">Active</label>
+          </div>
+
+          <div v-if="taskSaveError" class="alert alert-danger mt-3">{{ taskSaveError }}</div>
+          <div v-if="taskSaveSuccess" class="alert alert-success mt-3">{{ taskSaveSuccess }}</div>
+        </div>
       </div>
-      <div v-if="taskSaveError" class="alert alert-danger mt-3">{{ taskSaveError }}</div>
-      <div v-if="taskSaveSuccess" class="alert alert-success mt-3">{{ taskSaveSuccess }}</div>
     </section>
 
     <section class="surface-card panel-card">
@@ -360,7 +532,7 @@ watch(selectedTaskId, async () => {
           <div>
             <div class="question-text" v-html="renderRichText(question.text)" />
             <div v-if="question.instruction" class="question-instruction">
-              Instruction: {{ question.instruction }}
+              Instruction: <span v-html="renderRichText(question.instruction)" />
             </div>
           </div>
           <div class="question-actions">

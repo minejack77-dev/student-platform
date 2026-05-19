@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-import xlrd
 import re
 from xml.etree import ElementTree
 from zipfile import ZipFile
@@ -238,6 +237,13 @@ def _create_choices(*, question, option_texts, answer_key, row_number):
     return choices
 
 
+def _last_non_empty_cell_index(row):
+    for index in range(len(row) - 1, -1, -1):
+        if row[index].plain:
+            return index
+    return None
+
+
 def import_questions_from_xls(*, task=None, topic=None, src, is_active=True):
     if task is None and topic is None:
         raise ValidationError({"task": "Task is required."})
@@ -269,8 +275,16 @@ def import_questions_from_xls(*, task=None, topic=None, src, is_active=True):
             if not question_cell.plain:
                 continue
 
-            answer_key = row[-1].plain
-            option_texts = [value for value in row[1:-1] if value.plain]
+            answer_key_index = _last_non_empty_cell_index(row)
+            if answer_key_index is None or answer_key_index < 2:
+                raise ValidationError(
+                    {
+                        "src": f"Row {row_number} must contain question text, options, and key."
+                    }
+                )
+
+            answer_key = row[answer_key_index].plain
+            option_texts = [value for value in row[1:answer_key_index] if value.plain]
             if len(option_texts) < 2:
                 raise ValidationError(
                     {

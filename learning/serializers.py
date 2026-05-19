@@ -271,10 +271,48 @@ class TaskSerializer(serializers.ModelSerializer):
             "subject_name",
             "title",
             "description",
+            "questions_per_attempt",
+            "passing_correct_answers",
             "is_active",
             "updated_at",
         )
         read_only_fields = ("id", "topic_title", "subject", "subject_name", "updated_at")
+
+    def validate(self, attrs):
+        questions_per_attempt = attrs.get(
+            "questions_per_attempt",
+            getattr(
+                self.instance,
+                "questions_per_attempt",
+                Task.DEFAULT_QUESTIONS_PER_ATTEMPT,
+            ),
+        )
+        passing_correct_answers = attrs.get(
+            "passing_correct_answers",
+            getattr(
+                self.instance,
+                "passing_correct_answers",
+                Task.DEFAULT_PASSING_CORRECT_ANSWERS,
+            ),
+        )
+
+        if questions_per_attempt < 1:
+            raise serializers.ValidationError(
+                {"questions_per_attempt": "Question count must be at least 1."}
+            )
+        if passing_correct_answers < 1:
+            raise serializers.ValidationError(
+                {"passing_correct_answers": "Passing threshold must be at least 1."}
+            )
+        if passing_correct_answers > questions_per_attempt:
+            raise serializers.ValidationError(
+                {
+                    "passing_correct_answers": (
+                        "Passing threshold cannot exceed question count."
+                    )
+                }
+            )
+        return attrs
 
 
 class ChoiceSerializer(serializers.ModelSerializer):
@@ -607,8 +645,8 @@ class AttemptSerializer(serializers.ModelSerializer):
             return False
         return obj.is_accessible_on(timezone.localdate())
 
-    def get_passing_correct_answers(self, _obj):
-        return Attempt.PASSING_CORRECT_ANSWERS
+    def get_passing_correct_answers(self, obj):
+        return obj.passing_correct_answers()
 
     def validate_topic(self, value):
         if not value.is_active:
@@ -682,18 +720,19 @@ class AttemptSerializer(serializers.ModelSerializer):
             )
 
         active_questions_qs = Question.objects.filter(task=task, is_active=True)
-        if active_questions_qs.count() < Attempt.QUESTIONS_PER_ATTEMPT:
+        questions_per_attempt = task.questions_per_attempt
+        if active_questions_qs.count() < questions_per_attempt:
             raise serializers.ValidationError(
                 {
                     "task": (
-                        f"At least {Attempt.QUESTIONS_PER_ATTEMPT} active questions "
+                        f"At least {questions_per_attempt} active questions "
                         "are required for this task."
                     )
                 }
             )
 
         questions = list(
-            active_questions_qs.order_by("?")[: Attempt.QUESTIONS_PER_ATTEMPT]
+            active_questions_qs.order_by("?")[:questions_per_attempt]
         )
         attempt = Attempt.objects.create(
             student=student,
@@ -737,7 +776,10 @@ class AttemptSerializer(serializers.ModelSerializer):
             and instance.finished_at is None
         ):
             validated_data["finished_at"] = timezone.now()
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        if status == Attempt.Status.COMPLETED:
+            instance.refresh_from_db(fields=("status", "finished_at", "is_success"))
+        return instance
 
 
 class ChoiceInlineSerializer(serializers.ModelSerializer):
