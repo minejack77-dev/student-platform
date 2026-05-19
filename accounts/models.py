@@ -1,6 +1,8 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, Permission
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class User(AbstractUser):
@@ -60,3 +62,32 @@ class Student(models.Model):
 
     def __str__(self) -> str:
         return self.user.username
+
+
+TEACHER_API_MODELS = (
+    "subject",
+    "workbook",
+    "unit",
+    "topic",
+    "task",
+    "question",
+    "group",
+)
+
+
+@receiver(post_save, sender=Teacher)
+def grant_teacher_learning_permissions(sender, instance, **kwargs):
+    user = instance.user
+    if user.is_superuser:
+        return
+
+    codenames = [
+        f"{action}_{model_name}"
+        for model_name in TEACHER_API_MODELS
+        for action in ("view", "add", "change", "delete")
+    ]
+    permissions = Permission.objects.filter(
+        content_type__app_label="learning",
+        codename__in=codenames,
+    )
+    user.user_permissions.add(*permissions)

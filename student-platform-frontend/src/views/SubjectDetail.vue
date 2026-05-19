@@ -1,12 +1,14 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
-import { Group, Subject, Topic } from "@/api.js";
+import { Group, Subject, Topic, Unit, Workbook } from "@/api.js";
 
 const props = defineProps(["id"]);
 
 const subject = ref({});
 const groups = ref([]);
 const topics = ref([]);
+const workbooks = ref([]);
+const units = ref([]);
 const loadError = ref("");
 const assignError = ref("");
 const assignSuccess = ref("");
@@ -18,6 +20,10 @@ const createTopicForm = ref({
   title: "",
   description: "",
   is_active: true,
+  workbook: "",
+  unit: "",
+  new_workbook_title: "",
+  new_unit_title: "",
 });
 const createTopicLoading = ref(false);
 const createTopicError = ref("");
@@ -32,6 +38,15 @@ const availableGroups = computed(() =>
   groups.value.filter((group) => group.teacher_assignment?.subject !== numericSubjectId.value),
 );
 
+const selectedWorkbookId = computed(() => Number(createTopicForm.value.workbook) || null);
+
+const workbookUnits = computed(() => {
+  if (!selectedWorkbookId.value) {
+    return [];
+  }
+  return units.value.filter((unit) => unit.workbook === selectedWorkbookId.value);
+});
+
 const loadSubject = async () => {
   const response = await Subject.get(props.id);
   subject.value = response;
@@ -40,9 +55,26 @@ const loadSubject = async () => {
 const loadTopics = async () => {
   const response = await Topic.filter({
     subject: props.id,
-    ordering: "title",
   });
   topics.value = response.results ?? response;
+};
+
+const loadWorkbooks = async () => {
+  const response = await Workbook.filter({
+    subject: props.id,
+    is_active: true,
+    ordering: "title",
+  });
+  workbooks.value = response.results ?? response;
+};
+
+const loadUnits = async () => {
+  const response = await Unit.filter({
+    subject: props.id,
+    is_active: true,
+    ordering: "title",
+  });
+  units.value = response.results ?? response;
 };
 
 const loadGroups = async () => {
@@ -64,7 +96,7 @@ const loadSubjectPage = async () => {
   assignError.value = "";
   assignSuccess.value = "";
   try {
-    await Promise.all([loadSubject(), loadTopics(), loadGroups()]);
+    await Promise.all([loadSubject(), loadTopics(), loadGroups(), loadWorkbooks(), loadUnits()]);
   } catch {
     loadError.value = "Failed to load subject page.";
   }
@@ -75,8 +107,54 @@ const resetCreateTopicForm = () => {
     title: "",
     description: "",
     is_active: true,
+    workbook: "",
+    unit: "",
+    new_workbook_title: "",
+    new_unit_title: "",
   };
   createTopicError.value = "";
+};
+
+const getTopicPlacementLabel = (topic) =>
+  [topic.workbook_title, topic.unit_title, topic.title].filter(Boolean).join(" / ");
+
+const getCreateTopicErrorMessage = (error) => {
+  const payload = error?.response?.data;
+  return (
+    payload?.unit?.[0] ||
+    payload?.workbook?.[0] ||
+    payload?.title?.[0] ||
+    payload?.detail ||
+    "Could not create topic."
+  );
+};
+
+const ensureWorkbookForTopic = async () => {
+  if (createTopicForm.value.workbook) {
+    return Number(createTopicForm.value.workbook);
+  }
+
+  const workbook = await Workbook.save({
+    subject: numericSubjectId.value,
+    title: createTopicForm.value.new_workbook_title.trim(),
+    description: "",
+    is_active: true,
+  });
+  return workbook.id;
+};
+
+const ensureUnitForTopic = async (workbookId) => {
+  if (createTopicForm.value.unit) {
+    return Number(createTopicForm.value.unit);
+  }
+
+  const unit = await Unit.save({
+    workbook: workbookId,
+    title: createTopicForm.value.new_unit_title.trim(),
+    description: "",
+    is_active: true,
+  });
+  return unit.id;
 };
 
 const createTopic = async () => {
@@ -85,24 +163,47 @@ const createTopic = async () => {
     createTopicError.value = "Topic title is required.";
     return;
   }
+  if (!createTopicForm.value.workbook && !createTopicForm.value.new_workbook_title.trim()) {
+    createTopicError.value = "Choose a workbook or enter a new workbook title.";
+    return;
+  }
+  if (!createTopicForm.value.unit && !createTopicForm.value.new_unit_title.trim()) {
+    createTopicError.value = "Choose a unit or enter a new unit title.";
+    return;
+  }
 
   createTopicLoading.value = true;
   try {
+    const workbookId = await ensureWorkbookForTopic();
+    const unitId = await ensureUnitForTopic(workbookId);
     await Topic.save({
       subject: numericSubjectId.value,
+      unit: unitId,
       title: createTopicForm.value.title.trim(),
       description: createTopicForm.value.description.trim(),
       is_active: createTopicForm.value.is_active,
     });
     resetCreateTopicForm();
-    await loadTopics();
+    await Promise.all([loadTopics(), loadWorkbooks(), loadUnits()]);
   } catch (error) {
-    createTopicError.value =
-      error?.response?.data?.title?.[0] || "Could not create topic.";
+    createTopicError.value = getCreateTopicErrorMessage(error);
   } finally {
     createTopicLoading.value = false;
   }
 };
+
+watch(
+  () => createTopicForm.value.workbook,
+  (nextValue, previousValue) => {
+    if (nextValue === previousValue) {
+      return;
+    }
+    createTopicForm.value.unit = "";
+    if (nextValue) {
+      createTopicForm.value.new_workbook_title = "";
+    }
+  },
+);
 
 const setGroupLoading = (groupId, loading) => {
   assignLoadingByGroup.value = {
@@ -249,7 +350,7 @@ onMounted(async () => {
           >
             <option value="">No topic selected</option>
             <option v-for="topic in topics" :key="topic.id" :value="topic.id">
-              {{ topic.title }}
+              {{ getTopicPlacementLabel(topic) }}
             </option>
           </select>
 
@@ -303,6 +404,67 @@ onMounted(async () => {
 
       <div class="create-topic-box">
         <h3 class="create-title">Create Topic</h3>
+        <div class="topic-structure-grid">
+          <div class="topic-structure-field">
+            <label class="form-label mb-1">Workbook</label>
+            <select
+              v-model="createTopicForm.workbook"
+              class="form-select form-select-sm"
+            >
+              <option value="">Create new workbook</option>
+              <option
+                v-for="workbook in workbooks"
+                :key="workbook.id"
+                :value="String(workbook.id)"
+              >
+                {{ workbook.title }}
+              </option>
+            </select>
+          </div>
+          <div
+            v-if="!createTopicForm.workbook"
+            class="topic-structure-field"
+          >
+            <label class="form-label mb-1">New workbook title</label>
+            <input
+              v-model="createTopicForm.new_workbook_title"
+              class="form-control form-control-sm"
+              type="text"
+              placeholder="Workbook title"
+            />
+          </div>
+          <div class="topic-structure-field">
+            <label class="form-label mb-1">Unit</label>
+            <select
+              v-model="createTopicForm.unit"
+              class="form-select form-select-sm"
+              :disabled="!createTopicForm.workbook"
+            >
+              <option value="">
+                {{ createTopicForm.workbook ? "Create new unit" : "Create a workbook first" }}
+              </option>
+              <option
+                v-for="unit in workbookUnits"
+                :key="unit.id"
+                :value="String(unit.id)"
+              >
+                {{ unit.title }}
+              </option>
+            </select>
+          </div>
+          <div
+            v-if="!createTopicForm.unit"
+            class="topic-structure-field"
+          >
+            <label class="form-label mb-1">New unit title</label>
+            <input
+              v-model="createTopicForm.new_unit_title"
+              class="form-control form-control-sm"
+              type="text"
+              placeholder="Unit title"
+            />
+          </div>
+        </div>
         <input
           v-model="createTopicForm.title"
           class="form-control form-control-sm"
@@ -342,6 +504,7 @@ onMounted(async () => {
               Open topic
             </router-link>
           </div>
+          <div class="topic-path">{{ topic.workbook_title }} / {{ topic.unit_title }}</div>
           <p class="group-description">{{ topic.description || "No description" }}</p>
         </article>
       </div>

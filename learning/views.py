@@ -28,6 +28,7 @@ from learning.models import (
     AttemptQuestion,
     Answer,
 )
+from learning.permissions import GroupRankingPermission, TeacherModelPermissions
 from learning.serializers import (
     AnswerSerializer,
     AttemptQuestionSerializer,
@@ -80,6 +81,7 @@ class SubjectSetFilter(FilterSet):
 class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = SubjectSetFilter
     ordering_fields = ("name", "updated_at", "id")
@@ -117,6 +119,7 @@ class WorkbookSetFilter(FilterSet):
 class WorkbookViewSet(viewsets.ModelViewSet):
     queryset = Workbook.objects.select_related("subject").all()
     serializer_class = WorkbookSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = WorkbookSetFilter
     ordering_fields = ("title", "updated_at", "id", "subject")
@@ -136,6 +139,7 @@ class UnitSetFilter(FilterSet):
 class UnitViewSet(viewsets.ModelViewSet):
     queryset = Unit.objects.select_related("workbook", "workbook__subject").all()
     serializer_class = UnitSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = UnitSetFilter
     ordering_fields = ("title", "updated_at", "id", "workbook")
@@ -161,6 +165,7 @@ class TopicViewSet(viewsets.ModelViewSet):
         "unit__workbook__subject",
     ).all()
     serializer_class = TopicSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = TopicSetFilter
     ordering_fields = (
@@ -187,6 +192,7 @@ class TaskSetFilter(FilterSet):
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.select_related("topic", "topic__subject").all()
     serializer_class = TaskSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = TaskSetFilter
     ordering_fields = ("title", "updated_at", "id", "topic")
@@ -258,6 +264,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
         .all()
     )
     serializer_class = QuestionSerializer
+    permission_classes = (TeacherModelPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = QuestionSetFilter
     ordering = ("-created_at",)
@@ -346,6 +353,11 @@ class GroupViewSet(viewsets.ModelViewSet):
     ordering_fields = ("name", "updated_at", "id")
     ordering = ("name",)
 
+    def get_permissions(self):
+        if self.action == "ranking":
+            return [GroupRankingPermission()]
+        return [TeacherModelPermissions()]
+
     def get_serializer_class(self):
         if self.action == "retrieve":
             return GroupDetailSerializer
@@ -353,6 +365,22 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def _touch_group(self, group_id):
         Group.objects.filter(id=group_id).update(updated_at=timezone.now())
+
+    def _has_group_member_management_access(self, group):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return True
+
+        teacher = get_request_teacher(self.request)
+        if not teacher:
+            return False
+        return group.teacher_id == teacher.id
+
+    def _group_member_management_denied_response(self):
+        return Response(
+            {"detail": "You are not allowed to manage students in this group."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     def _get_teacher_assignment(self, group, teacher):
         return (
@@ -761,6 +789,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response([], status=status.HTTP_200_OK)
 
         group = self.get_object()
+        if not self._has_group_member_management_access(group):
+            return self._group_member_management_denied_response()
         students_qs = Student.objects.select_related("user")
 
         if query.isdigit():
@@ -791,6 +821,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
+        if not self._has_group_member_management_access(group):
+            return self._group_member_management_denied_response()
         student = get_object_or_404(
             Student.objects.select_related("user"), user_id=user_id
         )
@@ -808,6 +840,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
+        if not self._has_group_member_management_access(group):
+            return self._group_member_management_denied_response()
         student = get_object_or_404(
             Student.objects.select_related("user"), user_id=user_id
         )
@@ -834,6 +868,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         group = self.get_object()
+        if not self._has_group_member_management_access(group):
+            return self._group_member_management_denied_response()
         student = get_object_or_404(
             Student.objects.select_related("user"), user_id=user_id
         )

@@ -242,6 +242,10 @@ class TopicSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"subject": "Subject is required when unit is not set."}
                 )
+            if Unit.objects.filter(workbook__subject=subject, is_active=True).exists():
+                raise serializers.ValidationError(
+                    {"unit": "Unit is required when this subject already has workbooks."}
+                )
             attrs["unit"] = Topic.get_default_unit(subject)
             self._validate_unique_title(attrs["unit"], title)
             return attrs

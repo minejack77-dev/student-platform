@@ -109,7 +109,7 @@ class LearningApiTests(APITestCase):
         self.assertGreater(topic.updated_at, second_old_timestamp)
 
     def test_group_find_and_add_student_by_user_id(self):
-        group = Group.objects.create(name="Group A")
+        group = Group.objects.create(name="Group A", teacher=self.teacher)
         old_timestamp = timezone.now() - timedelta(days=1)
         Group.objects.filter(id=group.id).update(updated_at=old_timestamp)
         student_user = User.objects.create_user(
@@ -150,7 +150,7 @@ class LearningApiTests(APITestCase):
         self.assertGreater(group.updated_at, second_old_timestamp)
 
     def test_group_search_students_by_username_and_user_id(self):
-        group = Group.objects.create(name="Group Search")
+        group = Group.objects.create(name="Group Search", teacher=self.teacher)
 
         user_a = User.objects.create_user(
             username="alex_student",
@@ -182,6 +182,96 @@ class LearningApiTests(APITestCase):
         self.assertEqual(id_response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(id_response.data), 1)
         self.assertIn("maria", [item["username"] for item in id_response.data])
+
+    def test_only_group_owner_teacher_can_manage_group_students(self):
+        group = Group.objects.create(name="Locked Group", teacher=self.teacher)
+        student_user = User.objects.create_user(
+            username="group_member_student",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+
+        other_teacher_user = User.objects.create_user(
+            username="other_group_teacher",
+            password="StrongPass123",
+            role=User.Role.TEACHER,
+        )
+        Teacher.objects.create(user=other_teacher_user)
+        self.client.force_authenticate(other_teacher_user)
+
+        find_response = self.client.get(
+            f"/api/group/{group.id}/find-student/",
+            {"user_id": student_user.id},
+        )
+        self.assertEqual(find_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        add_response = self.client.post(
+            f"/api/group/{group.id}/add-student/",
+            {"user_id": student_user.id},
+            format="json",
+        )
+        self.assertEqual(add_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(group.students.filter(id=student.id).exists())
+
+        search_response = self.client.get(
+            f"/api/group/{group.id}/search-students/",
+            {"q": "group_member"},
+        )
+        self.assertEqual(search_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        group.students.add(student)
+        remove_response = self.client.post(
+            f"/api/group/{group.id}/remove-student/",
+            {"user_id": student_user.id},
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(group.students.filter(id=student.id).exists())
+
+    def test_student_cannot_access_teacher_crud_but_can_view_own_group_ranking(self):
+        subject = Subject.objects.create(name="Permissions Subject")
+        topic = Topic.objects.create(subject=subject, title="Permissions Topic")
+        task = Task.objects.create(topic=topic, title="Protected Task")
+        group = Group.objects.create(name="Permissions Group")
+
+        student = self._authenticate_student("student_permissions")
+        group.students.add(student)
+
+        group_list_response = self.client.get("/api/group/")
+        self.assertEqual(group_list_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        task_create_response = self.client.post(
+            "/api/task/",
+            {
+                "topic": topic.id,
+                "title": "Student cannot create this",
+                "questions_per_attempt": 5,
+                "passing_correct_answers": 3,
+            },
+            format="json",
+        )
+        self.assertEqual(task_create_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        question_create_response = self.client.post(
+            "/api/question/",
+            {
+                "task": task.id,
+                "text": "Forbidden question",
+                "question_type": Question.QuestionType.SINGLE_CHOICE,
+                "choices": [
+                    {"text": "A", "is_correct": True, "order": 1},
+                    {"text": "B", "is_correct": False, "order": 2},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(question_create_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        ranking_response = self.client.get(f"/api/group/{group.id}/ranking/")
+        self.assertEqual(ranking_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ranking_response.data["group_id"], group.id)
+        self.assertEqual(ranking_response.data["rank"], 1)
 
     def test_topics_with_same_title_allowed_for_different_subjects(self):
         algebra = Subject.objects.create(name="Algebra")
@@ -266,6 +356,39 @@ class LearningApiTests(APITestCase):
             1,
         )
         self.assertEqual(Unit.objects.filter(workbook=topic.unit.workbook).count(), 1)
+
+    def test_topic_create_requires_unit_when_subject_already_has_workbook_hierarchy(self):
+        subject = Subject.objects.create(name="Geography")
+        workbook = Workbook.objects.create(subject=subject, title="Atlas")
+        unit = Unit.objects.create(workbook=workbook, title="Europe")
+
+        response = self.client.post(
+            "/api/topic/",
+            {
+                "subject": subject.id,
+                "title": "Capitals",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unit", response.data)
+
+        valid_response = self.client.post(
+            "/api/topic/",
+            {
+                "subject": subject.id,
+                "unit": unit.id,
+                "title": "Capitals",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(valid_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(valid_response.data["workbook"], workbook.id)
+        self.assertEqual(valid_response.data["unit"], unit.id)
 
     def test_topic_rejects_subject_unit_mismatch(self):
         math = Subject.objects.create(name="Math hierarchy")

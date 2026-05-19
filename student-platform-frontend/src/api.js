@@ -102,6 +102,8 @@ groupApi.getRanking = async (groupId) => {
 };
 
 export let Subject = apiConstructor("/api/subject/");
+export let Workbook = apiConstructor("/api/workbook/");
+export let Unit = apiConstructor("/api/unit/");
 export let Topic = apiConstructor("/api/topic/");
 const taskApi = apiConstructor("/api/task/");
 taskApi.importQuestions = async (taskId, payload) => {
