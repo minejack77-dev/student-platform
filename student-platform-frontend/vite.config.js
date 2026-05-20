@@ -11,8 +11,8 @@ const pwa = VitePWA({
   registerType: "autoUpdate",
   outDir: "dist/static",
   manifest: {
-    name: "My App",
-    short_name: "MyApp",
+    name: "Student Platform",
+    short_name: "Student Platform",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
