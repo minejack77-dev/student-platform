@@ -2,6 +2,11 @@ import { createApp } from "vue";
 import "bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./theme.css";
+import { registerSW } from "virtual:pwa-register";
+
+registerSW({
+  immediate: true,
+});
 
 import App from "./App.vue";
 import router from "./router";

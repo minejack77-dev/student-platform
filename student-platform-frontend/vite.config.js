@@ -3,10 +3,34 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import vueDevTools from "vite-plugin-vue-devtools";
+import { VitePWA } from "vite-plugin-pwa";
 
 const HOST = "http://127.0.0.1:8000";
 const BACKEND_URL = new URL(HOST);
-
+const pwa = VitePWA({
+  registerType: "autoUpdate",
+  outDir: "dist/static",
+  manifest: {
+    name: "My App",
+    short_name: "MyApp",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#ffffff",
+    theme_color: "#42b883",
+    icons: [
+      {
+        src: "/static/icons/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
+      {
+        src: "/static/icons/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+      },
+    ],
+  },
+});
 const rewriteProxyHeaders = (req) => {
   if (req.headers?.referer) {
     try {
@@ -29,11 +53,14 @@ const rewriteProxyHeaders = (req) => {
 };
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), vueDevTools()],
+  plugins: [vue(), vueDevTools(), pwa],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
+  },
+  build: {
+    assetsDir: "static",
   },
   server: {
     port: 5173,

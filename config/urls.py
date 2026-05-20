@@ -23,6 +23,7 @@ from rest_framework.routers import DefaultRouter
 from learning import views as learning_views
 from accounts import views as accounts_views
 from django.views.generic import TemplateView
+from django.views.generic import RedirectView
 
 router = DefaultRouter()
 router.register(r"subject", learning_views.SubjectViewSet, basename="subject")
@@ -51,6 +52,11 @@ urlpatterns += [
     path(
         "api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"
     ),  # Возвращает текущего пользователя
+    path("", TemplateView.as_view(template_name="index.html"), name="index"),
+    path(
+        "manifest.webmanifest",
+        RedirectView.as_view(url="/static/manifest.webmanifest"),
+    ),
     path(
         "<path:route>", TemplateView.as_view(template_name="index.html"), name="index"
     ),
