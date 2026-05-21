@@ -8,5 +8,6 @@ dependencies = [
     "django>=6.0.2",
     "django-filter>=25.2",
     "djangorestframework>=3.16.1",
+    "python-dotenv>=1.0.0",
     "xlrd>=2.0.2",
 ]
