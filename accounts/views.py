@@ -285,7 +285,11 @@ class StudentViewSet(viewsets.ModelViewSet):
                     "task_id": entry.task_id,
                     "task_title": entry.task.title if entry.task else entry.topic.title,
                     "active_question_count": entry.active_question_count,
-                    "required_question_count": Attempt.QUESTIONS_PER_ATTEMPT,
+                    "required_question_count": (
+                        entry.task.questions_per_attempt
+                        if entry.task_id
+                        else Attempt.QUESTIONS_PER_ATTEMPT
+                    ),
                     "attempt_id": attempt.id if attempt else None,
                     "attempt_status": attempt.status if attempt else None,
                     "correct_count": correct_count,

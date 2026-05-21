@@ -10,6 +10,7 @@ from learning.models import (
     GroupTeachingAssignment,
     Question,
     Subject,
+    Task,
     Topic,
 )
 
@@ -226,6 +227,63 @@ class AccountsApiTests(APITestCase):
         self.assertIsNone(scheduled_item["correct_count"])
         self.assertIsNone(scheduled_item["result_outcome"])
         self.assertEqual(response.data["results"][1]["items"], [])
+
+    def test_student_me_assignments_returns_task_specific_required_question_count(self):
+        student_user = User.objects.create_user(
+            username="student_assignments_custom_count",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+        teacher_user = User.objects.create_user(
+            username="teacher_for_custom_assignments",
+            password="StrongPass123",
+            role=User.Role.TEACHER,
+        )
+        teacher = Teacher.objects.create(user=teacher_user)
+
+        subject = Subject.objects.create(name="English")
+        topic = Topic.objects.create(subject=subject, title="Lesson A")
+        task = Task.objects.create(
+            topic=topic,
+            title="Task 4",
+            questions_per_attempt=4,
+            passing_correct_answers=3,
+        )
+
+        group = Group.objects.create(name="Custom Homework Group", is_active=True)
+        group.students.add(student)
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=teacher,
+            subject=subject,
+            topic=topic,
+            task=task,
+        )
+        GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=teacher,
+            topic=topic,
+            task=task,
+            scheduled_for="2026-05-21",
+        )
+        for index in range(6):
+            Question.objects.create(
+                topic=topic,
+                task=task,
+                text=f"Question #{index + 1}",
+            )
+
+        self.client.force_authenticate(student_user)
+        response = self.client.get(
+            "/api/student/me-assignments/",
+            {"start_date": "2026-05-21", "days": 1},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        scheduled_item = response.data["results"][0]["items"][0]
+        self.assertEqual(scheduled_item["active_question_count"], 6)
+        self.assertEqual(scheduled_item["required_question_count"], 4)
 
     def test_student_me_assignments_rejects_non_student_user(self):
         response = self.client.get("/api/student/me-assignments/")
