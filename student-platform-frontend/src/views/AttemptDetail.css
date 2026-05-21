@@ -157,6 +157,13 @@
   gap: 12px;
 }
 
+.result-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
 .attempt-result-badge {
   border-radius: 999px;
   font-size: 13px;
@@ -226,6 +233,11 @@
 
   .panel-head {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .result-head {
+    align-items: stretch;
     flex-direction: column;
   }
 }

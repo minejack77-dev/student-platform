@@ -1,9 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { Answer, Attempt, AttemptQuestion } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
 
 const props = defineProps(["id"]);
+const router = useRouter();
 
 const attempt = ref(null);
 const questionList = ref([]);
@@ -43,6 +45,7 @@ const wrongCount = computed(() => {
   }
   return totalQuestions.value - correctCount.value;
 });
+
 const attemptOutcome = computed(() => attempt.value?.result_outcome || null);
 const passingScore = computed(() => attempt.value?.passing_correct_answers ?? 8);
 
@@ -242,6 +245,10 @@ const completeAttempt = async () => {
   }
 };
 
+const goHome = async () => {
+  await router.push({ name: "student-home" });
+};
+
 watch(
   () => props.id,
   async () => {
@@ -289,11 +296,14 @@ onMounted(async () => {
       Loading attempt...
     </section>
 
-    <section v-else-if="totalQuestions === 0" class="surface-card attempt-state">
+    <section
+      v-else-if="totalQuestions === 0 && !attemptCompleted"
+      class="surface-card attempt-state"
+    >
       No questions were assigned to this attempt.
     </section>
 
-    <section v-else class="surface-card question-panel">
+    <section v-else-if="!attemptCompleted" class="surface-card question-panel">
       <div class="panel-head">
         <div class="pill">
           Question {{ activeQuestionIndex + 1 }} / {{ totalQuestions }}
@@ -348,7 +358,6 @@ onMounted(async () => {
         </button>
 
         <button
-          v-if="!attemptCompleted"
           class="btn btn-primary"
           type="button"
           :disabled="!isLastQuestion || hasPendingSaves || isCompleting || attemptInteractionLocked"
@@ -360,11 +369,16 @@ onMounted(async () => {
     </section>
 
     <section v-if="attemptCompleted" class="surface-card result-panel">
-      <h2 class="section-title">Result</h2>
+      <div class="result-head">
+        <h2 class="section-title">Result</h2>
+        <button class="btn btn-primary" type="button" @click="goHome">
+          Back to home
+        </button>
+      </div>
       <div class="attempt-result-badge" :class="attemptOutcome">
         {{ attemptOutcome === "success" ? "Success" : "Fail" }}
-        • {{ correctCount }} / {{ totalQuestions }} correct
-        • pass from {{ passingScore }}
+        | {{ correctCount }} / {{ totalQuestions }} correct
+        | pass from {{ passingScore }}
       </div>
       <div class="result-grid">
         <div class="result-card success">
