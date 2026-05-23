@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+from celery.schedules import crontab
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -166,6 +167,12 @@ WEBPUSH_SETTINGS = {
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "send-test-reminders": {
+        "task": "learning.tasks.send_test_reminders",
+        "schedule": crontab(hour=18, minute=0),
+    },
+}
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
