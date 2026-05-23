@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "accounts",
     "learning",
+    "webpush",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -153,6 +154,18 @@ USE_I18N = True
 
 USE_TZ = True
 
+
+# Web Push
+WEBPUSH_SETTINGS = {
+    "VAPID_PUBLIC_KEY": os.getenv("VAPID_PUBLIC_KEY", "BJ39jwrakF1hgrdNAVGYkbK1yEgBYfGY0p7XjEUxR_Um4xW0nsSaSPv2zy-nKqPzCHTGhWh11kKJqs244LqakMM="),
+    "VAPID_PRIVATE_KEY": os.getenv("VAPID_PRIVATE_KEY", "vapid_private.pem"),
+    "VAPID_ADMIN_EMAIL": os.getenv("VAPID_ADMIN_EMAIL", "admin@example.com"),
+}
+
+# Celery
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/

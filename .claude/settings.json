@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python manage.py makemigrations learning --name add_is_success_to_attempt)",
-      "Bash(.venv\\\\Scripts\\\\python.exe manage.py makemigrations learning --name add_is_success_to_attempt)"
+      "Bash(.venv\\\\Scripts\\\\python.exe manage.py makemigrations learning --name add_is_success_to_attempt)",
+      "Bash(git -C \"d:\\\\Projects\\\\student-platform\" branch --show-current)",
+      "Bash(pip install *)",
+      "Bash(pip list *)",
+      "Bash(findstr -i \"celery\\\\|redis\\\\|webpush\\\\|django-webpush\")",
+      "Bash(python -c \"from py_vapid import Vapid; v = Vapid\\(\\); v.generate_keys\\(\\); v.save_key\\('vapid_private.pem'\\); v.save_public_key\\('vapid_public.pem'\\); print\\('Keys saved'\\)\")",
+      "Bash(python -c ' *)"
     ]
   }
 }
