@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { Attempt, Student, Group } from "@/api.js";
+import { subscribeToPush } from "@/composables/usePushNotifications.js";
+import axios from "axios";
 
 const WEEK_LENGTH = 7;
 
@@ -366,6 +368,31 @@ const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
 const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
+const pushStatus = ref(Notification.permission);
+const testNotifLoading = ref(false);
+const testNotifMessage = ref("");
+
+const enablePush = async () => {
+  await subscribeToPush();
+  pushStatus.value = Notification.permission;
+};
+
+const sendTestNotification = async () => {
+  testNotifLoading.value = true;
+  testNotifMessage.value = "";
+  try {
+    const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? "";
+    await axios.post("/api/student/test-push/", {}, {
+      headers: { "X-CSRFToken": csrf },
+    });
+    testNotifMessage.value = "Notification sent!";
+  } catch {
+    testNotifMessage.value = "Failed to send.";
+  } finally {
+    testNotifLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await Promise.all([loadSchedule(), loadStats()]);
   await loadRanking();
@@ -501,6 +528,42 @@ onMounted(async () => {
             </div>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="surface-card section-card">
+      <h2 class="section-title">Notifications</h2>
+      <p class="section-subtitle">Get notified the day before a scheduled test.</p>
+
+      <div v-if="pushStatus === 'granted'" class="push-status push-status--on">
+        Notifications enabled
+      </div>
+      <div v-else-if="pushStatus === 'denied'" class="push-status push-status--off">
+        Notifications blocked. Allow them in browser settings.
+      </div>
+      <div v-else class="push-status push-status--idle">
+        Notifications are not enabled yet.
+      </div>
+
+      <div class="push-actions">
+        <button
+          v-if="pushStatus !== 'granted'"
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="enablePush"
+        >
+          Enable notifications
+        </button>
+        <button
+          v-if="pushStatus === 'granted'"
+          class="btn btn-outline-primary btn-sm"
+          type="button"
+          :disabled="testNotifLoading"
+          @click="sendTestNotification"
+        >
+          {{ testNotifLoading ? "Sending..." : "Send test notification" }}
+        </button>
+        <span v-if="testNotifMessage" class="push-test-msg">{{ testNotifMessage }}</span>
       </div>
     </section>
 

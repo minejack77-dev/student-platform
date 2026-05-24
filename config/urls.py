@@ -24,6 +24,24 @@ from learning import views as learning_views
 from accounts import views as accounts_views
 from django.views.generic import TemplateView
 from django.views.generic import RedirectView
+from django.http import FileResponse, Http404
+from django.conf import settings
+
+def serve_sw(request):
+    sw_path = settings.BASE_DIR / "student-platform-frontend" / "dist" / "static" / "sw.js"
+    if not sw_path.exists():
+        raise Http404("sw.js not found")
+    response = FileResponse(open(sw_path, "rb"), content_type="application/javascript")
+    response["Service-Worker-Allowed"] = "/"
+    return response
+
+
+def serve_manifest(request):
+    path = settings.BASE_DIR / "student-platform-frontend" / "dist" / "manifest.webmanifest"
+    if not path.exists():
+        raise Http404("manifest.webmanifest not found")
+    return FileResponse(open(path, "rb"), content_type="application/manifest+json")
+
 
 router = DefaultRouter()
 router.register(r"subject", learning_views.SubjectViewSet, basename="subject")
@@ -46,6 +64,7 @@ router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls)), path("webpush/", include("webpush.urls"))]
 urlpatterns += [
+    path("sw.js", serve_sw, name="sw"),
     path("api/auth/csrf/", accounts_views.CsrfCookieView.as_view(), name="auth-csrf"),
     path("api/auth/login/", accounts_views.LoginView.as_view(), name="auth-login"),
     path("api/auth/logout/", accounts_views.LogoutView.as_view(), name="auth-logout"),
@@ -53,10 +72,7 @@ urlpatterns += [
         "api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"
     ),  # Возвращает текущего пользователя
     path("", TemplateView.as_view(template_name="index.html"), name="index"),
-    path(
-        "manifest.webmanifest",
-        RedirectView.as_view(url="/static/manifest.webmanifest"),
-    ),
+    path("manifest.webmanifest", serve_manifest, name="manifest"),
     path(
         "<path:route>", TemplateView.as_view(template_name="index.html"), name="index"
     ),

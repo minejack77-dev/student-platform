@@ -9,10 +9,14 @@ const HOST = "http://127.0.0.1:8000";
 const BACKEND_URL = new URL(HOST);
 const pwa = VitePWA({
   registerType: "autoUpdate",
+  injectRegister: false,
   outDir: "dist/static",
   strategies: "injectManifest",
   srcDir: "src",
   filename: "sw.js",
+  injectManifest: {
+    rollupFormat: "iife",
+  },
   manifest: {
     name: "Student Platform",
     short_name: "Student Platform",

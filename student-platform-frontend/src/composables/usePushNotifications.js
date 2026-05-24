@@ -31,9 +31,9 @@ export async function subscribeToPush() {
 
   // Отправляем подписку на бэкенд
   const sub = subscription.toJSON();
-  await axios.post("/webpush/save_information/", {
+  await axios.post("/webpush/save_information", {
     status_type: "subscribe",
-    subscription: JSON.stringify(sub),
+    subscription: sub,
     browser: navigator.userAgent.includes("Firefox") ? "firefox" : "chrome",
     group: "",
   });

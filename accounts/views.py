@@ -131,6 +131,20 @@ class StudentViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = StudentSetFilter
 
+    @action(detail=False, methods=["post"], url_path="test-push")
+    def test_push(self, request):
+        from webpush import send_user_notification
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        payload = {
+            "head": "Test notification",
+            "body": "Push notifications are working!",
+        }
+        send_user_notification(user=student.user, payload=payload, ttl=60)
+        return Response({"detail": "Notification sent."})
+
     @action(detail=False, methods=["get"], url_path="me-assignments")
     def me_assignments(self, request):
         user = request.user

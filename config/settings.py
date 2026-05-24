@@ -89,7 +89,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "student-platform-frontend" / "dist"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -171,10 +171,13 @@ CELERY_BEAT_SCHEDULE = {
     "send-test-reminders": {
         "task": "learning.tasks.send_test_reminders",
         "schedule": crontab(hour=18, minute=0),
-    },
+    }
 }
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = os.getenv("DJANGO_STATIC_URL", "static/")
+STATICFILES_DIRS = [
+    BASE_DIR / "student-platform-frontend" / "dist" / "static",
+]
