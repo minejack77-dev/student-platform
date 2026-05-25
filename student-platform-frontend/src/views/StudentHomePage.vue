@@ -368,7 +368,7 @@ const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
 const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
-const pushStatus = ref(Notification.permission);
+const pushStatus = ref("Notification" in window ? Notification.permission : "unsupported");
 const testNotifLoading = ref(false);
 const testNotifMessage = ref("");
 
