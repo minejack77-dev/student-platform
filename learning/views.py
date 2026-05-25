@@ -917,9 +917,13 @@ class GroupViewSet(viewsets.ModelViewSet):
         )
         today = timezone.localdate()
         past_entries = schedule_entries.filter(scheduled_for__lte=today)
+        today_entries = list(
+            schedule_entries.filter(scheduled_for=today)
+            .select_related("task", "topic")
+            .order_by("scheduled_for", "id")
+        )
 
         total_past = past_entries.count()
-        last_group_entry = past_entries.order_by("-scheduled_for").first()
 
         students = Student.objects.select_related("user").filter(groups=group).annotate(
             completed=Count(
@@ -950,20 +954,42 @@ class GroupViewSet(viewsets.ModelViewSet):
             ),
         )
 
-        last_attempts = {
-            a.student_id: a
-            for a in Attempt.objects.filter(
+        today_attempts = {}
+        for attempt in (
+            Attempt.objects.filter(
                 student__in=students,
-                schedule_entry=last_group_entry,
+                schedule_entry__in=today_entries,
                 status=Attempt.Status.COMPLETED,
             )
-        } if last_group_entry else {}
+            .select_related("schedule_entry", "task", "topic")
+            .order_by("student_id", "schedule_entry_id", "-id")
+        ):
+            today_attempts.setdefault((attempt.student_id, attempt.schedule_entry_id), attempt)
 
         rows = []
         for student in students:
-            last_attempt = last_attempts.get(student.id)
             missed = total_past - student.completed
             pass_rate = student.passed / total_past if total_past > 0 else 0
+            today_results = []
+            for entry in today_entries:
+                today_attempt = today_attempts.get((student.id, entry.id))
+                today_results.append({
+                    "schedule_entry_id": entry.id,
+                    "task_id": entry.task_id,
+                    "task_title": entry.task.title if entry.task_id else None,
+                    "topic_title": entry.topic.title,
+                    "correct_count": (
+                        today_attempt.correct_count() if today_attempt else None
+                    ),
+                    "total_questions": (
+                        today_attempt.total_questions() if today_attempt else None
+                    ),
+                    "result": (
+                        "success" if today_attempt and today_attempt.is_success is True
+                        else "fail" if today_attempt and today_attempt.is_success is False
+                        else None
+                    ),
+                })
             rows.append({
                 "student_id": student.id,
                 "username": student.user.username,
@@ -972,13 +998,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 "passed": student.passed,
                 "total_correct": student.total_correct,
                 "pass_rate": round(pass_rate * 100, 1),
-                "last_correct_count": last_attempt.correct_count() if last_attempt else None,
-                "last_total_questions": last_attempt.total_questions() if last_attempt else None,
-                "last_result": (
-                    "success" if last_attempt.is_success is True
-                    else "fail" if last_attempt.is_success is False
-                    else None
-                ) if last_attempt else None,
+                "today_results": today_results,
             })
 
         # Сортируем студентов

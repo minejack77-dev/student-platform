@@ -16,6 +16,7 @@ from accounts.models import Student, Teacher, User
 from learning.models import (
     Answer,
     Attempt,
+    AttemptQuestion,
     Choice,
     Group,
     GroupTopicSchedule,
@@ -75,6 +76,49 @@ class LearningApiTests(APITestCase):
             topic=topic,
             scheduled_for=scheduled_for or timezone.localdate(),
         )
+
+    def _create_completed_attempt(self, student, schedule_entry, task, *, correct_answers, total_questions):
+        attempt = Attempt.objects.create(
+            student=student,
+            topic=task.topic,
+            task=task,
+            schedule_entry=schedule_entry,
+        )
+
+        for index in range(total_questions):
+            question = Question.objects.create(
+                topic=task.topic,
+                task=task,
+                text=f"{task.title} question #{index + 1}",
+                question_type=Question.QuestionType.SINGLE_CHOICE,
+                is_active=True,
+            )
+            correct_choice = Choice.objects.create(
+                question=question,
+                text="Correct",
+                is_correct=True,
+                order=1,
+            )
+            wrong_choice = Choice.objects.create(
+                question=question,
+                text="Wrong",
+                is_correct=False,
+                order=2,
+            )
+            attempt_question = AttemptQuestion.objects.create(
+                attempt=attempt,
+                question=question,
+                order=index + 1,
+            )
+            answer = Answer.objects.create(attempt_question=attempt_question)
+            answer.selected_choices.add(
+                correct_choice if index < correct_answers else wrong_choice
+            )
+
+        attempt.status = Attempt.Status.COMPLETED
+        attempt.save(update_fields=["status"])
+        attempt.refresh_from_db()
+        return attempt
 
     def test_create_question_with_choices(self):
         subject = Subject.objects.create(name="Mathematics")
@@ -272,6 +316,110 @@ class LearningApiTests(APITestCase):
         self.assertEqual(ranking_response.status_code, status.HTTP_200_OK)
         self.assertEqual(ranking_response.data["group_id"], group.id)
         self.assertEqual(ranking_response.data["rank"], 1)
+
+    def test_group_ranking_returns_todays_result_for_teacher(self):
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+
+        subject = Subject.objects.create(name="Ranking Subject")
+        topic = Topic.objects.create(subject=subject, title="Ranking Topic", is_active=True)
+        task = Task.objects.create(
+            topic=topic,
+            title="Ranking Task A",
+            questions_per_attempt=3,
+            passing_correct_answers=2,
+        )
+        second_task = Task.objects.create(
+            topic=topic,
+            title="Ranking Task B",
+            questions_per_attempt=2,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Ranking Group", is_active=True)
+        student_user = User.objects.create_user(
+            username="ranking_student",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+        group.students.add(student)
+
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=task,
+        )
+        yesterday_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=yesterday,
+            task=task,
+        )
+        today_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=today,
+            task=task,
+        )
+        second_today_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=today,
+            task=second_task,
+        )
+
+        self._create_completed_attempt(
+            student,
+            yesterday_entry,
+            task,
+            correct_answers=1,
+            total_questions=3,
+        )
+        self._create_completed_attempt(
+            student,
+            today_entry,
+            task,
+            correct_answers=3,
+            total_questions=3,
+        )
+        self._create_completed_attempt(
+            student,
+            second_today_entry,
+            second_task,
+            correct_answers=1,
+            total_questions=2,
+        )
+
+        response = self.client.get(f"/api/group/{group.id}/ranking/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = response.data["ranking"][0]
+        self.assertEqual(len(row["today_results"]), 2)
+        self.assertEqual(
+            row["today_results"],
+            [
+                {
+                    "schedule_entry_id": today_entry.id,
+                    "task_id": task.id,
+                    "task_title": "Ranking Task A",
+                    "topic_title": "Ranking Topic",
+                    "correct_count": 3,
+                    "total_questions": 3,
+                    "result": "success",
+                },
+                {
+                    "schedule_entry_id": second_today_entry.id,
+                    "task_id": second_task.id,
+                    "task_title": "Ranking Task B",
+                    "topic_title": "Ranking Topic",
+                    "correct_count": 1,
+                    "total_questions": 2,
+                    "result": "success",
+                },
+            ],
+        )
 
     def test_topics_with_same_title_allowed_for_different_subjects(self):
         algebra = Subject.objects.create(name="Algebra")

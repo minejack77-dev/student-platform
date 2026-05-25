@@ -399,10 +399,47 @@
 }
 
 .member-last-result {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 190px;
+}
+
+.member-result-label {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.member-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.member-result-item {
   align-items: center;
   display: flex;
-  justify-content: center;
-  min-width: 70px;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.member-result-task {
+  color: var(--ink-soft);
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-result-placeholder {
+  color: var(--ink-soft);
+  font-size: 12px;
 }
 
 .entity-chip {
