@@ -11,14 +11,20 @@ function urlBase64ToUint8Array(base64String) {
 
 export async function subscribeToPush() {
   // Проверяем поддерживает ли браузере Service Worker или Push API
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    return;
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("serviceWorker not supported");
+  }
+  if (!("PushManager" in window)) {
+    throw new Error("PushManager not supported");
+  }
+  if (!("Notification" in window)) {
+    throw new Error("Notification not supported");
   }
 
   // Всплывающее окно разрешить уведомления
   const permission = await Notification.requestPermission();
-  if (permission !== "granted") { // Если студент запретил - выходим
-    return;
+  if (permission !== "granted") {
+    throw new Error("Permission denied: " + permission);
   }
 
   // Ждем, когда SW станет активным

@@ -373,8 +373,12 @@ const testNotifLoading = ref(false);
 const testNotifMessage = ref("");
 
 const enablePush = async () => {
-  await subscribeToPush();
-  pushStatus.value = Notification.permission;
+  try {
+    await subscribeToPush();
+    pushStatus.value = Notification.permission;
+  } catch (e) {
+    alert("Error: " + e.message);
+  }
 };
 
 const sendTestNotification = async () => {
