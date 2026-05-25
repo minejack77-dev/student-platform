@@ -558,6 +558,7 @@ onMounted(async () => {
         >
           Enable notifications
         </button>
+        <p>{{ pushStatus }}</p>
         <button
           v-if="pushStatus === 'granted'"
           class="btn btn-outline-primary btn-sm"
