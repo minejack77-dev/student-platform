@@ -743,15 +743,30 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="member-last-result">
-              <template v-if="rankingByStudentId[student.id]?.last_result">
-                <span
-                  class="entity-chip"
-                  :class="rankingByStudentId[student.id].last_result === 'success' ? 'chip-success' : 'chip-fail'"
+              <div class="member-result-label">Today's results</div>
+              <div
+                v-if="rankingByStudentId[student.id]?.today_results?.length"
+                class="member-results-list"
+              >
+                <div
+                  v-for="result in rankingByStudentId[student.id].today_results"
+                  :key="result.schedule_entry_id"
+                  class="member-result-item"
                 >
-                  {{ rankingByStudentId[student.id].last_correct_count }} / {{ rankingByStudentId[student.id].last_total_questions }}
-                </span>
-              </template>
-              <span v-else class="member-meta">—</span>
+                  <span class="member-result-task">
+                    {{ result.task_title || result.topic_title || "Task" }}
+                  </span>
+                  <span
+                    v-if="result.result"
+                    class="entity-chip"
+                    :class="result.result === 'success' ? 'chip-success' : 'chip-fail'"
+                  >
+                    {{ result.correct_count }} / {{ result.total_questions }}
+                  </span>
+                  <span v-else class="member-result-placeholder">No result yet</span>
+                </div>
+              </div>
+              <span v-else class="member-result-placeholder">No tests today</span>
             </div>
             <button
               class="ghost-danger-btn"
