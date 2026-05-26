@@ -21,9 +21,9 @@ node_modules/
 /student-platform-frontend/dist/
 /student-platform-frontend/static/
 /learning/templates/index.html
-/learning/static/*
-!/learning/static/learning/
-!/learning/static/learning/**
+#/learning/static/*
+#!/learning/static/learning/
+#!/learning/static/learning/**
 
 # OS
 .DS_Store
