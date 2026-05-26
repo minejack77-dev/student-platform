@@ -71,9 +71,13 @@ urlpatterns += [
     path(
         "api/auth/me/", accounts_views.MeView.as_view(), name="auth-me"
     ),  # Возвращает текущего пользователя
+    path("api/push/vapid-public-key/", accounts_views.VapidPublicKeyView.as_view(), name="vapid-public-key"),
+    path("api/push/test/", accounts_views.PushTestView.as_view(), name="push_test"),
+    path("api/push/subscribe/", accounts_views.PushSubscribeView.as_view(), name="push-subscribe"),
     path("", TemplateView.as_view(template_name="index.html"), name="index"),
     path("manifest.webmanifest", serve_manifest, name="manifest"),
     path(
         "<path:route>", TemplateView.as_view(template_name="index.html"), name="index"
     ),
+
 ]

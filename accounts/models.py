@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from webpush.models import PushInformation
 
 
 class User(AbstractUser):
@@ -91,3 +92,7 @@ def grant_teacher_learning_permissions(sender, instance, **kwargs):
         codename__in=codenames,
     )
     user.user_permissions.add(*permissions)
+
+class PushSubscription(models.Model):
+    push_information = models.OneToOneField(PushInformation, on_delete=models.CASCADE, related_name="subscription_meta")
+    created_at = models.DateTimeField(auto_now_add=True)

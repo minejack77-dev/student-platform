@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from webpush.models import PushInformation
 
 from learning.models import GroupStudent
 from .models import Student, Teacher, User
@@ -32,6 +33,20 @@ class UserAdmin(DjangoUserAdmin):
         if obj.role == User.Role.STUDENT:
             return [StudentInline]
         return []
+
+
+admin.site.unregister(PushInformation)
+@admin.register(PushInformation)
+class PushInformationAdmin(admin.ModelAdmin):
+    list_display = ("user", "get_endpoint", "get_created_at")
+
+    @admin.display(description="Endpoint")
+    def get_endpoint(self, obj):
+        return obj.subscription.endpoint
+    
+    admin.display(description="Created at")
+    def get_created_at(self, obj):
+        return obj.subscription_meta.created_at
 
 
 @admin.register(Teacher)

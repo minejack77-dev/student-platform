@@ -67,9 +67,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "webpush",
     "accounts",
     "learning",
-    "webpush",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -158,9 +158,9 @@ USE_TZ = True
 
 # Web Push
 WEBPUSH_SETTINGS = {
-    "VAPID_PUBLIC_KEY": os.getenv("VAPID_PUBLIC_KEY", "BJ39jwrakF1hgrdNAVGYkbK1yEgBYfGY0p7XjEUxR_Um4xW0nsSaSPv2zy-nKqPzCHTGhWh11kKJqs244LqakMM="),
-    "VAPID_PRIVATE_KEY": os.getenv("VAPID_PRIVATE_KEY", "vapid_private.pem"),
-    "VAPID_ADMIN_EMAIL": os.getenv("VAPID_ADMIN_EMAIL", "admin@example.com"),
+    "VAPID_PUBLIC_KEY": os.getenv("VAPID_PUBLIC_KEY", ""),
+    "VAPID_PRIVATE_KEY": os.getenv("VAPID_PRIVATE_KEY", ""),
+    "VAPID_EMAIL": os.getenv("VAPID_EMAIL", ""),
 }
 
 # Celery

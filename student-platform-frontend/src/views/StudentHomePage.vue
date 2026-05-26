@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { Attempt, Student, Group } from "@/api.js";
-import { subscribeToPush } from "@/composables/usePushNotifications.js";
+import { subscribeToPush } from "@/api.js";
 import axios from "axios";
 
 const WEEK_LENGTH = 7;
@@ -370,30 +370,50 @@ const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 
 const pushStatus = ref("Notification" in window ? Notification.permission : "unsupported");
 const testNotifLoading = ref(false);
+const testNotifCountdown = ref(0);
 const testNotifMessage = ref("");
 
+const pushError = ref("");
+const pushSuccess = ref("");
+
 const enablePush = async () => {
+  pushError.value = "";
+  testNotifMessage.value = "";
+  pushSuccess.value = "";
   try {
     await subscribeToPush();
     pushStatus.value = Notification.permission;
+    pushSuccess.value = "Subscription is active! You can try sending a test notification.";
   } catch (e) {
-    alert("Error: " + e.message);
+    if (Notification.permission === "denied") {
+      pushError.value = "Notifications are blocked. Go to browser settings and allow notifications for this site.";
+    } else {
+      pushError.value = "Failed to enable notifications: " + e.message;
+    }
   }
 };
 
 const sendTestNotification = async () => {
   testNotifLoading.value = true;
   testNotifMessage.value = "";
+  pushSuccess.value = "";
   try {
     const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? "";
-    await axios.post("/api/student/test-push/", {}, {
+    await axios.post("/api/push/test/", {}, {
       headers: { "X-CSRFToken": csrf },
     });
     testNotifMessage.value = "Notification sent!";
   } catch {
     testNotifMessage.value = "Failed to send.";
   } finally {
-    testNotifLoading.value = false;
+    testNotifCountdown.value = 10;
+    const interval = setInterval(() => {
+      testNotifCountdown.value -= 1;
+      if (testNotifCountdown.value <= 0) {
+        clearInterval(interval);
+        testNotifLoading.value = false;
+      }
+    }, 1000);
   }
 };
 
@@ -535,43 +555,6 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="surface-card section-card">
-      <h2 class="section-title">Notifications</h2>
-      <p class="section-subtitle">Get notified the day before a scheduled test.</p>
-
-      <div v-if="pushStatus === 'granted'" class="push-status push-status--on">
-        Notifications enabled
-      </div>
-      <div v-else-if="pushStatus === 'denied'" class="push-status push-status--off">
-        Notifications blocked. Allow them in browser settings.
-      </div>
-      <div v-else class="push-status push-status--idle">
-        Notifications are not enabled yet.
-      </div>
-
-      <div class="push-actions">
-        <button
-          v-if="pushStatus !== 'granted'"
-          class="btn btn-primary btn-sm"
-          type="button"
-          @click="enablePush"
-        >
-          Enable notifications
-        </button>
-        <p>{{ pushStatus }}</p>
-        <button
-          v-if="pushStatus === 'granted'"
-          class="btn btn-outline-primary btn-sm"
-          type="button"
-          :disabled="testNotifLoading"
-          @click="sendTestNotification"
-        >
-          {{ testNotifLoading ? "Sending..." : "Send test notification" }}
-        </button>
-        <span v-if="testNotifMessage" class="push-test-msg">{{ testNotifMessage }}</span>
-      </div>
-    </section>
-
     <section class="surface-card section-card stats-section">
       <h2 class="section-title">Statistics</h2>
       <div v-if="statsLoading" class="empty-box mt-2">Loading statistics...</div>
@@ -600,6 +583,32 @@ onMounted(async () => {
         </div>
 
       </template>
+    </section>
+
+    <section class="surface-card section-card">
+      <h2 class="section-title">Notifications</h2>
+      <p class="section-subtitle">Get notified the day before a scheduled test.</p>
+
+      <div class="push-actions">
+        <button
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="enablePush"
+        >
+          Enable notifications
+        </button>
+        <button
+          class="btn btn-outline-primary btn-sm"
+          type="button"
+          :disabled="testNotifLoading"
+          @click="sendTestNotification"
+        >
+          {{ testNotifCountdown > 0 ? `Wait ${testNotifCountdown}s...` : testNotifLoading ? "Sending..." : "Send test notification" }}
+        </button>
+        <span v-if="testNotifMessage" class="push-test-msg">{{ testNotifMessage }}</span>
+        <p v-if="pushSuccess" class="text-success mt-2">{{ pushSuccess }}</p>
+        <p v-if="pushError" class="text-danger mt-2">{{ pushError }}</p>
+      </div>
     </section>
   </div>
 </template>

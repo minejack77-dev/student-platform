@@ -2,7 +2,6 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 import { Auth } from "@/api.js";
-import { subscribeToPush } from "@/composables/usePushNotifications.js";
 
 export const useAuthStore = defineStore("auth", () => {
   const user = ref(null);

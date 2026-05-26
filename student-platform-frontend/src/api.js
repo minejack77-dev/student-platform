@@ -150,3 +150,32 @@ export const Auth = {
     return response.data;
   },
 };
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)))
+}
+
+export async function subscribeToPush() {
+  const registration = await navigator.serviceWorker.ready
+
+  const vapidPublicKey = await getVapidPublicKey()
+
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+  })
+
+  await axios.post('/api/push/subscribe/', subscription.toJSON())
+}
+
+export async function sendTestPush() {
+  await axios.post('/api/push/test/')
+}
+
+async function getVapidPublicKey() {
+    const response = await axios.get("/api/push/vapid-public-key/");
+    return response.data.public_key;
+}
