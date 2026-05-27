@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "webpush",
     "accounts",
     "learning",
+    "django_celery_beat",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

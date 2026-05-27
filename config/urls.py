@@ -62,7 +62,7 @@ router.register(
 )
 router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
-urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls)), path("webpush/", include("webpush.urls"))]
+urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
 urlpatterns += [
     path("sw.js", serve_sw, name="sw"),
     path("api/auth/csrf/", accounts_views.CsrfCookieView.as_view(), name="auth-csrf"),
