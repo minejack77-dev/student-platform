@@ -889,6 +889,13 @@ class GroupViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="ranking")
     def ranking(self, request, pk=None):
         group = self.get_object()
+        date_param = request.query_params.get("date")
+        selected_date = parse_date(date_param) if date_param else timezone.localdate()
+        if date_param and selected_date is None:
+            return Response(
+                {"date": "Enter a valid date in YYYY-MM-DD format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         request_student = get_request_student(request)
         request_teacher = get_request_teacher(request)
@@ -915,10 +922,11 @@ class GroupViewSet(viewsets.ModelViewSet):
             topic__is_active=True,
             topic__subject__is_active=True,
         )
-        today = timezone.localdate()
-        past_entries = schedule_entries.filter(scheduled_for__lte=today)
-        today_entries = list(
-            schedule_entries.filter(scheduled_for=today)
+        current_date = timezone.localdate()
+        ranking_cutoff = min(selected_date, current_date)
+        past_entries = schedule_entries.filter(scheduled_for__lte=ranking_cutoff)
+        selected_entries = list(
+            schedule_entries.filter(scheduled_for=selected_date)
             .select_related("task", "topic")
             .order_by("scheduled_for", "id")
         )
@@ -958,7 +966,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         for attempt in (
             Attempt.objects.filter(
                 student__in=students,
-                schedule_entry__in=today_entries,
+                schedule_entry__in=selected_entries,
                 status=Attempt.Status.COMPLETED,
             )
             .select_related("schedule_entry", "task", "topic")
@@ -971,7 +979,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             missed = total_past - student.completed
             pass_rate = student.passed / total_past if total_past > 0 else 0
             today_results = []
-            for entry in today_entries:
+            for entry in selected_entries:
                 today_attempt = today_attempts.get((student.id, entry.id))
                 today_results.append({
                     "schedule_entry_id": entry.id,
@@ -1013,6 +1021,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response({
                 "group_id": group.id,
                 "group_name": group.name,
+                "results_date": selected_date.isoformat(),
                 "rank": my_row["rank"] if my_row else None,
                 "total": len(rows),
             })
@@ -1020,6 +1029,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         return Response({
             "group_id": group.id,
             "group_name": group.name,
+            "results_date": selected_date.isoformat(),
             "ranking": rows,
         })
 

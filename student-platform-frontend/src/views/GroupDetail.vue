@@ -101,6 +101,10 @@ const normalizeCalendarResponse = (response) => {
 const group = ref({ students: [] });
 const loadError = ref("");
 const rankingByStudentId = ref({});
+const rankingDate = ref(formatISODate(new Date()));
+const rankingDateInput = ref(null);
+const rankingLoading = ref(false);
+const rankingError = ref("");
 
 const subjects = ref([]);
 const tasks = ref([]);
@@ -127,6 +131,12 @@ const searchLoading = ref(false);
 const addLoadingUserId = ref(null);
 const removeLoadingUserId = ref(null);
 const addResultMessage = ref("");
+const panelOpen = ref({
+  assignment: true,
+  schedule: true,
+  results: true,
+  addStudent: true,
+});
 let searchDebounceTimer = null;
 
 const loadGroup = async () => {
@@ -143,15 +153,25 @@ const loadGroup = async () => {
 };
 
 const loadRanking = async () => {
+  rankingLoading.value = true;
+  rankingError.value = "";
+  rankingByStudentId.value = {};
   try {
-    const response = await Group.getRanking(props.id);
+    const response = await Group.getRanking(props.id, { date: rankingDate.value });
     const map = {};
     for (const row of response.ranking ?? []) {
       map[row.student_id] = row;
     }
     rankingByStudentId.value = map;
-  } catch {
+    rankingDate.value = response.results_date || rankingDate.value;
+  } catch (error) {
+    rankingError.value =
+      error?.response?.data?.date ||
+      error?.response?.data?.detail ||
+      "Could not load results for this date.";
     rankingByStudentId.value = {};
+  } finally {
+    rankingLoading.value = false;
   }
 };
 
@@ -237,6 +257,8 @@ const saveTeacherAssignment = async () => {
         await Promise.all([loadTasksBySubject(subjectId), loadTopicCalendar()]);
     }
     await loadGroup();
+    syncAssignmentPanel();
+    syncSchedulePanel();
   } catch (error) {
     assignmentError.value =
       error?.response?.data?.topic?.[0] ||
@@ -262,6 +284,8 @@ const clearTeacherAssignment = async () => {
     calendarDays.value = [];
     assignmentSuccess.value = "Assignment removed for your profile.";
     await loadGroup();
+    syncAssignmentPanel();
+    syncSchedulePanel();
   } catch (error) {
     assignmentError.value =
       error?.response?.data?.detail || "Could not remove assignment.";
@@ -316,6 +340,7 @@ const saveCalendarTask = async (day, item) => {
       task: Number(item.taskDraft),
     });
     await loadTopicCalendar();
+    syncSchedulePanel();
     calendarMessage.value = `${response.task_title || response.topic_title} saved for ${fullDateFormatter.format(parseISODate(day.date))}.`;
   } catch (error) {
     calendarError.value =
@@ -339,6 +364,7 @@ const clearCalendarTask = async (day, item) => {
   try {
     await Group.clearTopicCalendarItem(props.id, { schedule_entry: item.id });
     await loadTopicCalendar();
+    syncSchedulePanel();
     calendarMessage.value = `Task removed from ${fullDateFormatter.format(parseISODate(day.date))}.`;
   } catch (error) {
     calendarError.value =
@@ -378,6 +404,20 @@ const calendarAssignedCount = computed(
     0,
   ),
 );
+const nextThreeDaysScheduled = computed(() => {
+  const calendarMap = new Map(calendarDays.value.map((day) => [day.date, day]));
+  const today = new Date();
+
+  for (let offset = 0; offset < 3; offset += 1) {
+    const date = formatISODate(shiftDateByDays(today, offset));
+    const day = calendarMap.get(date);
+    if (!day || !day.items.some((item) => Boolean(item.task))) {
+      return false;
+    }
+  }
+
+  return true;
+});
 const calendarRangeLabel = computed(() => {
   if (calendarDays.value.length === 0) {
     return "";
@@ -388,6 +428,26 @@ const calendarRangeLabel = computed(() => {
     return "";
   }
   return `${monthRangeFormatter.format(first)} • ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+});
+const selectedRankingDate = computed(() => parseISODate(rankingDate.value));
+const isViewingToday = computed(() => isToday(rankingDate.value));
+const rankingDateButtonLabel = computed(() => {
+  if (!selectedRankingDate.value) {
+    return "Select date";
+  }
+  const day = `${selectedRankingDate.value.getDate()}`.padStart(2, "0");
+  const month = `${selectedRankingDate.value.getMonth() + 1}`.padStart(2, "0");
+  const year = selectedRankingDate.value.getFullYear();
+  return `${day}.${month}.${year}`;
+});
+const memberEmptyResultsLabel = computed(() => {
+  if (!selectedRankingDate.value) {
+    return "No tests on this date";
+  }
+  if (isViewingToday.value) {
+    return "No tests today";
+  }
+  return `No tests on ${monthDayFormatter.format(selectedRankingDate.value)}`;
 });
 
 const isCalendarTaskDirty = (item) =>
@@ -401,6 +461,52 @@ const isWeekend = (value) => {
 const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
 const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
+const getStudentResults = (studentId) => rankingByStudentId.value[studentId]?.today_results ?? [];
+const syncAssignmentPanel = () => {
+  panelOpen.value.assignment = !savedAssignmentSubject.value;
+};
+const syncSchedulePanel = () => {
+  panelOpen.value.schedule = !nextThreeDaysScheduled.value;
+};
+const syncSearchPanel = () => {
+  panelOpen.value.addStudent = group.value.students.length === 0;
+};
+const initializePanels = () => {
+  syncAssignmentPanel();
+  syncSchedulePanel();
+  syncSearchPanel();
+  panelOpen.value.results = true;
+};
+
+const togglePanel = (key) => {
+  panelOpen.value[key] = !panelOpen.value[key];
+};
+
+const shiftRankingDate = async (direction) => {
+  const baseDate = selectedRankingDate.value || new Date();
+  rankingDate.value = formatISODate(shiftDateByDays(baseDate, direction));
+  await loadRanking();
+};
+
+const openRankingDatePicker = () => {
+  const input = rankingDateInput.value;
+  if (!input || rankingLoading.value) {
+    return;
+  }
+  if (typeof input.showPicker === "function") {
+    input.showPicker();
+    return;
+  }
+  input.focus();
+  input.click();
+};
+
+const onRankingDateChange = async () => {
+  if (!selectedRankingDate.value) {
+    rankingDate.value = formatISODate(new Date());
+  }
+  await loadRanking();
+};
 
 const searchStudents = async (query) => {
   if (!query) {
@@ -442,6 +548,7 @@ const addStudentToGroup = async (student) => {
       item.user === student.user ? { ...item, in_group: true } : item,
     );
     await loadGroup();
+    syncSearchPanel();
   } catch (error) {
     addResultMessage.value =
       error?.response?.data?.detail || "Could not add student to group.";
@@ -464,6 +571,7 @@ const removeStudentFromGroup = async (student) => {
       searchResults.value = searchResults.value.map((item) =>
         item.user === student.user ? { ...item, in_group: false } : item,
       );
+      syncSearchPanel();
     } else {
       addResultMessage.value = "Student is not in this group.";
     }
@@ -489,6 +597,9 @@ watch(
     assignmentForm.value = { subject: "", topic: "" };
     savedAssignmentSubject.value = "";
     tasks.value = [];
+    rankingDate.value = formatISODate(new Date());
+    rankingError.value = "";
+    rankingByStudentId.value = {};
     calendarDays.value = [];
     calendarError.value = "";
     calendarMessage.value = "";
@@ -500,6 +611,7 @@ watch(
     await Promise.all([loadGroup(), loadSubjects(), loadRanking()]);
     await loadTeacherAssignment();
     await loadTopicCalendar();
+    initializePanels();
   },
 );
 
@@ -528,6 +640,7 @@ onMounted(async () => {
   await Promise.all([loadGroup(), loadSubjects(), loadRanking()]);
   await loadTeacherAssignment();
   await loadTopicCalendar();
+  initializePanels();
 });
 
 onBeforeUnmount(() => {
@@ -559,169 +672,234 @@ onBeforeUnmount(() => {
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
     <section class="surface-card assignment-panel">
-      <div class="column-head">
-        <h2 class="section-title">Your Assignment In This Group</h2>
-        <span class="pill">Personal for your teacher profile</span>
-      </div>
-      <p class="assignment-hint">
-        Save the subject once, then use the weekly calendar below to assign a different topic to each date.
-      </p>
-
-      <div class="row g-3">
-        <div class="col-md-12">
-          <label class="form-label">Subject</label>
-          <select v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
-            <option value="">No subject selected</option>
-            <option v-for="subject in subjects" :key="subject.id" :value="String(subject.id)">
-              {{ subject.name }}
-            </option>
-          </select>
+      <div class="panel-header">
+        <div class="column-head panel-head">
+          <h2 class="section-title">Subject</h2>
+          <span class="pill">Personal for your teacher profile</span>
         </div>
-      </div>
-
-      <div class="assignment-actions">
-        <button class="btn btn-primary" type="button" :disabled="assignmentLoading" @click="saveTeacherAssignment">
-          {{ assignmentLoading ? "Saving..." : "Save assignment" }}
-        </button>
-        <button
-          class="btn btn-outline-danger"
-          type="button"
-          :disabled="assignmentLoading"
-          @click="clearTeacherAssignment"
-        >
-          Remove assignment
+        <button class="panel-toggle" type="button" @click="togglePanel('assignment')">
+          {{ panelOpen.assignment ? "-" : "+" }}
         </button>
       </div>
+      <div v-show="panelOpen.assignment">
+        <p class="assignment-hint">
+          Save the subject once, then use the weekly calendar below to assign a different topic to each date.
+        </p>
 
-      <div v-if="assignmentError" class="alert alert-danger mt-3 mb-0">{{ assignmentError }}</div>
-      <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0">{{ assignmentSuccess }}</div>
+        <div class="row g-3">
+          <div class="col-md-12">
+            <label class="form-label">Subject</label>
+            <select v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
+              <option value="">No subject selected</option>
+              <option v-for="subject in subjects" :key="subject.id" :value="String(subject.id)">
+                {{ subject.name }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="assignment-actions">
+          <button class="btn btn-primary" type="button" :disabled="assignmentLoading" @click="saveTeacherAssignment">
+            {{ assignmentLoading ? "Saving..." : "Save assignment" }}
+          </button>
+          <button
+            class="btn btn-outline-danger"
+            type="button"
+            :disabled="assignmentLoading"
+            @click="clearTeacherAssignment"
+          >
+            Remove assignment
+          </button>
+        </div>
+
+        <div v-if="assignmentError" class="alert alert-danger mt-3 mb-0">{{ assignmentError }}</div>
+        <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0">{{ assignmentSuccess }}</div>
+      </div>
     </section>
 
     <section class="surface-card schedule-panel">
-      <div class="schedule-header">
-        <div>
-          <div class="column-head schedule-head">
-            <h2 class="section-title">Weekly Task Calendar</h2>
-            <span class="pill">{{ calendarAssignedCount }} tasks scheduled</span>
-          </div>
+      <div class="panel-header">
+        <div class="column-head panel-head">
+          <h2 class="section-title">Weekly Task Calendar</h2>
+          <span class="pill">{{ calendarAssignedCount }} tasks scheduled</span>
+        </div>
+        <button class="panel-toggle" type="button" @click="togglePanel('schedule')">
+          {{ panelOpen.schedule ? "-" : "+" }}
+        </button>
+      </div>
+      <div v-show="panelOpen.schedule">
+        <div class="schedule-header">
           <p class="assignment-hint schedule-hint">
             Move week by week and pin the exact task for each lesson date.
           </p>
+
+          <div class="calendar-toolbar">
+            <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(-1)">
+              Previous week
+            </button>
+            <button class="btn btn-outline-primary btn-sm" type="button" @click="jumpToCurrentWeek">
+              Current week
+            </button>
+            <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(1)">
+              Next week
+            </button>
+          </div>
         </div>
 
-        <div class="calendar-toolbar">
-          <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(-1)">
-            Previous week
-          </button>
-          <button class="btn btn-outline-primary btn-sm" type="button" @click="jumpToCurrentWeek">
-            Current week
-          </button>
-          <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(1)">
-            Next week
-          </button>
+        <div class="schedule-summary">
+          <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
+          <div class="schedule-subject">
+            Task pool:
+            <strong>{{ scheduleUnlocked ? scheduleSubjectName : "locked until subject is saved" }}</strong>
+          </div>
         </div>
-      </div>
 
-      <div class="schedule-summary">
-        <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
-        <div class="schedule-subject">
-          Task pool:
-          <strong>{{ scheduleUnlocked ? scheduleSubjectName : "locked until subject is saved" }}</strong>
+        <div v-if="calendarError" class="alert alert-danger mt-3 mb-0">{{ calendarError }}</div>
+        <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0">{{ calendarMessage }}</div>
+
+        <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">Loading weekly schedule...</div>
+
+        <div v-else-if="scheduleDisabledMessage" class="schedule-empty">
+          <div class="schedule-empty-title">Calendar is waiting for a saved subject</div>
+          <p class="schedule-empty-copy">{{ scheduleDisabledMessage }}</p>
         </div>
-      </div>
 
-      <div v-if="calendarError" class="alert alert-danger mt-3 mb-0">{{ calendarError }}</div>
-      <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0">{{ calendarMessage }}</div>
+        <div v-else-if="tasks.length === 0" class="schedule-empty">
+          <div class="schedule-empty-title">No active tasks found</div>
+          <p class="schedule-empty-copy">
+            This subject has no active tasks yet. Add tasks in a topic page, then come back here.
+          </p>
+        </div>
 
-      <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">Loading weekly schedule...</div>
-
-      <div v-else-if="scheduleDisabledMessage" class="schedule-empty">
-        <div class="schedule-empty-title">Calendar is waiting for a saved subject</div>
-        <p class="schedule-empty-copy">{{ scheduleDisabledMessage }}</p>
-      </div>
-
-      <div v-else-if="tasks.length === 0" class="schedule-empty">
-        <div class="schedule-empty-title">No active tasks found</div>
-        <p class="schedule-empty-copy">
-          This subject has no active tasks yet. Add tasks in a topic page, then come back here.
-        </p>
-      </div>
-
-      <div v-else class="schedule-strip">
-        <article
-          v-for="day in calendarDays"
-          :key="day.date"
-          class="schedule-day-card"
-          :class="{
-            'is-today': isToday(day.date),
-            'is-weekend': isWeekend(day.date),
-            'is-assigned': day.items.some((item) => item.task),
-          }"
-        >
-          <div class="schedule-day-top">
-            <div>
-              <div class="schedule-day-name">{{ formatDayName(day.date) }}</div>
-              <div class="schedule-day-date">{{ formatMonthDay(day.date) }}</div>
+        <div v-else class="schedule-strip">
+          <article
+            v-for="day in calendarDays"
+            :key="day.date"
+            class="schedule-day-card"
+            :class="{
+              'is-today': isToday(day.date),
+              'is-weekend': isWeekend(day.date),
+              'is-assigned': day.items.some((item) => item.task),
+            }"
+          >
+            <div class="schedule-day-top">
+              <div>
+                <div class="schedule-day-name">{{ formatDayName(day.date) }}</div>
+                <div class="schedule-day-date">{{ formatMonthDay(day.date) }}</div>
+              </div>
+              <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
             </div>
-            <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
-          </div>
 
-          <div class="schedule-task-list">
-            <article
-              v-for="item in day.items"
-              :key="item.clientKey"
-              class="schedule-task-row"
-            >
-              <label class="form-label schedule-label">Task</label>
-              <select
-                v-model="item.taskDraft"
-                class="form-select form-select-sm schedule-select"
-                :aria-label="`Task for ${day.date}`"
+            <div class="schedule-task-list">
+              <article
+                v-for="item in day.items"
+                :key="item.clientKey"
+                class="schedule-task-row"
               >
-                <option value="">No task scheduled</option>
-                <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
-                  {{ taskItem.topic_title }} - {{ taskItem.title }}
-                </option>
-              </select>
-
-              <div class="schedule-topic-state">
-                <span class="schedule-topic-caption">Current</span>
-                <strong>{{ item.task_title || item.topic_title || "Free slot" }}</strong>
-              </div>
-
-              <div class="schedule-day-actions">
-                <button
-                  class="btn btn-primary btn-sm"
-                  type="button"
-                  :disabled="calendarSavingKey === item.clientKey || !item.taskDraft || !isCalendarTaskDirty(item)"
-                  @click="saveCalendarTask(day, item)"
+                <label class="form-label schedule-label">Task</label>
+                <select
+                  v-model="item.taskDraft"
+                  class="form-select form-select-sm schedule-select"
+                  :aria-label="`Task for ${day.date}`"
                 >
-                  {{ calendarSavingKey === item.clientKey ? "Saving..." : "Save" }}
-                </button>
-                <button
-                  class="btn btn-outline-secondary btn-sm"
-                  type="button"
-                  :disabled="calendarSavingKey === item.clientKey || (!item.id && day.items.length === 1 && !item.taskDraft)"
-                  @click="clearCalendarTask(day, item)"
-                >
-                  Clear
-                </button>
-              </div>
-            </article>
-          </div>
+                  <option value="">No task scheduled</option>
+                  <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
+                    {{ taskItem.topic_title }} - {{ taskItem.title }}
+                  </option>
+                </select>
 
-          <button class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
-            Add another task
-          </button>
-        </article>
+                <div class="schedule-topic-state">
+                  <span class="schedule-topic-caption">Current</span>
+                  <strong>{{ item.task_title || item.topic_title || "Free slot" }}</strong>
+                </div>
+
+                <div class="schedule-day-actions">
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="calendarSavingKey === item.clientKey || !item.taskDraft || !isCalendarTaskDirty(item)"
+                    @click="saveCalendarTask(day, item)"
+                  >
+                    {{ calendarSavingKey === item.clientKey ? "Saving..." : "Save" }}
+                  </button>
+                  <button
+                    class="btn btn-outline-secondary btn-sm"
+                    type="button"
+                    :disabled="calendarSavingKey === item.clientKey || (!item.id && day.items.length === 1 && !item.taskDraft)"
+                    @click="clearCalendarTask(day, item)"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <button class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
+              Add another task
+            </button>
+          </article>
+        </div>
       </div>
     </section>
 
-    <section class="surface-card group-layout">
-      <div class="members-column">
-        <div class="column-head">
-          <h2 class="section-title">Group Members</h2>
+    <section class="surface-card members-panel">
+      <div class="panel-header">
+        <div class="members-title-row">
+          <h2 class="section-title">Group Results</h2>
           <span class="pill">{{ studentCount }} students</span>
+        </div>
+        <button class="panel-toggle" type="button" @click="togglePanel('results')">
+          {{ panelOpen.results ? "-" : "+" }}
+        </button>
+      </div>
+      <div v-show="panelOpen.results" class="members-column">
+        <div class="members-toolbar">
+          <div class="member-results-toolbar">
+            <div class="member-results-controls">
+              <div class="member-nav-group">
+                <button
+                  class="btn btn-outline-primary btn-sm member-nav-btn"
+                  type="button"
+                  :disabled="rankingLoading"
+                  @click="shiftRankingDate(-1)"
+                  aria-label="Previous date"
+                >
+                  <span aria-hidden="true">&lt;</span>
+                </button>
+                <button
+                  class="member-current-date-btn"
+                  type="button"
+                  :disabled="rankingLoading"
+                  aria-live="polite"
+                  @click="openRankingDatePicker"
+                >
+                  {{ rankingDateButtonLabel }}
+                </button>
+                <button
+                  class="btn btn-outline-primary btn-sm member-nav-btn"
+                  type="button"
+                  :disabled="rankingLoading"
+                  @click="shiftRankingDate(1)"
+                  aria-label="Next date"
+                >
+                  <span aria-hidden="true">&gt;</span>
+                </button>
+              </div>
+            </div>
+            <input
+              id="member-results-date"
+              ref="rankingDateInput"
+              v-model="rankingDate"
+              class="member-date-input-hidden"
+              type="date"
+              :disabled="rankingLoading"
+              @change="onRankingDateChange"
+            />
+          </div>
+        </div>
+
+        <div v-if="rankingError" class="alert alert-danger compact-alert">
+          {{ rankingError }}
         </div>
 
         <div v-if="group.students.length === 0" class="empty-box">
@@ -743,13 +921,13 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="member-last-result">
-              <div class="member-result-label">Today's results</div>
+              <div v-if="rankingLoading" class="member-result-placeholder">Loading...</div>
               <div
-                v-if="rankingByStudentId[student.id]?.today_results?.length"
+                v-else-if="getStudentResults(student.id).length"
                 class="member-results-list"
               >
                 <div
-                  v-for="result in rankingByStudentId[student.id].today_results"
+                  v-for="result in getStudentResults(student.id)"
                   :key="result.schedule_entry_id"
                   class="member-result-item"
                 >
@@ -766,7 +944,7 @@ onBeforeUnmount(() => {
                   <span v-else class="member-result-placeholder">No result yet</span>
                 </div>
               </div>
-              <span v-else class="member-result-placeholder">No tests today</span>
+              <span v-else class="member-result-placeholder">{{ memberEmptyResultsLabel }}</span>
             </div>
             <button
               class="ghost-danger-btn"
@@ -779,12 +957,19 @@ onBeforeUnmount(() => {
           </article>
         </div>
       </div>
+    </section>
 
-      <div class="search-column">
-        <div class="column-head">
+    <section class="surface-card search-panel">
+      <div class="panel-header">
+        <div class="column-head panel-head">
           <h2 class="section-title">Add Student</h2>
           <span class="pill">Live search</span>
         </div>
+        <button class="panel-toggle" type="button" @click="togglePanel('addStudent')">
+          {{ panelOpen.addStudent ? "-" : "+" }}
+        </button>
+      </div>
+      <div v-show="panelOpen.addStudent" class="search-column">
         <p class="search-hint">Type user id or username, then add in one click.</p>
 
         <input v-model="searchQuery" class="form-control search-input" type="text" placeholder="e.g. 42 or alex" />

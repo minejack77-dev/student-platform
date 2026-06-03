@@ -395,6 +395,7 @@ class LearningApiTests(APITestCase):
         response = self.client.get(f"/api/group/{group.id}/ranking/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results_date"], today.isoformat())
         row = response.data["ranking"][0]
         self.assertEqual(len(row["today_results"]), 2)
         self.assertEqual(
@@ -419,6 +420,110 @@ class LearningApiTests(APITestCase):
                     "result": "success",
                 },
             ],
+        )
+
+    def test_group_ranking_returns_selected_date_results_for_teacher(self):
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+
+        subject = Subject.objects.create(name="Selected Date Subject")
+        topic = Topic.objects.create(subject=subject, title="Selected Date Topic", is_active=True)
+        task = Task.objects.create(
+            topic=topic,
+            title="Past Task",
+            questions_per_attempt=3,
+            passing_correct_answers=2,
+        )
+        today_task = Task.objects.create(
+            topic=topic,
+            title="Today Task",
+            questions_per_attempt=2,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Selected Date Group", is_active=True)
+        student_user = User.objects.create_user(
+            username="selected_date_student",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+        group.students.add(student)
+
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=task,
+        )
+        yesterday_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=yesterday,
+            task=task,
+        )
+        GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=today,
+            task=today_task,
+        )
+
+        self._create_completed_attempt(
+            student,
+            yesterday_entry,
+            task,
+            correct_answers=2,
+            total_questions=3,
+        )
+
+        response = self.client.get(
+            f"/api/group/{group.id}/ranking/",
+            {"date": yesterday.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results_date"], yesterday.isoformat())
+        row = response.data["ranking"][0]
+        self.assertEqual(
+            row["today_results"],
+            [
+                {
+                    "schedule_entry_id": yesterday_entry.id,
+                    "task_id": task.id,
+                    "task_title": "Past Task",
+                    "topic_title": "Selected Date Topic",
+                    "correct_count": 2,
+                    "total_questions": 3,
+                    "result": "success",
+                }
+            ],
+        )
+
+    def test_group_ranking_rejects_invalid_date(self):
+        group = Group.objects.create(name="Invalid Date Group", is_active=True)
+        subject = Subject.objects.create(name="Invalid Date Subject")
+        topic = Topic.objects.create(subject=subject, title="Invalid Date Topic", is_active=True)
+        task = Task.objects.create(
+            topic=topic,
+            title="Invalid Date Task",
+            questions_per_attempt=1,
+            passing_correct_answers=1,
+        )
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=task,
+        )
+
+        response = self.client.get(f"/api/group/{group.id}/ranking/", {"date": "bad-date"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["date"],
+            "Enter a valid date in YYYY-MM-DD format.",
         )
 
     def test_topics_with_same_title_allowed_for_different_subjects(self):

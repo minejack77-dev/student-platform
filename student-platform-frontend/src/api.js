@@ -96,8 +96,8 @@ groupApi.clearTopicCalendarItem = async (groupId, params) => {
     params: typeof params === "string" ? { date: params } : params,
   });
 };
-groupApi.getRanking = async (groupId) => {
-  const response = await axios.get(`/api/group/${groupId}/ranking/`);
+groupApi.getRanking = async (groupId, params) => {
+  const response = await axios.get(`/api/group/${groupId}/ranking/`, { params });
   return response.data;
 };
 

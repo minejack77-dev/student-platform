@@ -327,12 +327,14 @@
   max-width: 680px;
 }
 
-.group-layout {
+.members-panel,
+.search-panel {
   animation: rise-fade 450ms ease both;
-  display: grid;
-  gap: 16px;
-  grid-template-columns: 1fr 1fr;
   padding: 20px;
+}
+
+.search-panel {
+  animation-duration: 500ms;
 }
 
 .column-head {
@@ -345,6 +347,137 @@
 .section-title {
   font-size: 26px;
   margin: 0;
+}
+
+.panel-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.panel-head {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+}
+
+.panel-toggle {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(31, 95, 216, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(31, 95, 216, 0.08);
+  color: var(--brand-blue-strong);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 20px;
+  font-weight: 700;
+  height: 34px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 34px;
+}
+
+.panel-toggle:hover {
+  background: rgba(31, 95, 216, 0.08);
+}
+
+.members-toolbar {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.members-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+
+.members-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.member-results-toolbar {
+  min-width: 0;
+  width: auto;
+}
+
+.member-results-controls {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+}
+
+.member-nav-group {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 34px minmax(116px, auto) 34px;
+}
+
+.member-nav-btn {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(31, 95, 216, 0.22);
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(31, 95, 216, 0.08);
+  display: inline-flex;
+  font-size: 16px;
+  height: 34px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 34px;
+}
+
+.member-current-date-btn {
+  align-items: center;
+  background: linear-gradient(135deg, #2d61d1 0%, #4a7bef 100%);
+  border: 1px solid rgba(31, 95, 216, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(31, 95, 216, 0.18);
+  color: #fff;
+  display: inline-flex;
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 116px;
+  padding: 0 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.member-current-date-btn:hover:not(:disabled),
+.member-current-date-btn:focus-visible {
+  background: linear-gradient(135deg, #2756bc 0%, #4271de 100%);
+}
+
+.member-date-input-hidden {
+  block-size: 0;
+  inline-size: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.search-column {
+  width: 100%;
+}
+
+.compact-alert {
+  margin-bottom: 10px;
 }
 
 .empty-box {
@@ -404,14 +537,6 @@
   flex-direction: column;
   gap: 6px;
   min-width: 190px;
-}
-
-.member-result-label {
-  color: var(--ink-soft);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .member-results-list {
@@ -518,10 +643,6 @@
 }
 
 @media (max-width: 920px) {
-  .group-layout {
-    grid-template-columns: 1fr;
-  }
-
   .group-hero {
     grid-template-columns: 1fr;
   }
@@ -539,6 +660,10 @@
     justify-content: flex-start;
   }
 
+  .members-toolbar {
+    gap: 10px;
+  }
+
   .schedule-day-card {
     grid-template-columns: 1fr;
   }
@@ -553,6 +678,39 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+  }
+
+  .member-nav-group {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    width: min(100%, 280px);
+  }
+
+  .member-item {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .member-last-result {
+    align-items: flex-start;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .member-result-item {
+    justify-content: space-between;
+  }
+
+  .member-result-task {
+    max-width: none;
+    text-align: left;
+  }
+
+  .ghost-danger-btn {
+    margin-left: 0;
   }
 
   .search-item {
