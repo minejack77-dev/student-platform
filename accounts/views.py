@@ -24,6 +24,7 @@ from accounts.serializers import (
     UserSerializer,
 )
 from learning.models import Attempt, GroupTopicSchedule
+from accounts.models import PushSubscription
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -130,6 +131,20 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = StudentSetFilter
+
+    @action(detail=False, methods=["post"], url_path="test-push")
+    def test_push(self, request):
+        from webpush import send_user_notification
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        payload = {
+            "head": "Test notification",
+            "body": "Push notifications are working!",
+        }
+        send_user_notification(user=student.user, payload=payload, ttl=60)
+        return Response({"detail": "Notification sent."})
 
     @action(detail=False, methods=["get"], url_path="me-assignments")
     def me_assignments(self, request):
@@ -323,3 +338,58 @@ class StudentViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+class PushSubscribeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from webpush.models import PushInformation, SubscriptionInfo
+        data = request.data
+        subscription, _ = SubscriptionInfo.objects.update_or_create(
+            endpoint=data["endpoint"],
+            defaults={
+                "browser": "chrome",
+                "p256dh": data["keys"]["p256dh"],
+                "auth": data["keys"]["auth"],
+            },
+        )
+        push_info, _ = PushInformation.objects.get_or_create(
+            user=request.user,
+            subscription=subscription,
+        )
+
+        PushSubscription.objects.get_or_create(push_information=push_info)
+        return Response({"ok": True})
+
+class VapidPublicKeyView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.conf import settings
+        return Response({"public_key": settings.WEBPUSH_SETTINGS.get("VAPID_PUBLIC_KEY", "")})
+    
+class PushTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from pywebpush import webpush, WebPushException
+        from webpush.models import PushInformation
+        from django.conf import settings
+        import json
+
+        subscriptions = PushInformation.objects.filter(user=request.user).select_related("subscription")
+        for sub in subscriptions:
+            try:
+                webpush(
+                    subscription_info={
+                        "endpoint": sub.subscription.endpoint,
+                        "keys": {"p256dh": sub.subscription.p256dh, "auth": sub.subscription.auth},
+                    },
+                    data=json.dumps({"title": "Тест", "body": "Уведомление работает!"}),
+                    vapid_private_key=settings.WEBPUSH_SETTINGS["VAPID_PRIVATE_KEY"],
+                    vapid_claims={"sub": settings.WEBPUSH_SETTINGS["VAPID_EMAIL"]},
+                )
+            except WebPushException:
+                sub.delete()
+
+        return Response({"ok": True})

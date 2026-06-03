@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(python manage.py makemigrations learning --name add_is_success_to_attempt)",
-      "Bash(.venv\\\\Scripts\\\\python.exe manage.py makemigrations learning --name add_is_success_to_attempt)"
+      "Bash(.venv\\\\Scripts\\\\python.exe manage.py makemigrations learning --name add_is_success_to_attempt)",
+      "Bash(git -C \"d:\\\\Projects\\\\student-platform\" branch --show-current)",
+      "Bash(pip install *)",
+      "Bash(pip list *)",
+      "Bash(findstr -i \"celery\\\\|redis\\\\|webpush\\\\|django-webpush\")",
+      "Bash(python -c \"from py_vapid import Vapid; v = Vapid\\(\\); v.generate_keys\\(\\); v.save_key\\('vapid_private.pem'\\); v.save_public_key\\('vapid_public.pem'\\); print\\('Keys saved'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(findstr sw *)",
+      "Bash(findstr \"push\\\\|addEventListener\" \"d:\\\\Projects\\\\student-platform\\\\student-platform-frontend\\\\dist\\\\static\\\\sw.js\")",
+      "Bash(npm run *)",
+      "Bash(python -c \"import webpush.urls; import inspect; print\\(inspect.getfile\\(webpush.urls\\)\\)\")",
+      "Bash(.venv\\\\Scripts\\\\python -c \"import webpush.urls; import inspect; print\\(inspect.getfile\\(webpush.urls\\)\\)\")",
+      "Bash(python.exe -c \"import webpush.urls; import inspect; print\\(inspect.getfile\\(webpush.urls\\)\\)\")",
+      "Bash(.\\\\.venv\\\\Scripts\\\\python.exe -c \"import webpush.urls; import inspect; print\\(inspect.getfile\\(webpush.urls\\)\\)\")",
+      "Read(//d/Projects/student-platform/student-platform-frontend/dist/static/**)"
     ]
   }
 }

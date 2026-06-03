@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+from celery.schedules import crontab
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -66,8 +67,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "webpush",
     "accounts",
     "learning",
+    "django_celery_beat",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -87,7 +90,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "student-platform-frontend" / "dist"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -154,7 +157,28 @@ USE_I18N = True
 USE_TZ = True
 
 
+# Web Push
+WEBPUSH_SETTINGS = {
+    "VAPID_PUBLIC_KEY": os.getenv("VAPID_PUBLIC_KEY", ""),
+    "VAPID_PRIVATE_KEY": os.getenv("VAPID_PRIVATE_KEY", ""),
+    "VAPID_EMAIL": os.getenv("VAPID_EMAIL", ""),
+}
+
+# Celery
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "send-test-reminders": {
+        "task": "learning.tasks.send_test_reminders",
+        "schedule": crontab(hour=18, minute=0),
+    }
+}
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = os.getenv("DJANGO_STATIC_URL", "static/")
+STATICFILES_DIRS = [
+    BASE_DIR / "student-platform-frontend" / "dist" / "static",
+]

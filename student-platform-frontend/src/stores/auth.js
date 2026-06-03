@@ -54,6 +54,9 @@ export const useAuthStore = defineStore("auth", () => {
     const payload = await Auth.login(credentials); // Авторизуем пользователя
     setUser(payload); // Сохраняем пользователя внутри store
     initialized.value = true;
+    if (payload?.role === "student") {
+      subscribeToPush().catch(() => {});
+    }
     return payload;
   };
 

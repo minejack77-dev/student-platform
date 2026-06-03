@@ -2,11 +2,11 @@ import { createApp } from "vue";
 import "bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./theme.css";
-import { registerSW } from "virtual:pwa-register";
 
-registerSW({
-  immediate: true,
-});
+// Регистрируем SW в браузере
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 
 import App from "./App.vue";
 import router from "./router";
