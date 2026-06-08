@@ -76,7 +76,9 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(AuthUserSerializer(request.user).data, status=status.HTTP_200_OK)
+        return Response(
+            AuthUserSerializer(request.user).data, status=status.HTTP_200_OK
+        )
 
 
 class UserSetFilter(FilterSet):
@@ -127,7 +129,9 @@ class StudentSetFilter(FilterSet):
 
 
 class StudentViewSet(viewsets.ModelViewSet):
-    queryset = Student.objects.select_related("user").prefetch_related("groups").distinct()
+    queryset = (
+        Student.objects.select_related("user").prefetch_related("groups").distinct()
+    )
     serializer_class = StudentSerializer
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = StudentSetFilter
@@ -135,6 +139,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="test-push")
     def test_push(self, request):
         from webpush import send_user_notification
+
         try:
             student = request.user.student_profile
         except Student.DoesNotExist:
@@ -185,7 +190,9 @@ class StudentViewSet(viewsets.ModelViewSet):
             )
             attempts_by_schedule_entry_id = {}
             for attempt in attempts:
-                attempts_by_schedule_entry_id.setdefault(attempt.schedule_entry_id, attempt)
+                attempts_by_schedule_entry_id.setdefault(
+                    attempt.schedule_entry_id, attempt
+                )
 
             items = []
             for entry in schedule_entries:
@@ -213,11 +220,17 @@ class StudentViewSet(viewsets.ModelViewSet):
                         "correct_count": correct_count,
                         "total_questions": total_questions,
                         "result_outcome": (
-                            "success" if success is True else "fail" if success is False else None
+                            "success"
+                            if success is True
+                            else "fail"
+                            if success is False
+                            else None
                         ),
                     }
                 )
-            return Response({"student": student.id, "results": items}, status=status.HTTP_200_OK)
+            return Response(
+                {"student": student.id, "results": items}, status=status.HTTP_200_OK
+            )
 
         start_date_param = request.query_params.get("start_date")
         days_param = request.query_params.get("days", "7")
@@ -339,11 +352,13 @@ class StudentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+
 class PushSubscribeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from webpush.models import PushInformation, SubscriptionInfo
+
         data = request.data
         subscription, _ = SubscriptionInfo.objects.update_or_create(
             endpoint=data["endpoint"],
@@ -361,13 +376,18 @@ class PushSubscribeView(APIView):
         PushSubscription.objects.get_or_create(push_information=push_info)
         return Response({"ok": True})
 
+
 class VapidPublicKeyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
         from django.conf import settings
-        return Response({"public_key": settings.WEBPUSH_SETTINGS.get("VAPID_PUBLIC_KEY", "")})
-    
+
+        return Response(
+            {"public_key": settings.WEBPUSH_SETTINGS.get("VAPID_PUBLIC_KEY", "")}
+        )
+
+
 class PushTestView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -377,17 +397,24 @@ class PushTestView(APIView):
         from django.conf import settings
         import json
 
-        subscriptions = PushInformation.objects.filter(user=request.user).select_related("subscription")
+        subscriptions = PushInformation.objects.filter(
+            user=request.user
+        ).select_related("subscription")
         for sub in subscriptions:
             try:
                 webpush(
                     subscription_info={
                         "endpoint": sub.subscription.endpoint,
-                        "keys": {"p256dh": sub.subscription.p256dh, "auth": sub.subscription.auth},
+                        "keys": {
+                            "p256dh": sub.subscription.p256dh,
+                            "auth": sub.subscription.auth,
+                        },
                     },
                     data=json.dumps({"title": "Тест", "body": "Уведомление работает!"}),
                     vapid_private_key=settings.WEBPUSH_SETTINGS["VAPID_PRIVATE_KEY"],
-                    vapid_claims={"sub": settings.WEBPUSH_SETTINGS["VAPID_EMAIL"]},
+                    vapid_claims={
+                        "sub": "mailto:" + settings.WEBPUSH_SETTINGS["VAPID_EMAIL"]
+                    },
                 )
             except WebPushException:
                 sub.delete()
