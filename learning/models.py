@@ -458,6 +458,13 @@ class GroupTeachingAssignment(models.Model):
         on_delete=models.PROTECT,
         related_name="teaching_assignments",
     )
+    workbook = models.ForeignKey(
+        Workbook,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="teaching_assignments",
+    )
     topic = models.ForeignKey(
         Topic,
         on_delete=models.PROTECT,
@@ -485,14 +492,27 @@ class GroupTeachingAssignment(models.Model):
 
     def clean(self):
         super().clean()
+        if self.workbook_id and self.workbook.subject_id != self.subject_id:
+            raise ValidationError(
+                {"workbook": "Workbook must belong to the selected subject."}
+            )
         if self.topic_id and self.topic.subject_id != self.subject_id:
             raise ValidationError(
                 {"topic": "Topic must belong to the selected subject."}
             )
+        if self.topic_id and self.workbook_id:
+            if self.topic.unit.workbook_id != self.workbook_id:
+                raise ValidationError(
+                    {"topic": "Topic must belong to the selected workbook."}
+                )
         if self.task_id:
             if self.task.topic.subject_id != self.subject_id:
                 raise ValidationError(
                     {"task": "Task must belong to the selected subject."}
+                )
+            if self.workbook_id and self.task.topic.unit.workbook_id != self.workbook_id:
+                raise ValidationError(
+                    {"task": "Task must belong to the selected workbook."}
                 )
             if self.topic_id and self.task.topic_id != self.topic_id:
                 raise ValidationError(
@@ -502,7 +522,9 @@ class GroupTeachingAssignment(models.Model):
     def save(self, *args, **kwargs):
         if self.task_id and not self.topic_id:
             self.topic = self.task.topic
-        elif self.topic_id and not self.task_id:
+        if self.topic_id and not self.workbook_id:
+            self.workbook = self.topic.unit.workbook
+        if self.topic_id and not self.task_id:
             self.task = Task.get_default_for_topic(self.topic)
         self.full_clean()
         return super().save(*args, **kwargs)

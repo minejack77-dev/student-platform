@@ -335,7 +335,7 @@ onMounted(async () => {
             <h3 class="group-name">{{ group.name }}</h3>
             <router-link
               class="small-link"
-              :to="{ name: 'group-detail', params: { id: group.id } }"
+              :to="{ name: 'group-details', params: { id: group.id } }"
             >
               Open group
             </router-link>

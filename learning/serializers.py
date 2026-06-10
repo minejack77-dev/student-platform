@@ -83,6 +83,7 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
         source="teacher.user.username", read_only=True
     )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    workbook_title = serializers.CharField(source="workbook.title", read_only=True)
     topic_title = serializers.CharField(source="topic.title", read_only=True)
     task_title = serializers.CharField(source="task.title", read_only=True)
 
@@ -96,6 +97,8 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
             "teacher_username",
             "subject",
             "subject_name",
+            "workbook",
+            "workbook_title",
             "topic",
             "topic_title",
             "task",
@@ -109,6 +112,7 @@ class GroupTeachingAssignmentSerializer(serializers.ModelSerializer):
             "teacher",
             "teacher_username",
             "subject_name",
+            "workbook_title",
             "topic_title",
             "task_title",
             "updated_at",
@@ -815,10 +819,23 @@ class QuestionInlineSerializer(serializers.ModelSerializer):
 class AttemptQuestionSerializer(serializers.ModelSerializer):
     question = QuestionInlineSerializer(read_only=True)
     answer = AnswerSerializer(read_only=True)
+    correct_choice_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = AttemptQuestion
-        fields = "__all__"
+        fields = (
+            "id",
+            "attempt",
+            "question",
+            "order",
+            "answer",
+            "correct_choice_ids",
+        )
+
+    def get_correct_choice_ids(self, obj):
+        if obj.attempt.status != Attempt.Status.COMPLETED:
+            return []
+        return [choice.id for choice in obj.question.choices.all() if choice.is_correct]
 
 
 class GroupSerializer(serializers.ModelSerializer):
@@ -874,7 +891,13 @@ class GroupSerializer(serializers.ModelSerializer):
             )
         else:
             assignment = (
-                obj.teaching_assignments.select_related("subject", "topic", "task", "teacher__user")
+                obj.teaching_assignments.select_related(
+                    "subject",
+                    "workbook",
+                    "topic",
+                    "task",
+                    "teacher__user",
+                )
                 .filter(teacher_id=teacher.id)
                 .first()
             )
@@ -891,6 +914,8 @@ class GroupSerializer(serializers.ModelSerializer):
             "teacher_username": assignment.teacher.user.username,
             "subject": assignment.subject_id,
             "subject_name": assignment.subject.name,
+            "workbook": assignment.workbook_id,
+            "workbook_title": assignment.workbook.title if assignment.workbook else None,
             "topic": assignment.topic_id,
             "topic_title": assignment.topic.title if assignment.topic else None,
             "task": assignment.task_id,
@@ -902,6 +927,11 @@ class GroupSerializer(serializers.ModelSerializer):
 class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
     subject = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
+    workbook = serializers.PrimaryKeyRelatedField(
+        queryset=Workbook.objects.filter(is_active=True),
         required=False,
         allow_null=True,
     )
@@ -918,20 +948,25 @@ class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         current_subject = getattr(self.instance, "subject", None)
+        current_workbook = getattr(self.instance, "workbook", None)
         current_topic = getattr(self.instance, "topic", None)
         current_task = getattr(self.instance, "task", None)
 
         subject_provided = "subject" in attrs
+        workbook_provided = "workbook" in attrs
         topic_provided = "topic" in attrs
         task_provided = "task" in attrs
 
         subject = attrs.get("subject", current_subject)
+        workbook = attrs.get("workbook", current_workbook)
         topic = attrs.get("topic", current_topic)
         task = attrs.get("task", current_task)
 
         if subject_provided and attrs.get("subject") is None and not topic_provided:
+            attrs["workbook"] = None
             attrs["topic"] = None
             attrs["task"] = None
+            workbook = None
             topic = None
             task = None
         if (
@@ -944,28 +979,70 @@ class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
             attrs["task"] = None
             task = None
 
-        if subject is None and (topic is not None or task is not None):
+        if subject is None and (workbook is not None or topic is not None or task is not None):
             raise serializers.ValidationError(
-                {"subject": "Subject is required when topic or task is set."}
+                {"subject": "Subject is required when workbook, topic, or task is set."}
+            )
+        if workbook and subject and workbook.subject_id != subject.id:
+            raise serializers.ValidationError(
+                {"workbook": "Workbook must belong to the selected subject."}
             )
         if topic and subject and topic.subject_id != subject.id:
             raise serializers.ValidationError(
                 {"topic": "Topic must belong to the selected subject."}
+            )
+        if topic and workbook and topic.unit.workbook_id != workbook.id:
+            raise serializers.ValidationError(
+                {"topic": "Topic must belong to the selected workbook."}
             )
         if task:
             if subject and task.topic.subject_id != subject.id:
                 raise serializers.ValidationError(
                     {"task": "Task must belong to the selected subject."}
                 )
+            if workbook and task.topic.unit.workbook_id != workbook.id:
+                raise serializers.ValidationError(
+                    {"task": "Task must belong to the selected workbook."}
+                )
             if topic and task.topic_id != topic.id:
                 raise serializers.ValidationError(
                     {"task": "Task must belong to the selected topic."}
                 )
             attrs["topic"] = task.topic
+            attrs["workbook"] = task.topic.unit.workbook
+            workbook = attrs["workbook"]
+            topic = attrs["topic"]
+        elif topic:
+            attrs["workbook"] = topic.unit.workbook
+            workbook = attrs["workbook"]
 
-        # If only subject changed and the old topic no longer belongs to it, clear topic.
+        # If only subject changed and the old workbook/topic no longer belong to it, clear them.
         if (
             subject_provided
+            and not workbook_provided
+            and not topic_provided
+            and not task_provided
+            and current_workbook
+            and subject
+            and current_workbook.subject_id != subject.id
+        ):
+            attrs["workbook"] = None
+            attrs["topic"] = None
+            attrs["task"] = None
+            return attrs
+        if (
+            workbook_provided
+            and not topic_provided
+            and not task_provided
+            and current_topic
+            and workbook
+            and current_topic.unit.workbook_id != workbook.id
+        ):
+            attrs["topic"] = None
+            attrs["task"] = None
+        if (
+            subject_provided
+            and not workbook_provided
             and not topic_provided
             and not task_provided
             and current_topic

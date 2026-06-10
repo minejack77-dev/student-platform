@@ -382,6 +382,66 @@
   font-size: 13px;
 }
 
+.recent-results-head {
+  gap: 12px;
+}
+
+.recent-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.recent-result-item {
+  align-items: center;
+  background:
+    radial-gradient(circle at top right, rgba(31, 95, 216, 0.12), transparent 36%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 255, 0.96));
+  border: 1px solid rgba(15, 42, 68, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  display: grid;
+  gap: 12px 16px;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  padding: 14px 16px;
+}
+
+.recent-result-date,
+.recent-result-main {
+  min-width: 0;
+}
+
+.recent-result-label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recent-result-value {
+  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.recent-result-title {
+  font-size: 18px;
+  margin: 0;
+}
+
+.recent-result-meta {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.recent-result-action {
+  white-space: nowrap;
+}
+
 .stats-section {
   animation: rise-fade 480ms ease both;
 }
@@ -498,6 +558,7 @@
     grid-template-columns: 1fr;
   }
 
+  .recent-result-item,
   .day-task-item {
     grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) auto;
   }
@@ -519,10 +580,12 @@
   }
 
   .schedule-day-card,
+  .recent-result-item,
   .day-task-item {
     grid-template-columns: 1fr;
   }
 
+  .recent-result-action,
   .action-btn {
     width: 100%;
   }

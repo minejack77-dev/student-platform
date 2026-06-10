@@ -129,6 +129,38 @@ const selectedChoicesFor = (attemptQuestionId) =>
 const isChoiceSelected = (attemptQuestionId, choiceId) =>
   selectedChoicesFor(attemptQuestionId).includes(choiceId);
 
+const submittedChoicesFor = (attemptQuestion) =>
+  attemptQuestion?.answer?.selected_choices ?? [];
+
+const correctChoiceIdsFor = (attemptQuestion) =>
+  attemptQuestion?.correct_choice_ids ?? [];
+
+const isSubmittedChoiceSelected = (attemptQuestion, choiceId) =>
+  submittedChoicesFor(attemptQuestion).includes(choiceId);
+
+const isSubmittedChoiceCorrect = (attemptQuestion, choiceId) =>
+  correctChoiceIdsFor(attemptQuestion).includes(choiceId);
+
+const reviewStatusTone = (attemptQuestion) => {
+  if (attemptQuestion?.answer?.is_correct === true) {
+    return "success";
+  }
+  if (submittedChoicesFor(attemptQuestion).length === 0) {
+    return "neutral";
+  }
+  return "danger";
+};
+
+const reviewStatusLabel = (attemptQuestion) => {
+  if (attemptQuestion?.answer?.is_correct === true) {
+    return "Correct";
+  }
+  if (submittedChoicesFor(attemptQuestion).length === 0) {
+    return "No answer";
+  }
+  return "Wrong";
+};
+
 const saveAnswer = async (attemptQuestion) => {
   if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
     return;
@@ -389,6 +421,90 @@ onMounted(async () => {
           <div class="result-label">Wrong</div>
           <div class="result-value">{{ wrongCount }}</div>
         </div>
+      </div>
+
+      <div class="result-review">
+        <div class="review-head">
+          <h3 class="review-title">Answer review</h3>
+          <p class="review-subtitle">
+            Review each question and compare your choice with the correct answer.
+          </p>
+        </div>
+
+        <div v-if="questionList.length" class="review-list">
+          <article
+            v-for="attemptQuestion in questionList"
+            :key="attemptQuestion.id"
+            class="review-question"
+            :class="reviewStatusTone(attemptQuestion)"
+          >
+            <div class="review-question-head">
+              <span class="pill">Question {{ attemptQuestion.order }}</span>
+              <span class="review-status" :class="reviewStatusTone(attemptQuestion)">
+                {{ reviewStatusLabel(attemptQuestion) }}
+              </span>
+            </div>
+
+            <h3
+              class="review-question-text"
+              v-html="renderRichText(attemptQuestion.question.text)"
+            />
+            <p
+              v-if="attemptQuestion.question.instruction"
+              class="question-instruction"
+              v-html="renderRichText(attemptQuestion.question.instruction)"
+            />
+            <p
+              v-if="submittedChoicesFor(attemptQuestion).length === 0"
+              class="review-empty"
+            >
+              No answer was selected for this question.
+            </p>
+
+            <div class="review-choices">
+              <div
+                v-for="choice in attemptQuestion.question.choices"
+                :key="choice.id"
+                class="review-choice"
+                :class="{
+                  selected: isSubmittedChoiceSelected(attemptQuestion, choice.id),
+                  correct: isSubmittedChoiceCorrect(attemptQuestion, choice.id),
+                  'selected-correct':
+                    isSubmittedChoiceSelected(attemptQuestion, choice.id) &&
+                    isSubmittedChoiceCorrect(attemptQuestion, choice.id),
+                  'selected-wrong':
+                    isSubmittedChoiceSelected(attemptQuestion, choice.id) &&
+                    !isSubmittedChoiceCorrect(attemptQuestion, choice.id),
+                  'missed-correct':
+                    !isSubmittedChoiceSelected(attemptQuestion, choice.id) &&
+                    isSubmittedChoiceCorrect(attemptQuestion, choice.id),
+                }"
+              >
+                <div class="review-choice-main">
+                  <span class="review-choice-order">{{ choice.order }}</span>
+                  <span v-html="renderRichText(choice.text)" />
+                </div>
+
+                <div class="review-choice-tags">
+                  <span
+                    v-if="isSubmittedChoiceSelected(attemptQuestion, choice.id)"
+                    class="review-tag selected"
+                  >
+                    Selected
+                  </span>
+                  <span
+                    v-if="isSubmittedChoiceCorrect(attemptQuestion, choice.id)"
+                    class="review-tag correct"
+                  >
+                    Correct answer
+                  </span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <p v-else class="review-empty">No questions available for review.</p>
       </div>
     </section>
   </div>

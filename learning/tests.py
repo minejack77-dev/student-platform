@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -526,6 +526,278 @@ class LearningApiTests(APITestCase):
             "Enter a valid date in YYYY-MM-DD format.",
         )
 
+    def test_group_detailed_statistics_returns_scaled_matrix(self):
+        end_date = date(2026, 5, 9)
+
+        subject = Subject.objects.create(name="Detailed Statistics Subject")
+        topic = Topic.objects.create(subject=subject, title="Detailed Statistics Topic", is_active=True)
+        green_task = Task.objects.create(
+            topic=topic,
+            title="Green Task",
+            questions_per_attempt=2,
+            passing_correct_answers=1,
+        )
+        second_green_task = Task.objects.create(
+            topic=topic,
+            title="Second Green Task",
+            questions_per_attempt=1,
+            passing_correct_answers=1,
+        )
+        yellow_success_task = Task.objects.create(
+            topic=topic,
+            title="Yellow Success Task",
+            questions_per_attempt=2,
+            passing_correct_answers=1,
+        )
+        yellow_fail_task = Task.objects.create(
+            topic=topic,
+            title="Yellow Fail Task",
+            questions_per_attempt=2,
+            passing_correct_answers=2,
+        )
+        red_task = Task.objects.create(
+            topic=topic,
+            title="Red Task",
+            questions_per_attempt=2,
+            passing_correct_answers=2,
+        )
+        blue_task = Task.objects.create(
+            topic=topic,
+            title="Blue Task",
+            questions_per_attempt=2,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Detailed Statistics Group", is_active=True)
+        student_user = User.objects.create_user(
+            username="anna_statistics",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        second_student_user = User.objects.create_user(
+            username="boris_statistics",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        student = Student.objects.create(user=student_user)
+        second_student = Student.objects.create(user=second_student_user)
+        group.students.add(student, second_student)
+
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=green_task,
+        )
+        may_5_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-05",
+            task=green_task,
+        )
+        second_may_5_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-05",
+            task=second_green_task,
+        )
+        may_6_success_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-06",
+            task=yellow_success_task,
+        )
+        may_6_fail_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-06",
+            task=yellow_fail_task,
+        )
+        may_7_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-07",
+            task=red_task,
+        )
+        may_8_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-08",
+            task=blue_task,
+        )
+
+        self._create_completed_attempt(
+            student,
+            may_5_entry,
+            green_task,
+            correct_answers=2,
+            total_questions=2,
+        )
+        self._create_completed_attempt(
+            student,
+            second_may_5_entry,
+            second_green_task,
+            correct_answers=1,
+            total_questions=1,
+        )
+        self._create_completed_attempt(
+            student,
+            may_6_success_entry,
+            yellow_success_task,
+            correct_answers=1,
+            total_questions=2,
+        )
+        self._create_completed_attempt(
+            student,
+            may_6_fail_entry,
+            yellow_fail_task,
+            correct_answers=1,
+            total_questions=2,
+        )
+        self._create_completed_attempt(
+            student,
+            may_7_entry,
+            red_task,
+            correct_answers=0,
+            total_questions=2,
+        )
+        self._create_completed_attempt(
+            second_student,
+            may_5_entry,
+            green_task,
+            correct_answers=1,
+            total_questions=2,
+        )
+
+        response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"scale": "week", "end_date": end_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["start_date"], "2026-05-04")
+        self.assertEqual(response.data["end_date"], "2026-05-10")
+        self.assertEqual(len(response.data["dates"]), 7)
+        self.assertEqual(
+            response.data["dates"][1],
+            {"date": "2026-05-05", "scheduled_count": 2},
+        )
+        self.assertEqual(
+            response.data["dates"][5],
+            {"date": "2026-05-09", "scheduled_count": 0},
+        )
+
+        rows_by_username = {
+            row["username"]: row for row in response.data["students"]
+        }
+        anna_cells = {
+            cell["date"]: cell for cell in rows_by_username["anna_statistics"]["cells"]
+        }
+        boris_cells = {
+            cell["date"]: cell for cell in rows_by_username["boris_statistics"]["cells"]
+        }
+
+        self.assertEqual(anna_cells["2026-05-05"]["state"], "all_correct")
+        self.assertEqual(anna_cells["2026-05-06"]["state"], "partial")
+        self.assertEqual(anna_cells["2026-05-07"]["state"], "none_correct")
+        self.assertEqual(anna_cells["2026-05-08"]["state"], "missed")
+        self.assertEqual(anna_cells["2026-05-09"]["state"], "no_test")
+        self.assertEqual(
+            anna_cells["2026-05-06"]["tests"],
+            [
+                {
+                    "schedule_entry_id": may_6_success_entry.id,
+                    "task_id": yellow_success_task.id,
+                    "task_title": "Yellow Success Task",
+                    "topic_title": "Detailed Statistics Topic",
+                    "attempt_id": Attempt.objects.get(
+                        student=student,
+                        schedule_entry=may_6_success_entry,
+                    ).id,
+                    "result": "success",
+                    "correct_count": 1,
+                    "total_questions": 2,
+                },
+                {
+                    "schedule_entry_id": may_6_fail_entry.id,
+                    "task_id": yellow_fail_task.id,
+                    "task_title": "Yellow Fail Task",
+                    "topic_title": "Detailed Statistics Topic",
+                    "attempt_id": Attempt.objects.get(
+                        student=student,
+                        schedule_entry=may_6_fail_entry,
+                    ).id,
+                    "result": "fail",
+                    "correct_count": 1,
+                    "total_questions": 2,
+                },
+            ],
+        )
+        self.assertEqual(boris_cells["2026-05-05"]["state"], "missed")
+        self.assertEqual(boris_cells["2026-05-09"]["state"], "no_test")
+
+    def test_group_detailed_statistics_week_uses_calendar_week_boundaries(self):
+        subject = Subject.objects.create(name="Calendar Week Subject")
+        topic = Topic.objects.create(subject=subject, title="Calendar Week Topic", is_active=True)
+        task = Task.objects.create(
+            topic=topic,
+            title="Calendar Week Task",
+            questions_per_attempt=1,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Calendar Week Group", is_active=True)
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=task,
+        )
+
+        response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"scale": "week", "end_date": "2026-05-13"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["start_date"], "2026-05-11")
+        self.assertEqual(response.data["end_date"], "2026-05-17")
+        self.assertEqual(
+            [column["date"] for column in response.data["dates"]],
+            [
+                "2026-05-11",
+                "2026-05-12",
+                "2026-05-13",
+                "2026-05-14",
+                "2026-05-15",
+                "2026-05-16",
+                "2026-05-17",
+            ],
+        )
+
+    def test_group_detailed_statistics_rejects_invalid_filters(self):
+        group = Group.objects.create(name="Detailed Statistics Filter Group", is_active=True)
+
+        invalid_scale_response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"scale": "year"},
+        )
+        self.assertEqual(invalid_scale_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            invalid_scale_response.data["scale"],
+            "Use one of: week, month, three_months.",
+        )
+
+        invalid_date_response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"end_date": "not-a-date"},
+        )
+        self.assertEqual(invalid_date_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            invalid_date_response.data["end_date"],
+            "Enter a valid date in YYYY-MM-DD format.",
+        )
+
     def test_topics_with_same_title_allowed_for_different_subjects(self):
         algebra = Subject.objects.create(name="Algebra")
         geometry = Subject.objects.create(name="Geometry")
@@ -665,9 +937,28 @@ class LearningApiTests(APITestCase):
     def test_group_teacher_assignment_validation(self):
         math = Subject.objects.create(name="Math")
         physics = Subject.objects.create(name="Physics")
+        math_workbook = Workbook.objects.create(subject=math, title="Math Workbook")
+        geometry_workbook = Workbook.objects.create(subject=math, title="Geometry Workbook")
+        physics_workbook = Workbook.objects.create(subject=physics, title="Physics Workbook")
+        math_unit = Unit.objects.create(workbook=math_workbook, title="Unit 1")
+        geometry_unit = Unit.objects.create(workbook=geometry_workbook, title="Unit 2")
+        physics_unit = Unit.objects.create(workbook=physics_workbook, title="Unit 1")
 
-        math_topic = Topic.objects.create(subject=math, title="Linear equations")
-        physics_topic = Topic.objects.create(subject=physics, title="Kinematics")
+        math_topic = Topic.objects.create(
+            subject=math,
+            unit=math_unit,
+            title="Linear equations",
+        )
+        geometry_topic = Topic.objects.create(
+            subject=math,
+            unit=geometry_unit,
+            title="Angles",
+        )
+        physics_topic = Topic.objects.create(
+            subject=physics,
+            unit=physics_unit,
+            title="Kinematics",
+        )
         group = Group.objects.create(name="Group Subject Topic")
 
         topic_only_response = self.client.patch(
@@ -684,15 +975,36 @@ class LearningApiTests(APITestCase):
         )
         self.assertEqual(mismatch_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+        workbook_subject_mismatch = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": math.id, "workbook": physics_workbook.id},
+            format="json",
+        )
+        self.assertEqual(
+            workbook_subject_mismatch.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        workbook_topic_mismatch = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": math.id, "workbook": math_workbook.id, "topic": geometry_topic.id},
+            format="json",
+        )
+        self.assertEqual(
+            workbook_topic_mismatch.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
         valid_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
-            {"subject": math.id, "topic": math_topic.id},
+            {"subject": math.id, "workbook": math_workbook.id, "topic": math_topic.id},
             format="json",
         )
         self.assertEqual(valid_response.status_code, status.HTTP_201_CREATED)
 
         assignment = GroupTeachingAssignment.objects.get(group=group, teacher__user=self.auth_user)
         self.assertEqual(assignment.subject_id, math.id)
+        self.assertEqual(assignment.workbook_id, math_workbook.id)
         self.assertEqual(assignment.topic_id, math_topic.id)
 
     def test_group_teacher_assignments_are_isolated_per_teacher(self):
@@ -738,22 +1050,27 @@ class LearningApiTests(APITestCase):
     def test_group_topic_calendar_save_and_list_entries(self):
         group = Group.objects.create(name="Schedule Group")
         subject = Subject.objects.create(name="Literature")
-        topic_a = Topic.objects.create(subject=subject, title="Poetry")
-        topic_b = Topic.objects.create(subject=subject, title="Drama")
+        workbook = Workbook.objects.create(subject=subject, title="Literature Workbook")
+        unit_a = Unit.objects.create(workbook=workbook, title="Unit A")
+        unit_b = Unit.objects.create(workbook=workbook, title="Unit B")
+        topic_a = Topic.objects.create(subject=subject, unit=unit_a, title="Poetry")
+        topic_b = Topic.objects.create(subject=subject, unit=unit_b, title="Drama")
+        task_b = Task.get_default_for_topic(topic_b)
 
         assignment_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
-            {"subject": subject.id, "topic": topic_a.id},
+            {"subject": subject.id, "workbook": workbook.id, "topic": topic_a.id},
             format="json",
         )
         self.assertEqual(assignment_response.status_code, status.HTTP_201_CREATED)
 
         save_response = self.client.patch(
             f"/api/group/{group.id}/topic-calendar/",
-            {"date": "2026-05-11", "topic": topic_b.id},
+            {"date": "2026-05-11", "task": task_b.id},
             format="json",
         )
         self.assertEqual(save_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(save_response.data["task"], task_b.id)
         self.assertEqual(save_response.data["topic"], topic_b.id)
         self.assertEqual(save_response.data["subject"], subject.id)
 
@@ -763,8 +1080,10 @@ class LearningApiTests(APITestCase):
         )
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(list_response.data["assignment_subject"], subject.id)
+        self.assertEqual(list_response.data["assignment_workbook"], workbook.id)
         self.assertEqual(len(list_response.data["results"]), 3)
         self.assertEqual(list_response.data["results"][0]["date"], "2026-05-11")
+        self.assertEqual(list_response.data["results"][0]["task"], task_b.id)
         self.assertEqual(list_response.data["results"][0]["topic"], topic_b.id)
         self.assertIsNone(list_response.data["results"][1]["topic"])
 
@@ -808,6 +1127,73 @@ class LearningApiTests(APITestCase):
         update_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
             {"subject": geometry.id, "topic": geometry_topic.id},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            GroupTopicSchedule.objects.filter(group=group, teacher__user=self.auth_user).exists()
+        )
+
+    def test_group_topic_calendar_rejects_task_from_other_workbook(self):
+        group = Group.objects.create(name="Workbook Locked Group")
+        subject = Subject.objects.create(name="English Workbook")
+        workbook_a = Workbook.objects.create(subject=subject, title="Workbook A")
+        workbook_b = Workbook.objects.create(subject=subject, title="Workbook B")
+        unit_a = Unit.objects.create(workbook=workbook_a, title="Unit A")
+        unit_b = Unit.objects.create(workbook=workbook_b, title="Unit B")
+        topic_a = Topic.objects.create(subject=subject, unit=unit_a, title="Grammar")
+        topic_b = Topic.objects.create(subject=subject, unit=unit_b, title="Reading")
+        task_b = Task.get_default_for_topic(topic_b)
+
+        assignment_response = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": subject.id, "workbook": workbook_a.id, "topic": topic_a.id},
+            format="json",
+        )
+        self.assertEqual(assignment_response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.patch(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"date": "2026-05-11", "task": task_b.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["task"],
+            "Task must belong to your saved workbook for this group.",
+        )
+
+    def test_group_topic_calendar_is_cleared_when_assignment_workbook_changes(self):
+        group = Group.objects.create(name="Workbook Reset Group")
+        subject = Subject.objects.create(name="English Schedule")
+        workbook_a = Workbook.objects.create(subject=subject, title="Workbook A")
+        workbook_b = Workbook.objects.create(subject=subject, title="Workbook B")
+        unit_a = Unit.objects.create(workbook=workbook_a, title="Unit A")
+        unit_b = Unit.objects.create(workbook=workbook_b, title="Unit B")
+        topic_a = Topic.objects.create(subject=subject, unit=unit_a, title="Grammar")
+        topic_b = Topic.objects.create(subject=subject, unit=unit_b, title="Reading")
+        task_a = Task.get_default_for_topic(topic_a)
+
+        self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": subject.id, "workbook": workbook_a.id, "topic": topic_a.id},
+            format="json",
+        )
+        self.client.patch(
+            f"/api/group/{group.id}/topic-calendar/",
+            {"date": "2026-05-11", "task": task_a.id},
+            format="json",
+        )
+
+        self.assertEqual(
+            GroupTopicSchedule.objects.filter(group=group, teacher__user=self.auth_user).count(),
+            1,
+        )
+
+        update_response = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"subject": subject.id, "workbook": workbook_b.id, "topic": topic_b.id},
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
@@ -1119,6 +1505,95 @@ class LearningApiTests(APITestCase):
         self.assertEqual(
             Answer.objects.filter(attempt_question__attempt=attempt, is_correct=False).count(),
             7,
+        )
+
+    def test_attempt_question_hides_correct_choice_ids_while_attempt_in_progress(self):
+        student = self._authenticate_student("student_attempt_review_hidden")
+        subject = Subject.objects.create(name="Review Subject")
+        topic = Topic.objects.create(subject=subject, title="Review Topic", is_active=True)
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Review Hidden Group",
+        )
+
+        for index in range(2):
+            self._create_question_with_two_choices(topic, f"Review hidden Q{index + 1}")
+
+        start_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get(
+            "/api/attempt_question/",
+            {"attempt": start_response.data["id"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+        self.assertEqual(response.data["results"][0]["correct_choice_ids"], [])
+
+    def test_attempt_question_reveals_correct_choice_ids_after_completion(self):
+        student = self._authenticate_student("student_attempt_review_visible")
+        subject = Subject.objects.create(name="Review Visible Subject")
+        topic = Topic.objects.create(
+            subject=subject,
+            title="Review Visible Topic",
+            is_active=True,
+        )
+        schedule_entry = self._create_schedule_entry(
+            student,
+            topic,
+            group_name="Review Visible Group",
+        )
+
+        self._create_question_with_two_choices(topic, "Review visible question")
+
+        start_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+
+        attempt = Attempt.objects.get(id=start_response.data["id"])
+        attempt_question = attempt.attempt_questions.select_related("question").get(order=1)
+        correct_choice = attempt_question.question.choices.get(is_correct=True)
+        wrong_choice = attempt_question.question.choices.get(is_correct=False)
+
+        answer_response = self.client.post(
+            "/api/answer/",
+            {
+                "attempt_question": attempt_question.id,
+                "selected_choices": [wrong_choice.id],
+            },
+            format="json",
+        )
+        self.assertEqual(answer_response.status_code, status.HTTP_201_CREATED)
+
+        finish_response = self.client.patch(
+            f"/api/attempt/{attempt.id}/",
+            {"status": Attempt.Status.COMPLETED},
+            format="json",
+        )
+        self.assertEqual(finish_response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(
+            "/api/attempt_question/",
+            {"attempt": attempt.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["correct_choice_ids"], [correct_choice.id])
+        self.assertEqual(
+            response.data["results"][0]["answer"]["selected_choices"],
+            [wrong_choice.id],
         )
 
     def test_finish_attempt_uses_task_passing_threshold(self):

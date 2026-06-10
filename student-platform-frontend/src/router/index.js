@@ -23,10 +23,21 @@ const routes = [
     meta: { requiresAuth: true, roles: ["student"] },
   },
   {
-    name: "group-detail",
     path: "/group/:id",
+    redirect: (to) => ({ name: "group-overview", params: { id: to.params.id } }),
+  },
+  {
+    name: "group-overview",
+    path: "/group/:id/overview",
     props: true,
-    component: () => import("@/views/GroupDetail.vue"),
+    component: () => import("@/views/GroupOverview.vue"),
+    meta: { requiresAuth: true, roles: ["teacher"] },
+  },
+  {
+    name: "group-details",
+    path: "/group/:id/details",
+    props: true,
+    component: () => import("@/views/GroupDetails.vue"),
     meta: { requiresAuth: true, roles: ["teacher"] },
   },
   {

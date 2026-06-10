@@ -100,6 +100,10 @@ groupApi.getRanking = async (groupId, params) => {
   const response = await axios.get(`/api/group/${groupId}/ranking/`, { params });
   return response.data;
 };
+groupApi.getDetailedStatistics = async (groupId, params) => {
+  const response = await axios.get(`/api/group/${groupId}/detailed-statistics/`, { params });
+  return response.data;
+};
 
 export let Subject = apiConstructor("/api/subject/");
 export let Workbook = apiConstructor("/api/workbook/");

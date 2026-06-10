@@ -6,12 +6,18 @@ import { subscribeToPush } from "@/api.js";
 import axios from "axios";
 
 const WEEK_LENGTH = 7;
+const RECENT_RESULTS_LIMIT = 6;
 
 const dayNameFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
 const dayNumberFormatter = new Intl.DateTimeFormat("en-US", { day: "numeric" });
 const monthDayFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
+});
+const resultDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
 });
 const monthRangeFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
@@ -88,6 +94,19 @@ const missedItems = computed(() =>
 const completedCount = computed(() => completedItems.value.length + missedItems.value.length);
 const passedCount = computed(
   () => completedItems.value.filter((i) => i.result_outcome === "success").length,
+);
+const recentResultItems = computed(() =>
+  [...statsItems.value]
+    .filter((item) => item.attempt_status === "completed" && item.attempt_id)
+    .sort((left, right) => {
+      const leftDate = left.date || "";
+      const rightDate = right.date || "";
+      if (leftDate !== rightDate) {
+        return rightDate.localeCompare(leftDate);
+      }
+      return (right.attempt_id ?? 0) - (left.attempt_id ?? 0);
+    })
+    .slice(0, RECENT_RESULTS_LIMIT),
 );
 
 const rankingData = ref(null);
@@ -189,6 +208,16 @@ const startTask = async (task) => {
   } finally {
     startingTaskKey.value = "";
   }
+};
+
+const openAttemptResult = async (attemptId) => {
+  if (!attemptId) {
+    return;
+  }
+  await router.push({
+    name: "attempt-detail",
+    params: { id: attemptId },
+  });
 };
 
 const getApiErrorMessage = (data) => {
@@ -367,6 +396,11 @@ const isWeekend = (value) => {
 const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
 const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
+const formatResultDate = (value) => {
+  const date = parseISODate(value);
+  return date ? resultDateFormatter.format(date) : value || "Unknown date";
+};
+const getRecentResultTitle = (item) => item.task_title || item.topic_title || "Task";
 
 const pushStatus = ref("Notification" in window ? Notification.permission : "unsupported");
 const testNotifLoading = ref(false);
@@ -551,6 +585,48 @@ onMounted(async () => {
               </article>
             </div>
           </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="surface-card section-card">
+      <div class="column-head recent-results-head">
+        <div>
+          <h2 class="section-title">Recent Results</h2>
+          <p class="section-subtitle">
+            Open any finished test and review your answers on the result page.
+          </p>
+        </div>
+        <span class="pill">{{ recentResultItems.length }} shown</span>
+      </div>
+
+      <div v-if="statsLoading" class="empty-box mt-3">Loading recent results...</div>
+      <div v-else-if="recentResultItems.length === 0" class="empty-box mt-3">
+        No completed tests yet.
+      </div>
+      <div v-else class="recent-results-list">
+        <article
+          v-for="item in recentResultItems"
+          :key="item.attempt_id"
+          class="recent-result-item"
+        >
+          <div class="recent-result-date">
+            <div class="recent-result-label">Date</div>
+            <div class="recent-result-value">{{ formatResultDate(item.date) }}</div>
+          </div>
+
+          <div class="recent-result-main">
+            <h3 class="recent-result-title">{{ getRecentResultTitle(item) }}</h3>
+            <div class="recent-result-meta">{{ item.topic_title }} / {{ item.subject_name }}</div>
+          </div>
+
+          <button
+            class="btn btn-outline-primary btn-sm recent-result-action"
+            type="button"
+            @click="openAttemptResult(item.attempt_id)"
+          >
+            View results
+          </button>
         </article>
       </div>
     </section>

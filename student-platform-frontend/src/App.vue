@@ -21,8 +21,11 @@ const pageLabel = computed(() => {
   if (route.name === "subject-detail") {
     return "Subject workspace";
   }
-  if (route.name === "group-detail") {
-    return "Group workspace";
+  if (route.name === "group-overview") {
+    return "Group overview";
+  }
+  if (route.name === "group-details") {
+    return "Group details";
   }
   if (route.name === "student-home") {
     return "Student workspace";

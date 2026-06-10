@@ -337,11 +337,18 @@ class GroupSetFilter(FilterSet):
 
 
 class GroupViewSet(viewsets.ModelViewSet):
+    DETAILED_STATISTICS_SCALES = {
+        "week": 7,
+        "month": 30,
+        "three_months": 90,
+    }
+
     queryset = (
         Group.objects.select_related("teacher__user")
         .prefetch_related(
             "students__user",
             "teaching_assignments__subject",
+            "teaching_assignments__workbook",
             "teaching_assignments__topic",
             "teaching_assignments__task",
             "teaching_assignments__teacher__user",
@@ -385,16 +392,30 @@ class GroupViewSet(viewsets.ModelViewSet):
     def _get_teacher_assignment(self, group, teacher):
         return (
             GroupTeachingAssignment.objects.select_related(
-                "group", "teacher__user", "subject", "topic", "task"
+                "group", "teacher__user", "subject", "workbook", "topic", "task"
             )
             .filter(group=group, teacher=teacher)
             .first()
         )
 
-    def _delete_topic_schedule(self, group, teacher, *, exclude_subject_id=None):
+    def _delete_topic_schedule(
+        self,
+        group,
+        teacher,
+        *,
+        exclude_subject_id=None,
+        exclude_workbook_id=None,
+    ):
         queryset = GroupTopicSchedule.objects.filter(group=group, teacher=teacher)
+        valid_queryset = queryset
         if exclude_subject_id is not None:
-            queryset = queryset.exclude(topic__subject_id=exclude_subject_id)
+            valid_queryset = valid_queryset.filter(topic__subject_id=exclude_subject_id)
+        if exclude_workbook_id is not None:
+            valid_queryset = valid_queryset.filter(
+                topic__unit__workbook_id=exclude_workbook_id
+            )
+        if exclude_subject_id is not None or exclude_workbook_id is not None:
+            queryset = queryset.exclude(id__in=valid_queryset.values("id"))
         if queryset.filter(attempts__isnull=False).exists():
             raise ProtectedError(
                 "This schedule already has student attempts and cannot be removed.",
@@ -446,11 +467,86 @@ class GroupViewSet(viewsets.ModelViewSet):
             "date": scheduled_for,
             "subject": assignment.subject_id if assignment else None,
             "subject_name": assignment.subject.name if assignment else None,
+            "workbook": assignment.workbook_id if assignment else None,
+            "workbook_title": assignment.workbook.title if assignment and assignment.workbook else None,
             "topic": None,
             "topic_title": None,
             "task": None,
             "task_title": None,
             "updated_at": None,
+        }
+
+    def _resolve_detailed_statistics_window(self, request):
+        scale = request.query_params.get("scale", "week")
+        if scale not in self.DETAILED_STATISTICS_SCALES:
+            return None, None, None, None, Response(
+                {"scale": "Use one of: week, month, three_months."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        end_date_param = request.query_params.get("end_date")
+        end_date = parse_date(end_date_param) if end_date_param else timezone.localdate()
+        if end_date is None:
+            return None, None, None, None, Response(
+                {"end_date": "Enter a valid date in YYYY-MM-DD format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if scale == "week":
+            start_date = end_date - timedelta(days=end_date.weekday())
+            week_end_date = start_date + timedelta(days=6)
+            return scale, 7, start_date, week_end_date, None
+
+        days = self.DETAILED_STATISTICS_SCALES[scale]
+        start_date = end_date - timedelta(days=days - 1)
+        return scale, days, start_date, end_date, None
+
+    def _build_detailed_statistics_test(self, entry, attempt):
+        if attempt and attempt.status == Attempt.Status.COMPLETED:
+            result = "success" if attempt.is_success else "fail"
+            correct_count = attempt.stats_correct_answers
+            total_questions = attempt.stats_total_questions
+        else:
+            result = "missed"
+            correct_count = None
+            total_questions = None
+
+        return {
+            "schedule_entry_id": entry.id,
+            "task_id": entry.task_id,
+            "task_title": entry.task.title if entry.task_id else None,
+            "topic_title": entry.topic.title,
+            "attempt_id": attempt.id if attempt else None,
+            "result": result,
+            "correct_count": correct_count,
+            "total_questions": total_questions,
+        }
+
+    def _build_detailed_statistics_cell(self, current_date, entries, attempts_by_key, student_id):
+        tests = []
+        for entry in entries:
+            tests.append(
+                self._build_detailed_statistics_test(
+                    entry,
+                    attempts_by_key.get((student_id, entry.id)),
+                )
+            )
+
+        if not tests:
+            state = "no_test"
+        elif any(test["result"] == "missed" for test in tests):
+            state = "missed"
+        elif all(test["result"] == "success" for test in tests):
+            state = "all_correct"
+        elif any(test["result"] == "success" for test in tests):
+            state = "partial"
+        else:
+            state = "none_correct"
+
+        return {
+            "date": current_date.isoformat(),
+            "state": state,
+            "tests": tests,
         }
 
     @action(
@@ -479,6 +575,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                         "teacher_username": teacher.user.username,
                         "subject": None,
                         "subject_name": None,
+                        "workbook": None,
+                        "workbook_title": None,
                         "topic": None,
                         "topic_title": None,
                         "task": None,
@@ -518,6 +616,10 @@ class GroupViewSet(viewsets.ModelViewSet):
             "subject",
             getattr(assignment, "subject", None),
         )
+        workbook = write_serializer.validated_data.get(
+            "workbook",
+            getattr(assignment, "workbook", None),
+        )
         topic = write_serializer.validated_data.get(
             "topic",
             getattr(assignment, "topic", None),
@@ -527,7 +629,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             getattr(assignment, "task", None),
         )
 
-        if subject is None and topic is None and task is None:
+        if subject is None and workbook is None and topic is None and task is None:
             try:
                 if assignment:
                     assignment.delete()
@@ -550,6 +652,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                     "teacher_username": teacher.user.username,
                     "subject": None,
                     "subject_name": None,
+                    "workbook": None,
+                    "workbook_title": None,
                     "topic": None,
                     "topic_title": None,
                     "task": None,
@@ -565,22 +669,29 @@ class GroupViewSet(viewsets.ModelViewSet):
                 group=group,
                 teacher=teacher,
                 subject=subject,
+                workbook=workbook,
                 topic=topic,
                 task=task,
             )
             created = True
         else:
             assignment.subject = subject
+            assignment.workbook = workbook
             assignment.topic = topic
             assignment.task = task
         assignment.save()
         try:
-            self._delete_topic_schedule(group, teacher, exclude_subject_id=assignment.subject_id)
+            self._delete_topic_schedule(
+                group,
+                teacher,
+                exclude_subject_id=assignment.subject_id,
+                exclude_workbook_id=assignment.workbook_id,
+            )
         except ProtectedError:
             return Response(
                 {
                     "detail": (
-                        "This subject change would remove schedule dates that already have student attempts."
+                        "This subject or workbook change would remove schedule dates that already have student attempts."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -680,6 +791,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                     "teacher_username": teacher.user.username,
                     "assignment_subject": assignment.subject_id if assignment else None,
                     "assignment_subject_name": assignment.subject.name if assignment else None,
+                    "assignment_workbook": assignment.workbook_id if assignment else None,
+                    "assignment_workbook_title": assignment.workbook.title if assignment and assignment.workbook else None,
                     "start_date": start_date,
                     "days": days,
                     "results": results,
@@ -767,6 +880,11 @@ class GroupViewSet(viewsets.ModelViewSet):
                 {"task": "Task must belong to your saved subject for this group."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if assignment.workbook_id and topic.unit.workbook_id != assignment.workbook_id:
+            return Response(
+                {"task": "Task must belong to your saved workbook for this group."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         schedule_entry, created = GroupTopicSchedule.objects.update_or_create(
             group=group,
@@ -780,6 +898,105 @@ class GroupViewSet(viewsets.ModelViewSet):
         return Response(
             GroupTopicScheduleSerializer(schedule_entry).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["get"], url_path="detailed-statistics")
+    def detailed_statistics(self, request, pk=None):
+        teacher = get_request_teacher(request)
+        if not teacher:
+            return Response(
+                {"detail": "Only teachers can view detailed statistics."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        scale, days, start_date, end_date, error_response = (
+            self._resolve_detailed_statistics_window(request)
+        )
+        if error_response is not None:
+            return error_response
+
+        group = self.get_object()
+        students = list(
+            Student.objects.select_related("user")
+            .filter(groups=group)
+            .order_by("user__username", "id")
+        )
+        schedule_entries = list(
+            GroupTopicSchedule.objects.select_related("task", "topic")
+            .filter(
+                group=group,
+                teacher=teacher,
+                scheduled_for__range=(start_date, end_date),
+            )
+            .order_by("scheduled_for", "id")
+        )
+
+        attempts = (
+            Attempt.objects.filter(
+                student__in=students,
+                schedule_entry__in=schedule_entries,
+            )
+            .select_related("schedule_entry", "task", "topic")
+            .annotate(
+                stats_total_questions=Count("attempt_questions", distinct=True),
+                stats_correct_answers=Count(
+                    "attempt_questions",
+                    filter=Q(attempt_questions__answer__is_correct=True),
+                    distinct=True,
+                ),
+            )
+            .order_by("student_id", "schedule_entry_id", "-id")
+        )
+        attempts_by_key = {}
+        for attempt in attempts:
+            attempts_by_key.setdefault((attempt.student_id, attempt.schedule_entry_id), attempt)
+
+        entries_by_date = {}
+        for entry in schedule_entries:
+            entries_by_date.setdefault(entry.scheduled_for, []).append(entry)
+
+        date_columns = []
+        student_rows = []
+        for index in range(days):
+            current_date = start_date + timedelta(days=index)
+            date_columns.append(
+                {
+                    "date": current_date.isoformat(),
+                    "scheduled_count": len(entries_by_date.get(current_date, [])),
+                }
+            )
+
+        for student in students:
+            cells = []
+            for index in range(days):
+                current_date = start_date + timedelta(days=index)
+                cells.append(
+                    self._build_detailed_statistics_cell(
+                        current_date,
+                        entries_by_date.get(current_date, []),
+                        attempts_by_key,
+                        student.id,
+                    )
+                )
+            student_rows.append(
+                {
+                    "student_id": student.id,
+                    "username": student.user.username,
+                    "cells": cells,
+                }
+            )
+
+        return Response(
+            {
+                "group_id": group.id,
+                "group_name": group.name,
+                "scale": scale,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "dates": date_columns,
+                "students": student_rows,
+            },
+            status=status.HTTP_200_OK,
         )
 
     @action(detail=True, methods=["get"], url_path="search-students")

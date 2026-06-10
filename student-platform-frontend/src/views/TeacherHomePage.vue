@@ -186,7 +186,7 @@ const subjectsCount = computed(() => subjectList.value.length);
       <div class="section-head">
       <div>
         <h2 class="section-title">Groups</h2>
-        <p class="section-subtitle">Open a group to manage members, subject setup, and the date-based topic calendar.</p>
+        <p class="section-subtitle">Open group overview for schedule and results, or details for subject setup, statistics, and students.</p>
       </div>
         <div class="controls-wrap">
           <div class="sort-switch">
@@ -279,9 +279,14 @@ const subjectsCount = computed(() => subjectList.value.length);
           <div v-else class="assignment-chip muted">No subject assigned for you yet.</div>
 
           <div class="entity-meta">Edited: {{ formatUpdatedAt(group.updated_at) }}</div>
-          <router-link :to="{ name: 'group-detail', params: { id: group.id } }" class="entity-link">
-            Open group
-          </router-link>
+          <div class="entity-link-row">
+            <router-link :to="{ name: 'group-overview', params: { id: group.id } }" class="entity-link entity-link-primary">
+              Overview
+            </router-link>
+            <router-link :to="{ name: 'group-details', params: { id: group.id } }" class="entity-link entity-link-secondary">
+              Details
+            </router-link>
+          </div>
         </article>
       </div>
     </section>
@@ -377,7 +382,7 @@ const subjectsCount = computed(() => subjectList.value.length);
           </div>
           <p class="entity-text">{{ subject.description || "No description" }}</p>
           <div class="entity-meta">Edited: {{ formatUpdatedAt(subject.updated_at) }}</div>
-          <router-link :to="{ name: 'subject-detail', params: { id: subject.id } }" class="entity-link">
+          <router-link :to="{ name: 'subject-detail', params: { id: subject.id } }" class="entity-link entity-link-primary">
             Open subject
           </router-link>
         </article>

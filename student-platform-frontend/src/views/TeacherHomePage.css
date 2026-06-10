@@ -209,14 +209,61 @@
 }
 
 .entity-link {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(31, 95, 216, 0.18);
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgba(31, 95, 216, 0.1);
   color: var(--brand-blue-strong);
+  display: inline-flex;
   font-size: 14px;
   font-weight: 700;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
   text-decoration: none;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
 }
 
 .entity-link:hover {
-  text-decoration: underline;
+  box-shadow: 0 12px 24px rgba(31, 95, 216, 0.16);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.entity-link-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.entity-link-row .entity-link {
+  width: 100%;
+}
+
+.entity-link-primary {
+  background: linear-gradient(135deg, #2d61d1 0%, #4a7bef 100%);
+  border-color: transparent;
+  color: #fff;
+}
+
+.entity-link-primary:hover {
+  background: linear-gradient(135deg, #2758c3 0%, #3f70e4 100%);
+  color: #fff;
+}
+
+.entity-link-secondary {
+  background: rgba(248, 251, 255, 0.96);
+  color: var(--brand-blue-strong);
+}
+
+.entity-link-secondary:hover {
+  background: rgba(240, 246, 255, 0.98);
+  color: var(--brand-blue-strong);
 }
 
 .add-card {
@@ -285,6 +332,10 @@
 }
 
 @media (max-width: 700px) {
+  .entity-link-row {
+    grid-template-columns: 1fr;
+  }
+
   .controls-wrap {
     align-items: stretch;
     flex-direction: column;
