@@ -449,6 +449,7 @@ const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
 const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
 const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
 const getStudentResults = (studentId) => rankingByStudentId.value[studentId]?.today_results ?? [];
+const formatMemberRank = (rank) => (rank == null ? "rank: -" : `rank: #${rank}`);
 
 watch(
   () => props.id,
@@ -727,8 +728,22 @@ onMounted(async () => {
           <div class="member-index">#{{ index + 1 }}</div>
           <div class="member-info">
             <div class="member-name">{{ student.username || "Unknown" }}</div>
-            <div class="member-meta">
-              rank: {{ rankingByStudentId[student.id]?.rank ?? "-" }}
+            <div class="member-meta member-rank-row">
+              <span>{{ formatMemberRank(rankingByStudentId[student.id]?.rank) }}</span>
+              <span
+                v-if="rankingByStudentId[student.id]?.rank_trend === 'up'"
+                class="member-rank-trend trend-up"
+                title="Rank improved"
+              >
+                &uarr;
+              </span>
+              <span
+                v-else-if="rankingByStudentId[student.id]?.rank_trend === 'down'"
+                class="member-rank-trend trend-down"
+                title="Rank dropped"
+              >
+                &darr;
+              </span>
             </div>
           </div>
           <div class="member-last-result">

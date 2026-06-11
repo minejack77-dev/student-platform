@@ -19,6 +19,7 @@ from learning.models import (
     Unit,
     Workbook,
 )
+from learning.sorting import sort_students_naturally
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -1064,7 +1065,11 @@ class StudentBriefSerializer(serializers.ModelSerializer):
 
 
 class GroupDetailSerializer(GroupSerializer):
-    students = StudentBriefSerializer(many=True, read_only=True)
+    students = serializers.SerializerMethodField()
+
+    def get_students(self, obj):
+        students = sort_students_naturally(obj.students.all())
+        return StudentBriefSerializer(students, many=True).data
 
     class Meta(GroupSerializer.Meta):
         fields = GroupSerializer.Meta.fields + ("students",)

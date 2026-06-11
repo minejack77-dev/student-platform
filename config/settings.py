@@ -169,10 +169,18 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
-    "send-test-reminders": {
-        "task": "learning.tasks.send_test_reminders",
-        "schedule": crontab(hour=18, minute=0),
-    }
+    "send-push-notifications-morning": {
+        "task": "learning.tasks.send_push_notifications",
+        # UTC+5: 04:00 UTC = 09:00 Asia/Yekaterinburg
+        "schedule": crontab(hour=4, minute=0),
+        "kwargs": {"times_of_day": "morning"},
+    },
+    "send-push-notifications-evening": {
+        "task": "learning.tasks.send_push_notifications",
+        # UTC+5: 16:00 UTC = 21:00 Asia/Yekaterinburg
+        "schedule": crontab(hour=16, minute=0),
+        "kwargs": {"times_of_day": "evening"},
+    },
 }
 
 # Static files (CSS, JavaScript, Images)

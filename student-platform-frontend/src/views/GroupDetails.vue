@@ -17,6 +17,10 @@ const longDateFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   year: "numeric",
 });
+const studentNameCollator = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
 
 const STAT_SCALES = [
   { value: "week", label: "Week" },
@@ -65,6 +69,7 @@ const assignmentSuccess = ref("");
 
 const statistics = ref(createEmptyStatistics());
 const statisticsScale = ref("week");
+const statisticsSortMode = ref("name");
 const statisticsLoading = ref(false);
 const statisticsError = ref("");
 
@@ -311,6 +316,7 @@ const resetPageState = () => {
   assignmentSuccess.value = "";
   statistics.value = createEmptyStatistics();
   statisticsScale.value = "week";
+  statisticsSortMode.value = "name";
   statisticsLoading.value = false;
   statisticsError.value = "";
   searchQuery.value = "";
@@ -355,6 +361,29 @@ const statisticsRangeLabel = computed(() => {
 const hasScheduledTests = computed(() =>
   (statistics.value.dates ?? []).some((column) => column.scheduled_count > 0),
 );
+const statisticsSortLabel = computed(() =>
+  statisticsSortMode.value === "rank" ? "rank" : "name",
+);
+const sortedStatisticsStudents = computed(() => {
+  const rows = [...(statistics.value.students ?? [])];
+
+  if (statisticsSortMode.value === "rank") {
+    rows.sort((left, right) => {
+      const leftRank = left.rank ?? Number.POSITIVE_INFINITY;
+      const rightRank = right.rank ?? Number.POSITIVE_INFINITY;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return studentNameCollator.compare(left.username ?? "", right.username ?? "");
+    });
+    return rows;
+  }
+
+  rows.sort((left, right) =>
+    studentNameCollator.compare(left.username ?? "", right.username ?? ""),
+  );
+  return rows;
+});
 
 const formatStatisticsDay = (value) => {
   const date = parseISODate(value);
@@ -374,6 +403,12 @@ const formatTestOutcome = (test) => {
     return "No result";
   }
   return `${test.correct_count} / ${test.total_questions}`;
+};
+
+const formatStatisticsRank = (rank) => (rank == null ? "Rank —" : `Rank #${rank}`);
+
+const toggleStatisticsSort = () => {
+  statisticsSortMode.value = statisticsSortMode.value === "name" ? "rank" : "name";
 };
 
 watch(
@@ -523,17 +558,27 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="statistics-toolbar">
-        <div class="statistics-scale-toggle">
+        <div class="statistics-toolbar-main">
+          <div class="statistics-scale-toggle">
+            <button
+              v-for="scale in STAT_SCALES"
+              :key="scale.value"
+              class="statistics-scale-btn"
+              :class="{ active: statisticsScale === scale.value }"
+              type="button"
+              :disabled="statisticsLoading"
+              @click="setStatisticsScale(scale.value)"
+            >
+              {{ scale.label }}
+            </button>
+          </div>
           <button
-            v-for="scale in STAT_SCALES"
-            :key="scale.value"
-            class="statistics-scale-btn"
-            :class="{ active: statisticsScale === scale.value }"
+            class="statistics-sort-toggle"
             type="button"
             :disabled="statisticsLoading"
-            @click="setStatisticsScale(scale.value)"
+            @click="toggleStatisticsSort"
           >
-            {{ scale.label }}
+            <span>Sort by {{ statisticsSortLabel }}</span>
           </button>
         </div>
         <router-link
@@ -587,9 +632,28 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in statistics.students" :key="row.student_id">
+              <tr v-for="row in sortedStatisticsStudents" :key="row.student_id">
                 <th class="statistics-student-cell" scope="row">
-                  <div class="member-name">{{ row.username }}</div>
+                  <div class="statistics-student-stack">
+                    <div class="member-name">{{ row.username }}</div>
+                    <div class="statistics-rank-row">
+                      <span class="statistics-rank-label">{{ formatStatisticsRank(row.rank) }}</span>
+                      <span
+                        v-if="row.rank_trend === 'up'"
+                        class="statistics-rank-trend trend-up"
+                        title="Rank improved"
+                      >
+                        &uarr;
+                      </span>
+                      <span
+                        v-else-if="row.rank_trend === 'down'"
+                        class="statistics-rank-trend trend-down"
+                        title="Rank dropped"
+                      >
+                        &darr;
+                      </span>
+                    </div>
+                  </div>
                 </th>
                 <td
                   v-for="cell in row.cells"
