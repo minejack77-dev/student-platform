@@ -227,6 +227,29 @@ class LearningApiTests(APITestCase):
         self.assertGreaterEqual(len(id_response.data), 1)
         self.assertIn("maria", [item["username"] for item in id_response.data])
 
+    def test_group_detail_returns_students_in_natural_username_order(self):
+        group = Group.objects.create(name="Group Ordering", teacher=self.teacher)
+        usernames = ["Student_10", "Student_2", "Student_1"]
+        students = []
+
+        for username in usernames:
+            user = User.objects.create_user(
+                username=username,
+                password="StrongPass123",
+                role=User.Role.STUDENT,
+            )
+            students.append(Student.objects.create(user=user))
+
+        group.students.add(*students)
+
+        response = self.client.get(f"/api/group/{group.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [student["username"] for student in response.data["students"]],
+            ["Student_1", "Student_2", "Student_10"],
+        )
+
     def test_only_group_owner_teacher_can_manage_group_students(self):
         group = Group.objects.create(name="Locked Group", teacher=self.teacher)
         student_user = User.objects.create_user(
@@ -499,6 +522,104 @@ class LearningApiTests(APITestCase):
                 }
             ],
         )
+
+    def test_group_ranking_includes_rank_trend_for_selected_date(self):
+        selected_date = date(2026, 5, 9)
+        previous_date = selected_date - timedelta(days=1)
+
+        subject = Subject.objects.create(name="Ranking Trend Subject")
+        topic = Topic.objects.create(subject=subject, title="Ranking Trend Topic", is_active=True)
+        first_task = Task.objects.create(
+            topic=topic,
+            title="Ranking Trend Task A",
+            questions_per_attempt=1,
+            passing_correct_answers=1,
+        )
+        second_task = Task.objects.create(
+            topic=topic,
+            title="Ranking Trend Task B",
+            questions_per_attempt=3,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Ranking Trend Group", is_active=True)
+
+        first_user = User.objects.create_user(
+            username="Student_1",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        second_user = User.objects.create_user(
+            username="Student_2",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        third_user = User.objects.create_user(
+            username="Student_3",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        first_student = Student.objects.create(user=first_user)
+        second_student = Student.objects.create(user=second_user)
+        third_student = Student.objects.create(user=third_user)
+        group.students.add(first_student, second_student, third_student)
+
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=first_task,
+        )
+        previous_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=previous_date,
+            task=first_task,
+        )
+        selected_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for=selected_date,
+            task=second_task,
+        )
+
+        self._create_completed_attempt(
+            first_student,
+            previous_entry,
+            first_task,
+            correct_answers=1,
+            total_questions=1,
+        )
+        self._create_completed_attempt(
+            first_student,
+            selected_entry,
+            second_task,
+            correct_answers=0,
+            total_questions=3,
+        )
+        self._create_completed_attempt(
+            second_student,
+            selected_entry,
+            second_task,
+            correct_answers=3,
+            total_questions=3,
+        )
+
+        response = self.client.get(
+            f"/api/group/{group.id}/ranking/",
+            {"date": selected_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows_by_username = {
+            row["username"]: row for row in response.data["ranking"]
+        }
+        self.assertEqual(rows_by_username["Student_1"]["rank"], 2)
+        self.assertEqual(rows_by_username["Student_1"]["rank_trend"], "down")
+        self.assertEqual(rows_by_username["Student_2"]["rank"], 1)
+        self.assertEqual(rows_by_username["Student_2"]["rank_trend"], "up")
+        self.assertEqual(rows_by_username["Student_3"]["rank"], 3)
+        self.assertIsNone(rows_by_username["Student_3"]["rank_trend"])
 
     def test_group_ranking_rejects_invalid_date(self):
         group = Group.objects.create(name="Invalid Date Group", is_active=True)
@@ -774,6 +895,131 @@ class LearningApiTests(APITestCase):
                 "2026-05-17",
             ],
         )
+
+    def test_group_detailed_statistics_orders_students_naturally_by_username(self):
+        group = Group.objects.create(name="Detailed Statistics Ordering", teacher=self.teacher)
+        usernames = ["Student_10", "Student_2", "Student_1"]
+        students = []
+
+        for username in usernames:
+            user = User.objects.create_user(
+                username=username,
+                password="StrongPass123",
+                role=User.Role.STUDENT,
+            )
+            students.append(Student.objects.create(user=user))
+
+        group.students.add(*students)
+
+        response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"scale": "week", "end_date": "2026-05-13"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["username"] for row in response.data["students"]],
+            ["Student_1", "Student_2", "Student_10"],
+        )
+
+    def test_group_detailed_statistics_includes_range_end_rank_and_trend(self):
+        subject = Subject.objects.create(name="Detailed Statistics Rank Subject")
+        topic = Topic.objects.create(
+            subject=subject,
+            title="Detailed Statistics Rank Topic",
+            is_active=True,
+        )
+        first_task = Task.objects.create(
+            topic=topic,
+            title="First Rank Task",
+            questions_per_attempt=1,
+            passing_correct_answers=1,
+        )
+        second_task = Task.objects.create(
+            topic=topic,
+            title="Second Rank Task",
+            questions_per_attempt=3,
+            passing_correct_answers=1,
+        )
+        group = Group.objects.create(name="Detailed Statistics Rank Group", teacher=self.teacher)
+
+        first_user = User.objects.create_user(
+            username="Student_1",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        second_user = User.objects.create_user(
+            username="Student_2",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        third_user = User.objects.create_user(
+            username="Student_3",
+            password="StrongPass123",
+            role=User.Role.STUDENT,
+        )
+        first_student = Student.objects.create(user=first_user)
+        second_student = Student.objects.create(user=second_user)
+        third_student = Student.objects.create(user=third_user)
+        group.students.add(first_student, second_student, third_student)
+
+        GroupTeachingAssignment.objects.create(
+            group=group,
+            teacher=self.teacher,
+            subject=subject,
+            topic=topic,
+            task=first_task,
+        )
+        may_8_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-08",
+            task=first_task,
+        )
+        may_9_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            scheduled_for="2026-05-09",
+            task=second_task,
+        )
+
+        self._create_completed_attempt(
+            first_student,
+            may_8_entry,
+            first_task,
+            correct_answers=1,
+            total_questions=1,
+        )
+        self._create_completed_attempt(
+            first_student,
+            may_9_entry,
+            second_task,
+            correct_answers=0,
+            total_questions=3,
+        )
+        self._create_completed_attempt(
+            second_student,
+            may_9_entry,
+            second_task,
+            correct_answers=3,
+            total_questions=3,
+        )
+
+        response = self.client.get(
+            f"/api/group/{group.id}/detailed-statistics/",
+            {"scale": "month", "end_date": "2026-05-09"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows_by_username = {
+            row["username"]: row for row in response.data["students"]
+        }
+        self.assertEqual(rows_by_username["Student_1"]["rank"], 2)
+        self.assertEqual(rows_by_username["Student_1"]["rank_trend"], "down")
+        self.assertEqual(rows_by_username["Student_2"]["rank"], 1)
+        self.assertEqual(rows_by_username["Student_2"]["rank_trend"], "up")
+        self.assertEqual(rows_by_username["Student_3"]["rank"], 3)
+        self.assertIsNone(rows_by_username["Student_3"]["rank_trend"])
 
     def test_group_detailed_statistics_rejects_invalid_filters(self):
         group = Group.objects.create(name="Detailed Statistics Filter Group", is_active=True)

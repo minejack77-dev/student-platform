@@ -47,6 +47,7 @@ from learning.serializers import (
     UnitSerializer,
     WorkbookSerializer,
 )
+from learning.sorting import natural_sort_key, sort_students_naturally
 from learning.services.question_import import import_questions_from_xls
 
 
@@ -549,6 +550,120 @@ class GroupViewSet(viewsets.ModelViewSet):
             "tests": tests,
         }
 
+    def _build_group_ranking_rows(self, group, selected_date):
+        schedule_entries = GroupTopicSchedule.objects.filter(
+            group=group,
+            topic__is_active=True,
+            topic__subject__is_active=True,
+        )
+        current_date = timezone.localdate()
+        ranking_cutoff = min(selected_date, current_date)
+        past_entries = schedule_entries.filter(scheduled_for__lte=ranking_cutoff)
+        selected_entries = list(
+            schedule_entries.filter(scheduled_for=selected_date)
+            .select_related("task", "topic")
+            .order_by("scheduled_for", "id")
+        )
+
+        total_past = past_entries.count()
+        students = Student.objects.select_related("user").filter(groups=group).annotate(
+            completed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                ),
+                distinct=True,
+            ),
+            passed=Count(
+                "attempts",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__is_success=True,
+                ),
+                distinct=True,
+            ),
+            total_correct=Count(
+                "attempts__attempt_questions",
+                filter=Q(
+                    attempts__schedule_entry__in=past_entries,
+                    attempts__status=Attempt.Status.COMPLETED,
+                    attempts__attempt_questions__answer__is_correct=True,
+                ),
+                distinct=True,
+            ),
+        )
+
+        today_attempts = {}
+        for attempt in (
+            Attempt.objects.filter(
+                student__in=students,
+                schedule_entry__in=selected_entries,
+                status=Attempt.Status.COMPLETED,
+            )
+            .select_related("schedule_entry", "task", "topic")
+            .order_by("student_id", "schedule_entry_id", "-id")
+        ):
+            today_attempts.setdefault((attempt.student_id, attempt.schedule_entry_id), attempt)
+
+        rows = []
+        for student in students:
+            missed = total_past - student.completed
+            pass_rate = student.passed / total_past if total_past > 0 else 0
+            today_results = []
+            for entry in selected_entries:
+                today_attempt = today_attempts.get((student.id, entry.id))
+                today_results.append({
+                    "schedule_entry_id": entry.id,
+                    "task_id": entry.task_id,
+                    "task_title": entry.task.title if entry.task_id else None,
+                    "topic_title": entry.topic.title,
+                    "correct_count": (
+                        today_attempt.correct_count() if today_attempt else None
+                    ),
+                    "total_questions": (
+                        today_attempt.total_questions() if today_attempt else None
+                    ),
+                    "result": (
+                        "success" if today_attempt and today_attempt.is_success is True
+                        else "fail" if today_attempt and today_attempt.is_success is False
+                        else None
+                    ),
+                })
+            rows.append({
+                "student_id": student.id,
+                "username": student.user.username,
+                "completed": student.completed,
+                "missed": missed,
+                "passed": student.passed,
+                "total_correct": student.total_correct,
+                "pass_rate": round(pass_rate * 100, 1),
+                "today_results": today_results,
+            })
+
+        rows.sort(
+            key=lambda row: (
+                -row["pass_rate"],
+                -row["total_correct"],
+                natural_sort_key(row["username"]),
+                row["student_id"],
+            )
+        )
+        for index, row in enumerate(rows, start=1):
+            row["rank"] = index
+
+        return rows
+
+    def _get_rank_trend(self, current_rank, previous_rank):
+        if current_rank is None or previous_rank is None:
+            return None
+        if current_rank < previous_rank:
+            return "up"
+        if current_rank > previous_rank:
+            return "down"
+        return None
+
     @action(
         detail=True,
         methods=["get", "patch", "put", "delete"],
@@ -916,11 +1031,21 @@ class GroupViewSet(viewsets.ModelViewSet):
             return error_response
 
         group = self.get_object()
-        students = list(
+        students = sort_students_naturally(
             Student.objects.select_related("user")
             .filter(groups=group)
-            .order_by("user__username", "id")
         )
+        ranking_by_student_id = {
+            row["student_id"]: row
+            for row in self._build_group_ranking_rows(group, end_date)
+        }
+        previous_ranking_by_student_id = {
+            row["student_id"]: row["rank"]
+            for row in self._build_group_ranking_rows(
+                group,
+                end_date - timedelta(days=1),
+            )
+        }
         schedule_entries = list(
             GroupTopicSchedule.objects.select_related("task", "topic")
             .filter(
@@ -982,6 +1107,11 @@ class GroupViewSet(viewsets.ModelViewSet):
                 {
                     "student_id": student.id,
                     "username": student.user.username,
+                    "rank": ranking_by_student_id.get(student.id, {}).get("rank"),
+                    "rank_trend": self._get_rank_trend(
+                        ranking_by_student_id.get(student.id, {}).get("rank"),
+                        previous_ranking_by_student_id.get(student.id),
+                    ),
                     "cells": cells,
                 }
             )
@@ -1017,7 +1147,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         else:
             students_qs = students_qs.filter(user__username__icontains=query)
 
-        students = list(students_qs.order_by("user__username")[:20])
+        students = sort_students_naturally(students_qs)[:20]
         in_group_student_ids = set(group.students.values_list("id", flat=True))
 
         payload = []
@@ -1133,6 +1263,38 @@ class GroupViewSet(viewsets.ModelViewSet):
                 )
         else:
             return Response(status=status.HTTP_403_FORBIDDEN)
+
+        rows = self._build_group_ranking_rows(group, selected_date)
+        previous_ranking_by_student_id = {
+            row["student_id"]: row["rank"]
+            for row in self._build_group_ranking_rows(
+                group,
+                selected_date - timedelta(days=1),
+            )
+        }
+        for row in rows:
+            row["rank_trend"] = self._get_rank_trend(
+                row.get("rank"),
+                previous_ranking_by_student_id.get(row["student_id"]),
+            )
+
+        if request_student:
+            my_row = next((r for r in rows if r["student_id"] == request_student.id), None)
+            return Response({
+                "group_id": group.id,
+                "group_name": group.name,
+                "results_date": selected_date.isoformat(),
+                "rank": my_row["rank"] if my_row else None,
+                "rank_trend": my_row["rank_trend"] if my_row else None,
+                "total": len(rows),
+            })
+
+        return Response({
+            "group_id": group.id,
+            "group_name": group.name,
+            "results_date": selected_date.isoformat(),
+            "ranking": rows,
+        })
 
         schedule_entries = GroupTopicSchedule.objects.filter(
             group=group,
