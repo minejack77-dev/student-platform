@@ -161,9 +161,9 @@ USE_TZ = True
 WEBPUSH_SETTINGS = {
     "VAPID_PUBLIC_KEY": os.getenv("VAPID_PUBLIC_KEY", ""),
     "VAPID_PRIVATE_KEY": os.getenv("VAPID_PRIVATE_KEY", ""),
+    "VAPID_ADMIN_EMAIL": os.getenv("VAPID_EMAIL", ""),
     "VAPID_EMAIL": os.getenv("VAPID_EMAIL", ""),
 }
-
 # Celery
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
@@ -186,7 +186,10 @@ CELERY_BEAT_SCHEDULE = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = os.getenv("DJANGO_STATIC_URL", "static/")
-STATICFILES_DIRS = [
-    BASE_DIR / "student-platform-frontend" / "dist" / "static",
-]
+# STATIC_URL = os.getenv("DJANGO_STATIC_URL", "static/")
+# STATICFILES_DIRS = [
+#    BASE_DIR / "student-platform-frontend" / "dist" / "static",
+# ]
+STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", "./static/")
+MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", "./static/")
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
