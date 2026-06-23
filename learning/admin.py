@@ -40,7 +40,7 @@ class TopicAdminForm(forms.ModelForm):
     workbook = forms.ModelChoiceField(
         queryset=Workbook.objects.none(),
         required=False,
-        label="Workbook",
+        label="Textbook",
     )
 
     class Meta:
@@ -54,7 +54,7 @@ class TopicAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["unit"].required = True
         self.fields["src"].help_text = (
-            "Attach a .xls or .xlsx file, save the topic, then use the import button below."
+            "Attach a .xls or .xlsx file, save the lesson, then use the import button below."
         )
         set_widget_attr(
             self.fields["workbook"],
@@ -111,7 +111,7 @@ class TopicAdminForm(forms.ModelForm):
         if unit:
             unit_workbook = unit.workbook
             if workbook and unit_workbook.id != workbook.id:
-                self.add_error("unit", "Unit must belong to the selected workbook.")
+                self.add_error("unit", "Unit must belong to the selected textbook.")
             if subject and unit_workbook.subject_id != subject.id:
                 self.add_error("unit", "Unit must belong to the selected subject.")
             cleaned_data["subject"] = unit_workbook.subject
@@ -121,9 +121,9 @@ class TopicAdminForm(forms.ModelForm):
             if subject and workbook.subject_id != subject.id:
                 self.add_error(
                     "workbook",
-                    "Workbook must belong to the selected subject.",
+                    "Textbook must belong to the selected subject.",
                 )
-            self.add_error("unit", "Select a unit for the selected workbook.")
+            self.add_error("unit", "Select a unit for the selected textbook.")
 
         return cleaned_data
 
@@ -171,6 +171,7 @@ class TopicAdmin(admin.ModelAdmin):
     search_fields = ("title", "subject__name", "unit__title", "unit__workbook__title")
     change_form_template = "admin/learning/topic/change_form.html"
 
+    @admin.display(description="Textbook")
     def workbook(self, obj):
         return obj.unit.workbook if obj.unit_id else None
 
@@ -246,7 +247,7 @@ class TopicAdmin(admin.ModelAdmin):
         if not topic.src:
             self.message_user(
                 request,
-                "Attach a .xls or .xlsx file to the topic before running import.",
+                "Attach a .xls or .xlsx file to the lesson before running import.",
                 level=messages.ERROR,
             )
             return HttpResponseRedirect(change_url)

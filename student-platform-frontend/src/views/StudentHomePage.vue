@@ -1,28 +1,22 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Attempt, Student, Group } from "@/api.js";
-import { subscribeToPush } from "@/api.js";
+import { useI18n } from "vue-i18n";
 import axios from "axios";
+
+import { Attempt, Group, Student, subscribeToPush } from "@/api.js";
+import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const WEEK_LENGTH = 7;
 const RECENT_RESULTS_LIMIT = 6;
+const DAY_NAME_FORMAT = { weekday: "short" };
+const DAY_NUMBER_FORMAT = { day: "numeric" };
+const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
+const RESULT_DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" };
+const MONTH_RANGE_FORMAT = { month: "long", year: "numeric" };
 
-const dayNameFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
-const dayNumberFormatter = new Intl.DateTimeFormat("en-US", { day: "numeric" });
-const monthDayFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-const resultDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-const monthRangeFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  year: "numeric",
-});
+const { t } = useI18n();
+const { formatWithLocale } = useLocaleFormatting();
 
 const formatISODate = (date) => {
   const year = date.getFullYear();
@@ -79,21 +73,24 @@ const getItemState = (item) => {
   if (item.attempt_status === "in_progress") {
     return item.date === today ? "in_progress" : "expired";
   }
-  if (!item.date || item.date < today) return "missed";
-  if (item.date > today) return "upcoming";
+  if (!item.date || item.date < today) {
+    return "missed";
+  }
+  if (item.date > today) {
+    return "upcoming";
+  }
   return "available";
 };
 
-
 const completedItems = computed(() =>
-  statsItems.value.filter((i) => i.attempt_status === "completed"),
+  statsItems.value.filter((item) => item.attempt_status === "completed"),
 );
 const missedItems = computed(() =>
-  statsItems.value.filter((i) => getItemState(i) === "missed"),
+  statsItems.value.filter((item) => getItemState(item) === "missed"),
 );
 const completedCount = computed(() => completedItems.value.length + missedItems.value.length);
 const passedCount = computed(
-  () => completedItems.value.filter((i) => i.result_outcome === "success").length,
+  () => completedItems.value.filter((item) => item.result_outcome === "success").length,
 );
 const recentResultItems = computed(() =>
   [...statsItems.value]
@@ -114,7 +111,9 @@ const rankingLoading = ref(false);
 
 const loadRanking = async () => {
   const groupId = statsItems.value[0]?.group_id;
-  if (!groupId) return;
+  if (!groupId) {
+    return;
+  }
   rankingLoading.value = true;
   try {
     rankingData.value = await Group.getRanking(groupId);
@@ -126,7 +125,9 @@ const loadRanking = async () => {
 };
 
 const myRank = computed(() => {
-  if (!rankingData.value || !rankingData.value.rank) return null;
+  if (!rankingData.value || !rankingData.value.rank) {
+    return null;
+  }
   return { rank: rankingData.value.rank, total: rankingData.value.total };
 });
 
@@ -161,7 +162,7 @@ const loadSchedule = async () => {
     calendarDays.value = enrichCalendarResponse(response);
   } catch (error) {
     loadError.value =
-      error?.response?.data?.detail || "Could not load assigned tasks for this account.";
+      error?.response?.data?.detail || t("studentHome.loadError");
     calendarDays.value = [];
   } finally {
     isLoading.value = false;
@@ -204,7 +205,7 @@ const startTask = async (task) => {
     });
   } catch (error) {
     actionError.value =
-      getApiErrorMessage(error?.response?.data) || "Could not start the task.";
+      getApiErrorMessage(error?.response?.data) || t("studentHome.startTaskError");
   } finally {
     startingTaskKey.value = "";
   }
@@ -279,61 +280,69 @@ const getTaskState = (task, date) => {
 const getTaskStateLabel = (task, date) => {
   const state = getTaskState(task, date);
   if (state === "success") {
-    return "Success";
+    return t("studentHome.taskState.success");
   }
   if (state === "fail") {
-    return "Fail";
+    return t("studentHome.taskState.fail");
   }
   if (state === "in_progress") {
-    return "In progress";
+    return t("studentHome.taskState.inProgress");
   }
   if (state === "expired") {
-    return "Window closed";
+    return t("studentHome.taskState.expired");
   }
   if (state === "missed") {
-    return "Missed";
+    return t("studentHome.taskState.missed");
   }
   if (state === "upcoming") {
-    return "Locked";
+    return t("studentHome.taskState.locked");
   }
   if (state === "not_ready") {
-    return "Not ready";
+    return t("studentHome.taskState.notReady");
   }
-  return "Available today";
+  return t("studentHome.taskState.available");
 };
 
 const getTaskStateCopy = (task, date) => {
   const state = getTaskState(task, date);
   if (state === "success" || state === "fail") {
-    return `${task.correct_count ?? 0}/${task.total_questions ?? 0} correct`;
+    return t("studentHome.taskCopy.score", {
+      correct: task.correct_count ?? 0,
+      total: task.total_questions ?? 0,
+    });
   }
   if (state === "in_progress") {
-    return "You already started this test today. Continue the same attempt.";
+    return t("studentHome.taskCopy.continue");
   }
   if (state === "expired") {
-    return "This attempt was not finished on the scheduled day.";
+    return t("studentHome.taskCopy.expired");
   }
   if (state === "missed") {
-    return "The scheduled day has passed. This test can no longer be completed.";
+    return t("studentHome.taskCopy.missed");
   }
   if (state === "upcoming") {
-    return `Available on ${monthDayFormatter.format(parseISODate(date))}.`;
+    return t("studentHome.taskCopy.availableOn", {
+      date: formatWithLocale(parseISODate(date), MONTH_DAY_FORMAT),
+    });
   }
   if (state === "not_ready") {
-    return `${task.active_question_count ?? 0}/${task.required_question_count ?? 10} active questions in this task.`;
+    return t("studentHome.taskCopy.notReady", {
+      active: task.active_question_count ?? 0,
+      required: task.required_question_count ?? 10,
+    });
   }
-  return "You can take this test today.";
+  return t("studentHome.taskCopy.availableToday");
 };
 
 const getTaskButtonLabel = (task, date) => {
   const state = getTaskState(task, date);
   if (state === "in_progress") {
-    return "Continue task";
+    return t("studentHome.taskButton.continue");
   }
   if (state === "available") {
-    return "Start task";
+    return t("studentHome.taskButton.start");
   }
-  return "Unavailable";
+  return t("studentHome.taskButton.unavailable");
 };
 
 const canStartOrContinueTask = (task, date) => {
@@ -384,7 +393,7 @@ const calendarRangeLabel = computed(() => {
   if (!first || !last) {
     return "";
   }
-  return `${monthRangeFormatter.format(first)} - ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+  return `${formatWithLocale(first, MONTH_RANGE_FORMAT)} - ${formatWithLocale(first, MONTH_DAY_FORMAT)} - ${formatWithLocale(last, MONTH_DAY_FORMAT)}`;
 });
 
 const isToday = (value) => formatISODate(new Date()) === value;
@@ -393,14 +402,15 @@ const isWeekend = (value) => {
   const day = date?.getDay();
   return day === 0 || day === 6;
 };
-const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
-const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
-const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
+const formatDayName = (value) => formatWithLocale(parseISODate(value), DAY_NAME_FORMAT);
+const formatDayNumber = (value) => formatWithLocale(parseISODate(value), DAY_NUMBER_FORMAT);
+const formatMonthDay = (value) => formatWithLocale(parseISODate(value), MONTH_DAY_FORMAT);
 const formatResultDate = (value) => {
   const date = parseISODate(value);
-  return date ? resultDateFormatter.format(date) : value || "Unknown date";
+  return date ? formatWithLocale(date, RESULT_DATE_FORMAT) : value || t("common.unknownDate");
 };
-const getRecentResultTitle = (item) => item.task_title || item.topic_title || "Task";
+const getRecentResultTitle = (item) =>
+  item.task_title || item.topic_title || t("studentHome.recentResultTitleFallback");
 
 const pushStatus = ref("Notification" in window ? Notification.permission : "unsupported");
 const testNotifLoading = ref(false);
@@ -417,12 +427,14 @@ const enablePush = async () => {
   try {
     await subscribeToPush();
     pushStatus.value = Notification.permission;
-    pushSuccess.value = "Subscription is active! You can try sending a test notification.";
-  } catch (e) {
+    pushSuccess.value = t("studentHome.notifications.enabled");
+  } catch (error) {
     if (Notification.permission === "denied") {
-      pushError.value = "Notifications are blocked. Go to browser settings and allow notifications for this site.";
+      pushError.value = t("studentHome.notifications.blocked");
     } else {
-      pushError.value = "Failed to enable notifications: " + e.message;
+      pushError.value = t("studentHome.notifications.enableFailed", {
+        message: error.message,
+      });
     }
   }
 };
@@ -436,9 +448,9 @@ const sendTestNotification = async () => {
     await axios.post("/api/push/test/", {}, {
       headers: { "X-CSRFToken": csrf },
     });
-    testNotifMessage.value = "Notification sent!";
+    testNotifMessage.value = t("studentHome.notificationSent");
   } catch {
-    testNotifMessage.value = "Failed to send.";
+    testNotifMessage.value = t("studentHome.notificationFailed");
   } finally {
     testNotifCountdown.value = 10;
     const interval = setInterval(() => {
@@ -461,24 +473,22 @@ onMounted(async () => {
   <div class="student-page">
     <section class="surface-card hero-panel">
       <div class="hero-copy">
-        <span class="pill">Workspace</span>
-        <h1 class="hero-title">Student Schedule</h1>
-        <p class="hero-subtitle">
-          See your weekly topics by date and start the assigned task right from the calendar.
-        </p>
+        <span class="pill">{{ t("studentHome.badge") }}</span>
+        <h1 class="hero-title">{{ t("studentHome.title") }}</h1>
+        <p class="hero-subtitle">{{ t("studentHome.subtitle") }}</p>
       </div>
 
       <div class="hero-stats">
         <div class="stat-card">
-          <div class="stat-label">Tasks This Week</div>
+          <div class="stat-label">{{ t("studentHome.tasksThisWeek") }}</div>
           <div class="stat-value">{{ totalTasks }}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Active Dates</div>
+          <div class="stat-label">{{ t("studentHome.activeDates") }}</div>
           <div class="stat-value">{{ activeDatesCount }}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Groups</div>
+          <div class="stat-label">{{ t("common.groups") }}</div>
           <div class="stat-value">{{ groupsCount }}</div>
         </div>
       </div>
@@ -491,41 +501,39 @@ onMounted(async () => {
       <div class="schedule-header">
         <div>
           <div class="column-head schedule-head">
-            <h2 class="section-title">Weekly Task Calendar</h2>
-            <span class="pill">{{ filteredTaskCount }} visible tasks</span>
+            <h2 class="section-title">{{ t("studentHome.weeklyCalendar") }}</h2>
+            <span class="pill">{{ t("common.visibleTasks", { count: filteredTaskCount }) }}</span>
           </div>
-          <p class="section-subtitle">
-            Your teachers can schedule different topics on different dates. This week is shown below.
-          </p>
+          <p class="section-subtitle">{{ t("studentHome.weeklySubtitle") }}</p>
         </div>
 
         <div class="calendar-toolbar">
           <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(-1)">
-            Previous week
+            {{ t("common.previousWeek") }}
           </button>
           <button class="btn btn-outline-primary btn-sm" type="button" @click="jumpToCurrentWeek">
-            Current week
+            {{ t("common.currentWeek") }}
           </button>
           <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(1)">
-            Next week
+            {{ t("common.nextWeek") }}
           </button>
         </div>
       </div>
 
       <div class="schedule-summary">
-        <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
+        <div class="schedule-range">{{ calendarRangeLabel || t("common.pickAWeek") }}</div>
         <div class="search-wrap">
           <input
             v-model="searchQuery"
             class="form-control"
             type="text"
-            placeholder="Search by task, topic, group, subject, or teacher"
+            :placeholder="t('studentHome.searchPlaceholder')"
           />
         </div>
       </div>
 
-      <div v-if="isLoading" class="empty-box schedule-empty mt-3">Loading weekly schedule...</div>
-      <div v-else-if="calendarDays.length === 0" class="empty-box schedule-empty mt-3">No schedule data found.</div>
+      <div v-if="isLoading" class="empty-box schedule-empty mt-3">{{ t("studentHome.loadingSchedule") }}</div>
+      <div v-else-if="calendarDays.length === 0" class="empty-box schedule-empty mt-3">{{ t("studentHome.noSchedule") }}</div>
       <div v-else class="schedule-strip">
         <article
           v-for="day in filteredCalendarDays"
@@ -547,7 +555,7 @@ onMounted(async () => {
 
           <div class="schedule-day-body">
             <div v-if="day.items.length === 0" class="schedule-empty-card">
-              {{ searchQuery.trim() ? "No matching tasks for this day." : "No tasks scheduled." }}
+              {{ searchQuery.trim() ? t("studentHome.noMatchingTasks") : t("studentHome.noTasksScheduled") }}
             </div>
 
             <div v-else class="day-task-list">
@@ -568,8 +576,8 @@ onMounted(async () => {
                 </div>
 
                 <div class="day-task-context">
-                  <div class="assignment-chip">Group: {{ task.group_name }}</div>
-                  <div class="day-task-meta">Teacher: {{ task.teacher_username }}</div>
+                  <div class="assignment-chip">{{ t("studentHome.groupLabel", { name: task.group_name }) }}</div>
+                  <div class="day-task-meta">{{ t("studentHome.teacherLabel", { name: task.teacher_username }) }}</div>
                 </div>
 
                 <div class="task-status-copy">{{ getTaskStateCopy(task, day.date) }}</div>
@@ -580,7 +588,7 @@ onMounted(async () => {
                   :disabled="startingTaskKey === task.task_key || !canStartOrContinueTask(task, day.date)"
                   @click="startTask(task)"
                 >
-                  {{ startingTaskKey === task.task_key ? "Opening..." : getTaskButtonLabel(task, day.date) }}
+                  {{ startingTaskKey === task.task_key ? t("studentHome.taskButton.opening") : getTaskButtonLabel(task, day.date) }}
                 </button>
               </article>
             </div>
@@ -592,17 +600,15 @@ onMounted(async () => {
     <section class="surface-card section-card">
       <div class="column-head recent-results-head">
         <div>
-          <h2 class="section-title">Recent Results</h2>
-          <p class="section-subtitle">
-            Open any finished test and review your answers on the result page.
-          </p>
+          <h2 class="section-title">{{ t("studentHome.recentResults") }}</h2>
+          <p class="section-subtitle">{{ t("studentHome.recentSubtitle") }}</p>
         </div>
-        <span class="pill">{{ recentResultItems.length }} shown</span>
+        <span class="pill">{{ t("common.shownCount", { count: recentResultItems.length }) }}</span>
       </div>
 
-      <div v-if="statsLoading" class="empty-box mt-3">Loading recent results...</div>
+      <div v-if="statsLoading" class="empty-box mt-3">{{ t("studentHome.loadingRecentResults") }}</div>
       <div v-else-if="recentResultItems.length === 0" class="empty-box mt-3">
-        No completed tests yet.
+        {{ t("studentHome.noCompletedTests") }}
       </div>
       <div v-else class="recent-results-list">
         <article
@@ -611,7 +617,7 @@ onMounted(async () => {
           class="recent-result-item"
         >
           <div class="recent-result-date">
-            <div class="recent-result-label">Date</div>
+            <div class="recent-result-label">{{ t("common.date") }}</div>
             <div class="recent-result-value">{{ formatResultDate(item.date) }}</div>
           </div>
 
@@ -625,53 +631,48 @@ onMounted(async () => {
             type="button"
             @click="openAttemptResult(item.attempt_id)"
           >
-            View results
+            {{ t("studentHome.viewResults") }}
           </button>
         </article>
       </div>
     </section>
 
     <section class="surface-card section-card stats-section">
-      <h2 class="section-title">Statistics</h2>
-      <div v-if="statsLoading" class="empty-box mt-2">Loading statistics...</div>
+      <h2 class="section-title">{{ t("studentHome.statistics") }}</h2>
+      <div v-if="statsLoading" class="empty-box mt-2">{{ t("studentHome.loadingStatistics") }}</div>
       <template v-else>
         <div class="stats-grid">
           <div class="stats-row">
-            <span class="stats-label">Completed tasks (this trimester)</span>
+            <span class="stats-label">{{ t("studentHome.completedTasksTrimester") }}</span>
             <span class="stats-value">{{ completedCount }}</span>
           </div>
           <div class="stats-row">
-            <span class="stats-label">Passed</span>
+            <span class="stats-label">{{ t("studentHome.passed") }}</span>
             <span class="stats-value">{{ passedCount }}</span>
           </div>
           <div class="stats-row">
-            <span class="stats-label">Required for credit</span>
-            <span class="stats-value stats-future">In future</span>
+            <span class="stats-label">{{ t("studentHome.requiredForCredit") }}</span>
+            <span class="stats-value stats-future">{{ t("studentHome.inFuture") }}</span>
           </div>
           <div class="stats-row">
-            <span class="stats-label">Rating</span>
-            <span v-if="rankingLoading" class="stats-value stats-future">Loading...</span>
+            <span class="stats-label">{{ t("studentHome.rating") }}</span>
+            <span v-if="rankingLoading" class="stats-value stats-future">{{ t("studentHome.loadingShort") }}</span>
             <span v-else-if="myRank" class="stats-value">
               #{{ myRank.rank }} / {{ myRank.total }}
             </span>
-            <span v-else class="stats-value stats-future">—</span>
+            <span v-else class="stats-value stats-future">-</span>
           </div>
         </div>
-
       </template>
     </section>
 
     <section class="surface-card section-card">
-      <h2 class="section-title">Notifications</h2>
-      <p class="section-subtitle">Get notified the day before a scheduled test.</p>
+      <h2 class="section-title">{{ t("common.notifications") }}</h2>
+      <p class="section-subtitle">{{ t("studentHome.notificationsSubtitle") }}</p>
 
       <div class="push-actions">
-        <button
-          class="btn btn-primary btn-sm"
-          type="button"
-          @click="enablePush"
-        >
-          Enable notifications
+        <button class="btn btn-primary btn-sm" type="button" @click="enablePush">
+          {{ t("studentHome.enableNotifications") }}
         </button>
         <button
           class="btn btn-outline-primary btn-sm"
@@ -679,7 +680,13 @@ onMounted(async () => {
           :disabled="testNotifLoading"
           @click="sendTestNotification"
         >
-          {{ testNotifCountdown > 0 ? `Wait ${testNotifCountdown}s...` : testNotifLoading ? "Sending..." : "Send test notification" }}
+          {{
+            testNotifCountdown > 0
+              ? t("studentHome.waitSeconds", { seconds: testNotifCountdown })
+              : testNotifLoading
+                ? t("studentHome.sending")
+                : t("studentHome.sendTestNotification")
+          }}
         </button>
         <span v-if="testNotifMessage" class="push-test-msg">{{ testNotifMessage }}</span>
         <p v-if="pushSuccess" class="text-success mt-2">{{ pushSuccess }}</p>

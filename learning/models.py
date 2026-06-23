@@ -30,6 +30,8 @@ class Workbook(models.Model):
 
     class Meta:
         ordering = ["subject__name", "title"]
+        verbose_name = "Textbook"
+        verbose_name_plural = "Textbooks"
         constraints = [
             models.UniqueConstraint(
                 fields=["subject", "title"],
@@ -46,6 +48,7 @@ class Unit(models.Model):
         Workbook,
         on_delete=models.PROTECT,
         related_name="units",
+        verbose_name="textbook",
     )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -88,6 +91,8 @@ class Topic(models.Model):
 
     class Meta:
         ordering = ["unit__workbook__title", "unit__title", "title"]
+        verbose_name = "Lesson"
+        verbose_name_plural = "Lessons"
         constraints = [
             models.UniqueConstraint(
                 fields=["unit", "title"],
@@ -101,14 +106,14 @@ class Topic(models.Model):
             subject=subject,
             title=cls.DEFAULT_WORKBOOK_TITLE,
             defaults={
-                "description": "Auto-created workbook for topics without an explicit workbook.",
+                "description": "Auto-created textbook for lessons without an explicit textbook.",
             },
         )
         unit, _ = Unit.objects.get_or_create(
             workbook=workbook,
             title=cls.DEFAULT_UNIT_TITLE,
             defaults={
-                "description": "Auto-created unit for topics without an explicit unit.",
+                "description": "Auto-created unit for lessons without an explicit unit.",
             },
         )
         return unit
@@ -144,6 +149,7 @@ class Task(models.Model):
         Topic,
         on_delete=models.CASCADE,
         related_name="tasks",
+        verbose_name="lesson",
     )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -209,7 +215,10 @@ class Question(models.Model):
         MULTIPLE_CHOICE = "multiple_choice", "Multiple choice"
 
     topic = models.ForeignKey(
-        "Topic", on_delete=models.CASCADE, related_name="questions"
+        "Topic",
+        on_delete=models.CASCADE,
+        related_name="questions",
+        verbose_name="lesson",
     )
     task = models.ForeignKey(
         "Task",
@@ -277,7 +286,12 @@ class Attempt(models.Model):
         on_delete=models.CASCADE,
         related_name="attempts",
     )
-    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="attempts")
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.PROTECT,
+        related_name="attempts",
+        verbose_name="lesson",
+    )
     task = models.ForeignKey(
         Task,
         on_delete=models.PROTECT,
@@ -464,6 +478,7 @@ class GroupTeachingAssignment(models.Model):
         null=True,
         blank=True,
         related_name="teaching_assignments",
+        verbose_name="textbook",
     )
     topic = models.ForeignKey(
         Topic,
@@ -471,6 +486,7 @@ class GroupTeachingAssignment(models.Model):
         null=True,
         blank=True,
         related_name="teaching_assignments",
+        verbose_name="lesson",
     )
     task = models.ForeignKey(
         Task,
@@ -494,16 +510,16 @@ class GroupTeachingAssignment(models.Model):
         super().clean()
         if self.workbook_id and self.workbook.subject_id != self.subject_id:
             raise ValidationError(
-                {"workbook": "Workbook must belong to the selected subject."}
+                {"workbook": "Textbook must belong to the selected subject."}
             )
         if self.topic_id and self.topic.subject_id != self.subject_id:
             raise ValidationError(
-                {"topic": "Topic must belong to the selected subject."}
+                {"topic": "Lesson must belong to the selected subject."}
             )
         if self.topic_id and self.workbook_id:
             if self.topic.unit.workbook_id != self.workbook_id:
                 raise ValidationError(
-                    {"topic": "Topic must belong to the selected workbook."}
+                    {"topic": "Lesson must belong to the selected textbook."}
                 )
         if self.task_id:
             if self.task.topic.subject_id != self.subject_id:
@@ -512,11 +528,11 @@ class GroupTeachingAssignment(models.Model):
                 )
             if self.workbook_id and self.task.topic.unit.workbook_id != self.workbook_id:
                 raise ValidationError(
-                    {"task": "Task must belong to the selected workbook."}
+                    {"task": "Task must belong to the selected textbook."}
                 )
             if self.topic_id and self.task.topic_id != self.topic_id:
                 raise ValidationError(
-                    {"task": "Task must belong to the selected topic."}
+                    {"task": "Task must belong to the selected lesson."}
                 )
 
     def save(self, *args, **kwargs):
@@ -552,6 +568,7 @@ class GroupTopicSchedule(models.Model):
         Topic,
         on_delete=models.PROTECT,
         related_name="group_topic_schedule_entries",
+        verbose_name="lesson",
     )
     task = models.ForeignKey(
         Task,
@@ -578,7 +595,7 @@ class GroupTopicSchedule(models.Model):
     def clean(self):
         super().clean()
         if self.task_id and self.task.topic_id != self.topic_id:
-            raise ValidationError({"task": "Task must belong to the selected topic."})
+            raise ValidationError({"task": "Task must belong to the selected lesson."})
 
     def save(self, *args, **kwargs):
         if self.task_id:

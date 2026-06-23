@@ -1,11 +1,13 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import { useAuthStore } from "@/stores/auth";
 
 const router = useRouter();
 const route = useRoute();
+const { t } = useI18n();
 const authStore = useAuthStore();
 
 // Логин пароль с формы
@@ -29,7 +31,7 @@ const nextRoute = computed(() => {
 const submit = async () => {
   errorMessage.value = "";
   if (!form.username.trim() || !form.password) {
-    errorMessage.value = "Enter username and password.";
+    errorMessage.value = t("login.errors.missingCredentials");
     return;
   }
 
@@ -50,7 +52,7 @@ const submit = async () => {
   } catch (error) {
     errorMessage.value =
       error?.response?.data?.detail ||
-      "Could not sign in. Check your username and password.";
+      t("login.errors.signIn");
   } finally {
     isSubmitting.value = false;
   }
@@ -61,57 +63,55 @@ const submit = async () => {
   <section class="login-shell">
     <div class="login-grid">
       <div class="surface-card login-aside">
-        <span class="pill">Authorization</span>
-        <h1 class="login-title">Sign in to Student Platform</h1>
-        <p class="login-copy">
-          Teachers manage groups and subjects. Students open assigned tasks and start attempts.
-        </p>
+        <span class="pill">{{ t("login.badge") }}</span>
+        <h1 class="login-title">{{ t("login.title") }}</h1>
+        <p class="login-copy">{{ t("login.copy") }}</p>
 
         <div class="login-badges">
           <div class="login-badge">
-            <strong>Teacher</strong>
-            <span>Create subjects, topics, and group assignments.</span>
+            <strong>{{ t("app.role.teacher") }}</strong>
+            <span>{{ t("login.teacherBadge") }}</span>
           </div>
           <div class="login-badge">
-            <strong>Student</strong>
-            <span>See your tasks and continue learning from one place.</span>
+            <strong>{{ t("app.role.student") }}</strong>
+            <span>{{ t("login.studentBadge") }}</span>
           </div>
         </div>
       </div>
 
       <div class="surface-card login-card">
         <div class="login-card-head">
-          <h2>Welcome back</h2>
-          <p>Use the same username and password as in Django admin or the seeded users.</p>
+          <h2>{{ t("login.welcome") }}</h2>
+          <p>{{ t("login.helper") }}</p>
         </div>
 
         <form class="login-form" @submit.prevent="submit">
           <label class="field-wrap">
-            <span>Username</span>
+            <span>{{ t("login.username") }}</span>
             <input
               v-model="form.username"
               class="form-control"
               type="text"
               autocomplete="username"
-              placeholder="teacher_1"
+              :placeholder="t('login.usernamePlaceholder')"
             />
           </label>
 
           <label class="field-wrap">
-            <span>Password</span>
+            <span>{{ t("login.password") }}</span>
             <input
               v-model="form.password"
               class="form-control"
               type="password"
               autocomplete="current-password"
-              placeholder="Your password"
+              :placeholder="t('login.passwordPlaceholder')"
             />
           </label>
 
           <div v-if="errorMessage" class="alert alert-danger mb-0">{{ errorMessage }}</div>
 
           <button class="btn btn-primary login-btn" :disabled="isSubmitting" type="submit">
-            {{ isSubmitting ? "Signing in..." : "Sign in" }}
+            {{ isSubmitting ? t("login.signingIn") : t("login.signIn") }}
           </button>
         </form>
       </div>

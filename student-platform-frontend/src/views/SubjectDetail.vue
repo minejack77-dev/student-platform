@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Group, Subject, Topic, Unit, Workbook } from "@/api.js";
 
 const props = defineProps(["id"]);
+const { t } = useI18n();
 
 const subject = ref({});
 const groups = ref([]);
@@ -98,7 +100,7 @@ const loadSubjectPage = async () => {
   try {
     await Promise.all([loadSubject(), loadTopics(), loadGroups(), loadWorkbooks(), loadUnits()]);
   } catch {
-    loadError.value = "Failed to load subject page.";
+    loadError.value = t("subjectDetail.groupPageLoadError");
   }
 };
 
@@ -125,7 +127,7 @@ const getCreateTopicErrorMessage = (error) => {
     payload?.workbook?.[0] ||
     payload?.title?.[0] ||
     payload?.detail ||
-    "Could not create topic."
+    t("subjectDetail.errors.createLesson")
   );
 };
 
@@ -160,15 +162,15 @@ const ensureUnitForTopic = async (workbookId) => {
 const createTopic = async () => {
   createTopicError.value = "";
   if (!createTopicForm.value.title.trim()) {
-    createTopicError.value = "Topic title is required.";
+    createTopicError.value = t("subjectDetail.errors.lessonTitleRequired");
     return;
   }
   if (!createTopicForm.value.workbook && !createTopicForm.value.new_workbook_title.trim()) {
-    createTopicError.value = "Choose a workbook or enter a new workbook title.";
+    createTopicError.value = t("subjectDetail.errors.chooseTextbook");
     return;
   }
   if (!createTopicForm.value.unit && !createTopicForm.value.new_unit_title.trim()) {
-    createTopicError.value = "Choose a unit or enter a new unit title.";
+    createTopicError.value = t("subjectDetail.errors.chooseUnit");
     return;
   }
 
@@ -221,10 +223,10 @@ const assignSubjectToGroup = async (groupId) => {
       subject: numericSubjectId.value,
       topic: null,
     });
-    assignSuccess.value = "Subject assigned to group.";
+    assignSuccess.value = t("subjectDetail.messages.subjectAssigned");
     await loadGroups();
   } catch (error) {
-    assignError.value = error?.response?.data?.detail || "Could not assign subject.";
+    assignError.value = error?.response?.data?.detail || t("subjectDetail.errors.assignSubject");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -248,11 +250,11 @@ const saveTopicForGroup = async (groupId) => {
       subject: numericSubjectId.value,
       topic: topicId ? Number(topicId) : null,
     });
-    assignSuccess.value = "Group assignment updated.";
+    assignSuccess.value = t("subjectDetail.messages.assignmentUpdated");
     await loadGroups();
   } catch (error) {
     assignError.value =
-      error?.response?.data?.detail || "Could not update topic for group.";
+      error?.response?.data?.detail || t("subjectDetail.errors.updateLesson");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -264,11 +266,11 @@ const clearSubjectFromGroup = async (groupId) => {
   setGroupLoading(groupId, true);
   try {
     await Group.clearTeacherAssignment(groupId);
-    assignSuccess.value = "Subject removed from group.";
+    assignSuccess.value = t("subjectDetail.messages.subjectRemoved");
     await loadGroups();
   } catch (error) {
     assignError.value =
-      error?.response?.data?.detail || "Could not remove subject from group.";
+      error?.response?.data?.detail || t("subjectDetail.errors.removeSubject");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -294,18 +296,18 @@ onMounted(async () => {
   <div class="subject-page">
     <section class="surface-card subject-hero">
       <div>
-        <span class="pill">Subject</span>
-        <h1 class="subject-title">{{ subject.name || "Untitled subject" }}</h1>
-        <p class="subject-description">{{ subject.description || "No description yet." }}</p>
+        <span class="pill">{{ t("subjectDetail.badge") }}</span>
+        <h1 class="subject-title">{{ subject.name || t("common.untitledSubject") }}</h1>
+        <p class="subject-description">{{ subject.description || t("common.noDescriptionYet") }}</p>
       </div>
 
       <div class="hero-meta">
         <div class="meta-card">
-          <div class="meta-label">Topics</div>
+          <div class="meta-label">{{ t("common.lessons") }}</div>
           <div class="meta-value">{{ topics.length }}</div>
         </div>
         <div class="meta-card">
-          <div class="meta-label">Groups assigned to you</div>
+          <div class="meta-label">{{ t("subjectDetail.groupsAssigned") }}</div>
           <div class="meta-value">{{ assignedGroups.length }}</div>
         </div>
       </div>
@@ -317,12 +319,12 @@ onMounted(async () => {
 
     <section class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">Groups In This Subject</h2>
-        <span class="pill">{{ assignedGroups.length }} groups</span>
+        <h2 class="section-title">{{ t("subjectDetail.groupsInSubject") }}</h2>
+        <span class="pill">{{ t("common.groupsCount", { count: assignedGroups.length }) }}</span>
       </div>
 
       <div v-if="assignedGroups.length === 0" class="empty-box">
-        You have not assigned this subject to any group yet.
+        {{ t("subjectDetail.noAssignedGroups") }}
       </div>
 
       <div class="cards-grid">
@@ -337,18 +339,18 @@ onMounted(async () => {
               class="small-link"
               :to="{ name: 'group-details', params: { id: group.id } }"
             >
-              Open group
+              {{ t("common.openGroup") }}
             </router-link>
           </div>
 
-          <p class="group-description">{{ group.description || "No description" }}</p>
+          <p class="group-description">{{ group.description || t("common.noDescription") }}</p>
 
-          <label class="form-label mb-1">Topic for this group</label>
+          <label class="form-label mb-1">{{ t("subjectDetail.lessonForGroup") }}</label>
           <select
             v-model="selectedTopicByGroup[group.id]"
             class="form-select form-select-sm"
           >
-            <option value="">No topic selected</option>
+            <option value="">{{ t("subjectDetail.noLessonSelected") }}</option>
             <option v-for="topic in topics" :key="topic.id" :value="topic.id">
               {{ getTopicPlacementLabel(topic) }}
             </option>
@@ -361,7 +363,7 @@ onMounted(async () => {
               :disabled="assignLoadingByGroup[group.id]"
               @click="saveTopicForGroup(group.id)"
             >
-              {{ assignLoadingByGroup[group.id] ? "Saving..." : "Save topic" }}
+              {{ assignLoadingByGroup[group.id] ? t("common.saving") : t("subjectDetail.saveLesson") }}
             </button>
             <button
               class="btn btn-outline-danger btn-sm"
@@ -369,7 +371,7 @@ onMounted(async () => {
               :disabled="assignLoadingByGroup[group.id]"
               @click="clearSubjectFromGroup(group.id)"
             >
-              Remove subject
+              {{ t("subjectDetail.removeSubject") }}
             </button>
           </div>
         </article>
@@ -377,20 +379,20 @@ onMounted(async () => {
 
       <div class="assign-row">
         <div class="assign-copy">
-          <h3 class="assign-title">Assign this subject to a group</h3>
+          <h3 class="assign-title">{{ t("subjectDetail.assignTitle") }}</h3>
           <p class="assign-hint">
-            If group already has your assignment, it will be replaced with this subject.
+            {{ t("subjectDetail.assignHint") }}
           </p>
         </div>
         <div class="assign-controls">
           <select v-model="selectedGroupToAssign" class="form-select">
-            <option value="">Choose group</option>
+            <option value="">{{ t("subjectDetail.chooseGroup") }}</option>
             <option v-for="group in availableGroups" :key="group.id" :value="group.id">
               {{ group.name }}
             </option>
           </select>
           <button class="btn btn-outline-primary" type="button" @click="assignSelectedGroup">
-            Assign subject
+            {{ t("subjectDetail.assignSubject") }}
           </button>
         </div>
       </div>
@@ -398,20 +400,20 @@ onMounted(async () => {
 
     <section class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">Topics In Subject</h2>
-        <span class="pill">{{ topics.length }} total</span>
+        <h2 class="section-title">{{ t("subjectDetail.lessonsInSubject") }}</h2>
+        <span class="pill">{{ t("common.totalCount", { count: topics.length }) }}</span>
       </div>
 
       <div class="create-topic-box">
-        <h3 class="create-title">Create Topic</h3>
+        <h3 class="create-title">{{ t("subjectDetail.createLesson") }}</h3>
         <div class="topic-structure-grid">
           <div class="topic-structure-field">
-            <label class="form-label mb-1">Workbook</label>
+            <label class="form-label mb-1">{{ t("common.textbook") }}</label>
             <select
               v-model="createTopicForm.workbook"
               class="form-select form-select-sm"
             >
-              <option value="">Create new workbook</option>
+              <option value="">{{ t("subjectDetail.createNewTextbook") }}</option>
               <option
                 v-for="workbook in workbooks"
                 :key="workbook.id"
@@ -425,23 +427,23 @@ onMounted(async () => {
             v-if="!createTopicForm.workbook"
             class="topic-structure-field"
           >
-            <label class="form-label mb-1">New workbook title</label>
+            <label class="form-label mb-1">{{ t("subjectDetail.newTextbookTitle") }}</label>
             <input
               v-model="createTopicForm.new_workbook_title"
               class="form-control form-control-sm"
               type="text"
-              placeholder="Workbook title"
+              :placeholder="t('subjectDetail.textbookTitlePlaceholder')"
             />
           </div>
           <div class="topic-structure-field">
-            <label class="form-label mb-1">Unit</label>
+            <label class="form-label mb-1">{{ t("common.unit") }}</label>
             <select
               v-model="createTopicForm.unit"
               class="form-select form-select-sm"
               :disabled="!createTopicForm.workbook"
             >
               <option value="">
-                {{ createTopicForm.workbook ? "Create new unit" : "Create a workbook first" }}
+                {{ createTopicForm.workbook ? t("subjectDetail.createNewUnit") : t("subjectDetail.createTextbookFirst") }}
               </option>
               <option
                 v-for="unit in workbookUnits"
@@ -456,12 +458,12 @@ onMounted(async () => {
             v-if="!createTopicForm.unit"
             class="topic-structure-field"
           >
-            <label class="form-label mb-1">New unit title</label>
+            <label class="form-label mb-1">{{ t("subjectDetail.newUnitTitle") }}</label>
             <input
               v-model="createTopicForm.new_unit_title"
               class="form-control form-control-sm"
               type="text"
-              placeholder="Unit title"
+              :placeholder="t('subjectDetail.unitTitlePlaceholder')"
             />
           </div>
         </div>
@@ -469,25 +471,25 @@ onMounted(async () => {
           v-model="createTopicForm.title"
           class="form-control form-control-sm"
           type="text"
-          placeholder="Topic title"
+          :placeholder="t('subjectDetail.lessonTitlePlaceholder')"
         />
         <textarea
           v-model="createTopicForm.description"
           class="form-control form-control-sm"
           rows="2"
-          placeholder="Description"
+          :placeholder="t('common.description')"
         />
         <div class="form-check">
           <input id="topic-active" v-model="createTopicForm.is_active" class="form-check-input" type="checkbox" />
-          <label class="form-check-label" for="topic-active">Active</label>
+          <label class="form-check-label" for="topic-active">{{ t("common.active") }}</label>
         </div>
         <div v-if="createTopicError" class="small text-danger">{{ createTopicError }}</div>
         <button class="btn btn-primary btn-sm" type="button" :disabled="createTopicLoading" @click="createTopic">
-          {{ createTopicLoading ? "Creating..." : "Create topic" }}
+          {{ createTopicLoading ? t("common.creating") : t("subjectDetail.createLesson") }}
         </button>
       </div>
 
-      <div v-if="topics.length === 0" class="empty-box">No topics in this subject yet.</div>
+      <div v-if="topics.length === 0" class="empty-box">{{ t("subjectDetail.noLessonsYet") }}</div>
 
       <div class="cards-grid">
         <article
@@ -501,11 +503,11 @@ onMounted(async () => {
               class="small-link"
               :to="{ name: 'topic-detail', params: { id: topic.id } }"
             >
-              Open topic
+              {{ t("common.openLesson") }}
             </router-link>
           </div>
           <div class="topic-path">{{ topic.workbook_title }} / {{ topic.unit_title }}</div>
-          <p class="group-description">{{ topic.description || "No description" }}</p>
+          <p class="group-description">{{ topic.description || t("common.noDescription") }}</p>
         </article>
       </div>
     </section>

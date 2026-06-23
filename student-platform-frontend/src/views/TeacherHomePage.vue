@@ -1,7 +1,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
-import { Group, Subject } from "@/api.js";
+import { useI18n } from "vue-i18n";
 
+import { Group, Subject } from "@/api.js";
+import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
+
+const { t } = useI18n();
+const { localeTag } = useLocaleFormatting();
 const groupList = ref([]);
 const subjectList = ref([]);
 const groupFilters = ref({ name: "" });
@@ -50,7 +55,7 @@ const loadDashboard = async () => {
   try {
     await Promise.all([getGroups(), getSubjects()]);
   } catch {
-    loadError.value = "Could not load dashboard data.";
+    loadError.value = t("teacherHome.loadError");
   }
 };
 
@@ -67,7 +72,7 @@ const resetSubjectForm = () => {
 const createGroup = async () => {
   createGroupError.value = "";
   if (!createGroupForm.value.name.trim()) {
-    createGroupError.value = "Group name is required.";
+    createGroupError.value = t("teacherHome.errors.groupNameRequired");
     return;
   }
 
@@ -83,7 +88,7 @@ const createGroup = async () => {
     await getGroups();
   } catch (error) {
     createGroupError.value =
-      error?.response?.data?.name?.[0] || "Could not create group.";
+      error?.response?.data?.name?.[0] || t("teacherHome.errors.createGroup");
   } finally {
     createGroupLoading.value = false;
   }
@@ -92,7 +97,7 @@ const createGroup = async () => {
 const createSubject = async () => {
   createSubjectError.value = "";
   if (!createSubjectForm.value.name.trim()) {
-    createSubjectError.value = "Subject name is required.";
+    createSubjectError.value = t("teacherHome.errors.subjectNameRequired");
     return;
   }
 
@@ -108,7 +113,7 @@ const createSubject = async () => {
     await getSubjects();
   } catch (error) {
     createSubjectError.value =
-      error?.response?.data?.name?.[0] || "Could not create subject.";
+      error?.response?.data?.name?.[0] || t("teacherHome.errors.createSubject");
   } finally {
     createSubjectLoading.value = false;
   }
@@ -132,9 +137,9 @@ const setSubjectSort = async (mode) => {
 
 const formatUpdatedAt = (value) => {
   if (!value) {
-    return "No edits yet";
+    return t("teacherHome.noEditsYet");
   }
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(localeTag.value);
 };
 
 watch(
@@ -161,20 +166,18 @@ const subjectsCount = computed(() => subjectList.value.length);
   <div class="teacher-page">
     <section class="surface-card hero-panel">
       <div class="hero-copy">
-        <span class="pill">Workspace</span>
-        <h1 class="hero-title">Teaching Hub</h1>
-        <p class="hero-subtitle">
-          Manage groups and subjects. Subject/topic assignment is personal for each teacher.
-        </p>
+        <span class="pill">{{ t("teacherHome.badge") }}</span>
+        <h1 class="hero-title">{{ t("teacherHome.title") }}</h1>
+        <p class="hero-subtitle">{{ t("teacherHome.subtitle") }}</p>
       </div>
 
       <div class="hero-stats">
         <div class="stat-card">
-          <div class="stat-label">Groups</div>
+          <div class="stat-label">{{ t("common.groups") }}</div>
           <div class="stat-value">{{ groupsCount }}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Subjects</div>
+          <div class="stat-label">{{ t("common.subjects") }}</div>
           <div class="stat-value">{{ subjectsCount }}</div>
         </div>
       </div>
@@ -185,8 +188,8 @@ const subjectsCount = computed(() => subjectList.value.length);
     <section class="surface-card section-card">
       <div class="section-head">
       <div>
-        <h2 class="section-title">Groups</h2>
-        <p class="section-subtitle">Open group overview for schedule and results, or details for subject setup, statistics, and students.</p>
+        <h2 class="section-title">{{ t("common.groups") }}</h2>
+        <p class="section-subtitle">{{ t("teacherHome.groupsSubtitle") }}</p>
       </div>
         <div class="controls-wrap">
           <div class="sort-switch">
@@ -194,19 +197,19 @@ const subjectsCount = computed(() => subjectList.value.length);
               class="sort-btn"
               :class="{ active: groupSort === 'name' }"
               type="button"
-              title="Sort by name"
+              :title="t('teacherHome.sortByName')"
               @click="setGroupSort('name')"
             >
-              <span>Name</span>
+              <span>{{ t("teacherHome.name") }}</span>
             </button>
             <button
               class="sort-btn"
               :class="{ active: groupSort === 'updated' }"
               type="button"
-              title="Sort by last edited"
+              :title="t('teacherHome.sortByEdited')"
               @click="setGroupSort('updated')"
             >
-              <span>Edited</span>
+              <span>{{ t("teacherHome.edited") }}</span>
             </button>
           </div>
           <div class="search-wrap">
@@ -214,20 +217,20 @@ const subjectsCount = computed(() => subjectList.value.length);
               v-model="groupFilters.name"
               class="form-control"
               type="text"
-              placeholder="Search groups by name"
+              :placeholder="t('teacherHome.searchGroups')"
             />
           </div>
         </div>
       </div>
 
-      <div v-if="groupList.length === 0" class="empty-box">No groups found.</div>
+      <div v-if="groupList.length === 0" class="empty-box">{{ t("teacherHome.noGroups") }}</div>
 
       <div class="cards-grid">
         <article class="entity-card add-card">
           <template v-if="!isCreatingGroup">
             <button class="add-entity-button" type="button" @click="isCreatingGroup = true">
               <span class="add-icon">+</span>
-              <span>Add group</span>
+              <span>{{ t("teacherHome.addGroup") }}</span>
             </button>
           </template>
           <template v-else>
@@ -236,25 +239,25 @@ const subjectsCount = computed(() => subjectList.value.length);
                 v-model="createGroupForm.name"
                 class="form-control form-control-sm"
                 type="text"
-                placeholder="Group name"
+                :placeholder="t('teacherHome.groupName')"
               />
               <textarea
                 v-model="createGroupForm.description"
                 class="form-control form-control-sm"
                 rows="2"
-                placeholder="Description"
+                :placeholder="t('common.description')"
               />
               <div class="form-check">
                 <input id="new-group-active" v-model="createGroupForm.is_active" class="form-check-input" type="checkbox" />
-                <label class="form-check-label" for="new-group-active">Active</label>
+                <label class="form-check-label" for="new-group-active">{{ t("common.active") }}</label>
               </div>
               <div v-if="createGroupError" class="small text-danger">{{ createGroupError }}</div>
               <div class="add-form-actions">
                 <button class="btn btn-primary btn-sm" :disabled="createGroupLoading" type="button" @click="createGroup">
-                  {{ createGroupLoading ? "Creating..." : "Create" }}
+                  {{ createGroupLoading ? t("common.creating") : t("common.create") }}
                 </button>
                 <button class="btn btn-outline-secondary btn-sm" type="button" @click="isCreatingGroup = false; resetGroupForm()">
-                  Cancel
+                  {{ t("common.cancel") }}
                 </button>
               </div>
             </div>
@@ -269,22 +272,22 @@ const subjectsCount = computed(() => subjectList.value.length);
         >
           <div class="entity-header">
             <h3 class="entity-title">{{ group.name }}</h3>
-            <span class="entity-chip">Group</span>
+            <span class="entity-chip">{{ t("teacherHome.groupChip") }}</span>
           </div>
-          <p class="entity-text">{{ group.description || "No description" }}</p>
+          <p class="entity-text">{{ group.description || t("common.noDescription") }}</p>
 
           <div v-if="group.teacher_assignment" class="assignment-chip">
             {{ group.teacher_assignment.subject_name }}
           </div>
-          <div v-else class="assignment-chip muted">No subject assigned for you yet.</div>
+          <div v-else class="assignment-chip muted">{{ t("teacherHome.noSubjectAssigned") }}</div>
 
-          <div class="entity-meta">Edited: {{ formatUpdatedAt(group.updated_at) }}</div>
+          <div class="entity-meta">{{ t("teacherHome.edited") }}: {{ formatUpdatedAt(group.updated_at) }}</div>
           <div class="entity-link-row">
             <router-link :to="{ name: 'group-overview', params: { id: group.id } }" class="entity-link entity-link-primary">
-              Overview
+              {{ t("teacherHome.overview") }}
             </router-link>
             <router-link :to="{ name: 'group-details', params: { id: group.id } }" class="entity-link entity-link-secondary">
-              Details
+              {{ t("teacherHome.details") }}
             </router-link>
           </div>
         </article>
@@ -294,8 +297,8 @@ const subjectsCount = computed(() => subjectList.value.length);
     <section class="surface-card section-card">
       <div class="section-head">
         <div>
-          <h2 class="section-title">Subjects</h2>
-          <p class="section-subtitle">Open a subject to view topics and assigned groups.</p>
+          <h2 class="section-title">{{ t("common.subject") }}</h2>
+          <p class="section-subtitle">{{ t("teacherHome.subjectsSubtitle") }}</p>
         </div>
         <div class="controls-wrap">
           <div class="sort-switch">
@@ -303,19 +306,19 @@ const subjectsCount = computed(() => subjectList.value.length);
               class="sort-btn"
               :class="{ active: subjectSort === 'name' }"
               type="button"
-              title="Sort by name"
+              :title="t('teacherHome.sortByName')"
               @click="setSubjectSort('name')"
             >
-              <span>Name</span>
+              <span>{{ t("teacherHome.name") }}</span>
             </button>
             <button
               class="sort-btn"
               :class="{ active: subjectSort === 'updated' }"
               type="button"
-              title="Sort by last edited"
+              :title="t('teacherHome.sortByEdited')"
               @click="setSubjectSort('updated')"
             >
-              <span>Edited</span>
+              <span>{{ t("teacherHome.edited") }}</span>
             </button>
           </div>
           <div class="search-wrap">
@@ -323,20 +326,20 @@ const subjectsCount = computed(() => subjectList.value.length);
               v-model="subjectFilters.name"
               class="form-control"
               type="text"
-              placeholder="Search subjects by name"
+              :placeholder="t('teacherHome.searchSubjects')"
             />
           </div>
         </div>
       </div>
 
-      <div v-if="subjectList.length === 0" class="empty-box">No subjects found.</div>
+      <div v-if="subjectList.length === 0" class="empty-box">{{ t("teacherHome.noSubjects") }}</div>
 
       <div class="cards-grid">
         <article class="entity-card add-card">
           <template v-if="!isCreatingSubject">
             <button class="add-entity-button" type="button" @click="isCreatingSubject = true">
               <span class="add-icon">+</span>
-              <span>Add subject</span>
+              <span>{{ t("teacherHome.addSubject") }}</span>
             </button>
           </template>
           <template v-else>
@@ -345,25 +348,25 @@ const subjectsCount = computed(() => subjectList.value.length);
                 v-model="createSubjectForm.name"
                 class="form-control form-control-sm"
                 type="text"
-                placeholder="Subject name"
+                :placeholder="t('teacherHome.subjectName')"
               />
               <textarea
                 v-model="createSubjectForm.description"
                 class="form-control form-control-sm"
                 rows="2"
-                placeholder="Description"
+                :placeholder="t('common.description')"
               />
               <div class="form-check">
                 <input id="new-subject-active" v-model="createSubjectForm.is_active" class="form-check-input" type="checkbox" />
-                <label class="form-check-label" for="new-subject-active">Active</label>
+                <label class="form-check-label" for="new-subject-active">{{ t("common.active") }}</label>
               </div>
               <div v-if="createSubjectError" class="small text-danger">{{ createSubjectError }}</div>
               <div class="add-form-actions">
                 <button class="btn btn-primary btn-sm" :disabled="createSubjectLoading" type="button" @click="createSubject">
-                  {{ createSubjectLoading ? "Creating..." : "Create" }}
+                  {{ createSubjectLoading ? t("common.creating") : t("common.create") }}
                 </button>
                 <button class="btn btn-outline-secondary btn-sm" type="button" @click="isCreatingSubject = false; resetSubjectForm()">
-                  Cancel
+                  {{ t("common.cancel") }}
                 </button>
               </div>
             </div>
@@ -378,12 +381,12 @@ const subjectsCount = computed(() => subjectList.value.length);
         >
           <div class="entity-header">
             <h3 class="entity-title">{{ subject.name }}</h3>
-            <span class="entity-chip">Subject</span>
+            <span class="entity-chip">{{ t("teacherHome.subjectChip") }}</span>
           </div>
-          <p class="entity-text">{{ subject.description || "No description" }}</p>
-          <div class="entity-meta">Edited: {{ formatUpdatedAt(subject.updated_at) }}</div>
+          <p class="entity-text">{{ subject.description || t("common.noDescription") }}</p>
+          <div class="entity-meta">{{ t("teacherHome.edited") }}: {{ formatUpdatedAt(subject.updated_at) }}</div>
           <router-link :to="{ name: 'subject-detail', params: { id: subject.id } }" class="entity-link entity-link-primary">
-            Open subject
+            {{ t("teacherHome.openSubject") }}
           </router-link>
         </article>
       </div>

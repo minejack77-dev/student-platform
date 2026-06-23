@@ -1,50 +1,64 @@
 <script setup>
 import { computed, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
+import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
+import { localeOptions, setAppLocale } from "@/i18n";
 import { useAuthStore } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
+const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const { isAuthenticated, role, user } = storeToRefs(authStore);
 const logoutError = ref("");
 
 const pageLabel = computed(() => {
   if (route.name === "login") {
-    return "Access portal";
+    return t("app.pageLabel.login");
   }
   if (route.name === "topic-detail") {
-    return "Topic workspace";
+    return t("app.pageLabel.topicDetail");
   }
   if (route.name === "subject-detail") {
-    return "Subject workspace";
+    return t("app.pageLabel.subjectDetail");
   }
   if (route.name === "group-overview") {
-    return "Group overview";
+    return t("app.pageLabel.groupOverview");
   }
   if (route.name === "group-details") {
-    return "Group details";
+    return t("app.pageLabel.groupDetails");
   }
   if (route.name === "student-home") {
-    return "Student workspace";
+    return t("app.pageLabel.studentHome");
   }
   if (route.name === "attempt-detail") {
-    return "Attempt session";
+    return t("app.pageLabel.attemptDetail");
   }
-  return "Teaching dashboard";
+  return t("app.pageLabel.default");
 });
 
 const roleLabel = computed(() => {
   if (role.value === "student") {
-    return "Student";
+    return t("app.role.student");
   }
   if (role.value === "teacher") {
-    return "Teacher";
+    return t("app.role.teacher");
   }
-  return "Guest";
+  return t("app.role.guest");
 });
+
+const languageOptions = computed(() =>
+  localeOptions.map((value) => ({
+    value,
+    label: value === "ru" ? t("language.russian") : t("language.english"),
+  })),
+);
+
+const handleLanguageChange = (event) => {
+  setAppLocale(event.target.value);
+};
 
 const handleLogout = async () => {
   logoutError.value = "";
@@ -56,7 +70,7 @@ const handleLogout = async () => {
   } catch (error) {
     logoutError.value =
       error?.response?.data?.detail ||
-      "Could not sign out. Please try again.";
+      t("app.errors.signOut");
   }
 };
 </script>
@@ -68,34 +82,48 @@ const handleLogout = async () => {
         <router-link class="brand-link" to="/">
           <div class="brand-glyph">SP</div>
           <div>
-            <div class="brand-title">Student Platform</div>
-            <div class="brand-subtitle">Learning workspace</div>
+            <div class="brand-title">{{ t("app.brandTitle") }}</div>
+            <div class="brand-subtitle">{{ t("app.brandSubtitle") }}</div>
           </div>
         </router-link>
 
         <nav class="nav-wrap">
-          <!-- <router-link class="nav-item-link" :to="{ name: 'teacher-home' }">Teacher</router-link> -->
-          <!-- <router-link class="nav-item-link" :to="{ name: 'student-home' }">Tasks</router-link> -->
           <template v-if="isAuthenticated">
             <router-link
               v-if="role === 'teacher'"
               class="nav-item-link"
               :to="{ name: 'teacher-home' }"
             >
-              Teacher
+              {{ t("app.nav.teacher") }}
             </router-link>
             <router-link
               v-if="role === 'student'"
               class="nav-item-link"
               :to="{ name: 'student-home' }"
             >
-              Tasks
+              {{ t("app.nav.tasks") }}
             </router-link>
             <span class="nav-user">{{ user?.username }} · {{ roleLabel }}</span>
             <button class="btn btn-outline-primary btn-sm" type="button" @click="handleLogout">
-              Sign out
+              {{ t("app.nav.signOut") }}
             </button>
           </template>
+          <label class="visually-hidden" for="app-language-select">{{ t("language.label") }}</label>
+          <select
+            id="app-language-select"
+            :value="locale"
+            class="form-select form-select-sm"
+            style="width: auto;"
+            @change="handleLanguageChange"
+          >
+            <option
+              v-for="option in languageOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
           <span class="pill">{{ pageLabel }}</span>
         </nav>
       </div>

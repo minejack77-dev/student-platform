@@ -222,7 +222,7 @@ const loadTopicCalendar = async () => {
     calendarDays.value = normalizeCalendarResponse(response);
   } catch (error) {
     calendarError.value =
-      error?.response?.data?.detail || "Could not load the topic calendar.";
+      error?.response?.data?.detail || "Could not load the lesson calendar.";
     calendarDays.value = [];
   } finally {
     calendarLoading.value = false;
@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-show="panelOpen.assignment">
         <p class="assignment-hint">
-          Save the subject once, then use the weekly calendar below to assign a different topic to each date.
+          Save the subject once, then use the weekly calendar below to assign a different lesson to each date.
         </p>
 
         <div class="row g-3">
@@ -767,7 +767,7 @@ onBeforeUnmount(() => {
         <div v-else-if="tasks.length === 0" class="schedule-empty">
           <div class="schedule-empty-title">No active tasks found</div>
           <p class="schedule-empty-copy">
-            This subject has no active tasks yet. Add tasks in a topic page, then come back here.
+            This subject has no active tasks yet. Add tasks on a lesson page, then come back here.
           </p>
         </div>
 
