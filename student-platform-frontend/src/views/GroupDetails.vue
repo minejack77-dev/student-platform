@@ -1,40 +1,18 @@
 <script setup>
 import axios from "axios";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Group, Subject, Workbook } from "@/api.js";
+import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const props = defineProps(["id"]);
 
-const monthDayFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-});
-const longDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
-const studentNameCollator = new Intl.Collator("en", {
-  numeric: true,
-  sensitivity: "base",
-});
+const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
+const WEEKDAY_FORMAT = { weekday: "short" };
+const LONG_DATE_FORMAT = { month: "long", day: "numeric", year: "numeric" };
 
-const STAT_SCALES = [
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-  { value: "three_months", label: "3 months" },
-];
-
-const STAT_LEGEND = [
-  { state: "all_correct", label: "All correct" },
-  { state: "partial", label: "Partly correct" },
-  { state: "none_correct", label: "None correct" },
-  { state: "missed", label: "Missed test" },
-  { state: "no_test", label: "No test assigned" },
-];
+const { t } = useI18n();
+const { createCollator, formatWithLocale } = useLocaleFormatting();
 
 const parseISODate = (value) => {
   const [year, month, day] = (value || "").split("-").map(Number);
@@ -82,6 +60,20 @@ const removeLoadingUserId = ref(null);
 const addResultMessage = ref("");
 let searchDebounceTimer = null;
 
+const statScales = computed(() => [
+  { value: "week", label: t("groupDetails.scales.week") },
+  { value: "month", label: t("groupDetails.scales.month") },
+  { value: "three_months", label: t("groupDetails.scales.threeMonths") },
+]);
+
+const statLegend = computed(() => [
+  { state: "all_correct", label: t("groupDetails.legend.allCorrect") },
+  { state: "partial", label: t("groupDetails.legend.partial") },
+  { state: "none_correct", label: t("groupDetails.legend.noneCorrect") },
+  { state: "missed", label: t("groupDetails.legend.missed") },
+  { state: "no_test", label: t("groupDetails.legend.noTest") },
+]);
+
 const loadGroup = async () => {
   loadError.value = "";
   try {
@@ -91,7 +83,7 @@ const loadGroup = async () => {
       students: response.students ?? [],
     };
   } catch {
-    loadError.value = "Failed to load group.";
+    loadError.value = t("groupDetails.loadError");
   }
 };
 
@@ -124,7 +116,7 @@ const loadTeacherAssignment = async () => {
     savedAssignmentWorkbook.value = assignmentForm.value.workbook;
   } catch (error) {
     assignmentError.value =
-      error?.response?.data?.detail || "Could not load your assignment.";
+      error?.response?.data?.detail || t("groupDetails.assignmentLoadError");
     assignmentForm.value = { subject: "", workbook: "" };
     savedAssignmentSubject.value = "";
     savedAssignmentWorkbook.value = "";
@@ -144,7 +136,7 @@ const loadDetailedStatistics = async () => {
       error?.response?.data?.detail ||
       error?.response?.data?.scale ||
       error?.response?.data?.end_date ||
-      "Could not load detailed statistics.";
+      t("groupDetails.statisticsLoadError");
     statistics.value = createEmptyStatistics();
   } finally {
     statisticsLoading.value = false;
@@ -168,7 +160,7 @@ const saveTeacherAssignment = async () => {
       savedAssignmentSubject.value = "";
       savedAssignmentWorkbook.value = "";
       workbooks.value = [];
-      assignmentSuccess.value = "Assignment removed for your profile.";
+      assignmentSuccess.value = t("groupDetails.assignmentMessages.removed");
     } else {
       const response = await Group.saveTeacherAssignment(props.id, {
         subject: subjectId,
@@ -181,7 +173,7 @@ const saveTeacherAssignment = async () => {
       assignmentForm.value.workbook = response.workbook ? String(response.workbook) : "";
       savedAssignmentSubject.value = assignmentForm.value.subject;
       savedAssignmentWorkbook.value = assignmentForm.value.workbook;
-      assignmentSuccess.value = "Assignment saved for your profile.";
+      assignmentSuccess.value = t("groupDetails.assignmentMessages.saved");
     }
     await loadGroup();
   } catch (error) {
@@ -190,7 +182,7 @@ const saveTeacherAssignment = async () => {
       error?.response?.data?.topic?.[0] ||
       error?.response?.data?.subject?.[0] ||
       error?.response?.data?.detail ||
-      "Could not save assignment.";
+      t("groupDetails.assignmentMessages.saveError");
   } finally {
     assignmentLoading.value = false;
   }
@@ -206,11 +198,11 @@ const clearTeacherAssignment = async () => {
     savedAssignmentSubject.value = "";
     savedAssignmentWorkbook.value = "";
     workbooks.value = [];
-    assignmentSuccess.value = "Assignment removed for your profile.";
+    assignmentSuccess.value = t("groupDetails.assignmentMessages.removed");
     await loadGroup();
   } catch (error) {
     assignmentError.value =
-      error?.response?.data?.detail || "Could not remove assignment.";
+      error?.response?.data?.detail || t("groupDetails.assignmentMessages.removeError");
   } finally {
     assignmentLoading.value = false;
   }
@@ -238,7 +230,7 @@ const searchStudents = async (query) => {
     searchResults.value = response.data ?? [];
   } catch (error) {
     searchResults.value = [];
-    searchError.value = error?.response?.data?.detail || "Search failed.";
+    searchError.value = error?.response?.data?.detail || t("groupDetails.searchError");
   } finally {
     searchLoading.value = false;
   }
@@ -254,8 +246,8 @@ const addStudentToGroup = async (student) => {
     });
 
     addResultMessage.value = response.data?.added
-      ? "Student added to group."
-      : "Student is already in this group.";
+      ? t("groupDetails.studentMessages.added")
+      : t("groupDetails.studentMessages.alreadyInGroup");
 
     searchResults.value = searchResults.value.map((item) =>
       item.user === student.user ? { ...item, in_group: true } : item,
@@ -263,7 +255,7 @@ const addStudentToGroup = async (student) => {
     await Promise.all([loadGroup(), loadDetailedStatistics()]);
   } catch (error) {
     addResultMessage.value =
-      error?.response?.data?.detail || "Could not add student to group.";
+      error?.response?.data?.detail || t("groupDetails.studentMessages.addError");
   } finally {
     addLoadingUserId.value = null;
   }
@@ -278,18 +270,18 @@ const removeStudentFromGroup = async (student) => {
     });
 
     if (response.data?.removed) {
-      addResultMessage.value = "Student removed from group.";
+      addResultMessage.value = t("groupDetails.studentMessages.removed");
       group.value.students = group.value.students.filter((item) => item.id !== student.id);
       searchResults.value = searchResults.value.map((item) =>
         item.user === student.user ? { ...item, in_group: false } : item,
       );
       await loadDetailedStatistics();
     } else {
-      addResultMessage.value = "Student is not in this group.";
+      addResultMessage.value = t("groupDetails.studentMessages.notInGroup");
     }
   } catch (error) {
     addResultMessage.value =
-      error?.response?.data?.detail || "Could not remove student from group.";
+      error?.response?.data?.detail || t("groupDetails.studentMessages.removeError");
   } finally {
     removeLoadingUserId.value = null;
   }
@@ -334,7 +326,7 @@ const loadDetailsPage = async () => {
     await Promise.all([loadGroup(), loadSubjects(), loadDetailedStatistics()]);
     await loadTeacherAssignment();
   } catch {
-    loadError.value = "Failed to load group details.";
+    loadError.value = t("groupDetails.pageLoadError");
   }
 };
 
@@ -343,7 +335,7 @@ const currentSubjectLabel = computed(() => {
   const subjectName = group.value.teacher_assignment?.subject_name;
   const workbookTitle = group.value.teacher_assignment?.workbook_title;
   if (!subjectName) {
-    return "Not assigned yet";
+    return t("common.notAssignedYet");
   }
   if (!workbookTitle) {
     return subjectName;
@@ -356,16 +348,22 @@ const statisticsRangeLabel = computed(() => {
   if (!startDate || !endDate) {
     return "";
   }
-  return `${longDateFormatter.format(startDate)} - ${longDateFormatter.format(endDate)}`;
+  return `${formatWithLocale(startDate, LONG_DATE_FORMAT)} - ${formatWithLocale(endDate, LONG_DATE_FORMAT)}`;
 });
 const hasScheduledTests = computed(() =>
   (statistics.value.dates ?? []).some((column) => column.scheduled_count > 0),
 );
 const statisticsSortLabel = computed(() =>
-  statisticsSortMode.value === "rank" ? "rank" : "name",
+  statisticsSortMode.value === "rank"
+    ? t("groupDetails.sortModes.rank")
+    : t("groupDetails.sortModes.name"),
 );
 const sortedStatisticsStudents = computed(() => {
   const rows = [...(statistics.value.students ?? [])];
+  const studentNameCollator = createCollator({
+    numeric: true,
+    sensitivity: "base",
+  });
 
   if (statisticsSortMode.value === "rank") {
     rows.sort((left, right) => {
@@ -387,25 +385,26 @@ const sortedStatisticsStudents = computed(() => {
 
 const formatStatisticsDay = (value) => {
   const date = parseISODate(value);
-  return date ? monthDayFormatter.format(date) : value;
+  return date ? formatWithLocale(date, MONTH_DAY_FORMAT) : value;
 };
 
 const formatStatisticsWeekday = (value) => {
   const date = parseISODate(value);
-  return date ? weekdayFormatter.format(date) : "";
+  return date ? formatWithLocale(date, WEEKDAY_FORMAT) : "";
 };
 
 const formatTestOutcome = (test) => {
   if (test.result === "missed") {
-    return "Missed";
+    return t("groupDetails.missed");
   }
   if (test.correct_count == null || test.total_questions == null) {
-    return "No result";
+    return t("groupDetails.noResult");
   }
   return `${test.correct_count} / ${test.total_questions}`;
 };
 
-const formatStatisticsRank = (rank) => (rank == null ? "Rank —" : `Rank #${rank}`);
+const statisticsRankLabel = (rank) =>
+  rank == null ? t("groupDetails.rankDash") : t("groupDetails.rankLabel", { rank });
 
 const toggleStatisticsSort = () => {
   statisticsSortMode.value = statisticsSortMode.value === "name" ? "rank" : "name";
@@ -461,23 +460,23 @@ onBeforeUnmount(() => {
     <section class="surface-card group-hero">
       <div class="hero-topline">
         <div class="hero-heading-row">
-          <span class="pill">Group Details</span>
-          <h1 class="group-title">{{ group.name || "Untitled group" }}</h1>
+          <span class="pill">{{ t("groupDetails.badge") }}</span>
+          <h1 class="group-title">{{ group.name || t("common.untitledGroup") }}</h1>
         </div>
       </div>
 
       <div class="hero-copy">
-        <p class="group-description">{{ group.description || "No description available." }}</p>
+        <p class="group-description">{{ group.description || t("common.noDescriptionAvailable") }}</p>
       </div>
 
       <div class="hero-summary-row">
         <div class="hero-meta">
           <div class="meta-card">
-            <div class="meta-label">Members</div>
+            <div class="meta-label">{{ t("common.members") }}</div>
             <div class="meta-value">{{ studentCount }}</div>
           </div>
           <div class="meta-card meta-card-wide">
-            <div class="meta-label">Subject</div>
+            <div class="meta-label">{{ t("groupDetails.heroSubject") }}</div>
             <div class="meta-value meta-value-small">{{ currentSubjectLabel }}</div>
           </div>
         </div>
@@ -486,10 +485,10 @@ onBeforeUnmount(() => {
           class="hero-link-button hero-link-primary"
           :to="{ name: 'group-overview', params: { id: props.id } }"
         >
-          Group Overview
+          {{ t("groupDetails.groupOverview") }}
         </router-link>
         <router-link class="home-link hero-link-button hero-link-secondary" to="/">
-          Back to dashboard
+          {{ t("common.backToDashboard") }}
         </router-link>
       </div>
     </section>
@@ -499,30 +498,34 @@ onBeforeUnmount(() => {
     <section class="surface-card assignment-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
-          <h2 class="section-title">Subject</h2>
-          <span class="pill">Personal for your teacher profile</span>
+          <h2 class="section-title">{{ t("common.subject") }}</h2>
+          <span class="pill">{{ t("groupDetails.subjectBadge") }}</span>
         </div>
       </div>
 
       <p class="assignment-hint">
-        Save the subject and workbook here, then use Group Overview to manage the weekly schedule.
+        {{ t("groupDetails.assignmentHint") }}
       </p>
 
       <div class="row g-3">
         <div class="col-md-6">
-          <label class="form-label">Subject</label>
+          <label class="form-label">{{ t("common.subject") }}</label>
           <select v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
-            <option value="">No subject selected</option>
+            <option value="">{{ t("groupDetails.noSubjectSelected") }}</option>
             <option v-for="subject in subjects" :key="subject.id" :value="String(subject.id)">
               {{ subject.name }}
             </option>
           </select>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Workbook</label>
+          <label class="form-label">{{ t("common.textbook") }}</label>
           <select v-model="assignmentForm.workbook" class="form-select" :disabled="!assignmentForm.subject">
             <option value="">
-              {{ assignmentForm.subject ? "No workbook selected" : "Choose subject first" }}
+              {{
+                assignmentForm.subject
+                  ? t("groupDetails.noTextbookSelected")
+                  : t("groupDetails.chooseSubjectFirst")
+              }}
             </option>
             <option v-for="workbook in workbooks" :key="workbook.id" :value="String(workbook.id)">
               {{ workbook.title }}
@@ -533,7 +536,7 @@ onBeforeUnmount(() => {
 
       <div class="assignment-actions">
         <button class="btn btn-primary" type="button" :disabled="assignmentLoading" @click="saveTeacherAssignment">
-          {{ assignmentLoading ? "Saving..." : "Save assignment" }}
+          {{ assignmentLoading ? t("common.saving") : t("groupDetails.saveAssignment") }}
         </button>
         <button
           class="btn btn-outline-danger"
@@ -541,7 +544,7 @@ onBeforeUnmount(() => {
           :disabled="assignmentLoading"
           @click="clearTeacherAssignment"
         >
-          Remove assignment
+          {{ t("groupDetails.removeAssignment") }}
         </button>
       </div>
 
@@ -552,8 +555,8 @@ onBeforeUnmount(() => {
     <section class="surface-card members-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
-          <h2 class="section-title">Detailed Statistics</h2>
-          <span class="pill">{{ statisticsRangeLabel || "Current range" }}</span>
+          <h2 class="section-title">{{ t("groupDetails.detailedStatistics") }}</h2>
+          <span class="pill">{{ statisticsRangeLabel || t("groupDetails.currentRange") }}</span>
         </div>
       </div>
 
@@ -561,7 +564,7 @@ onBeforeUnmount(() => {
         <div class="statistics-toolbar-main">
           <div class="statistics-scale-toggle">
             <button
-              v-for="scale in STAT_SCALES"
+              v-for="scale in statScales"
               :key="scale.value"
               class="statistics-scale-btn"
               :class="{ active: statisticsScale === scale.value }"
@@ -578,20 +581,20 @@ onBeforeUnmount(() => {
             :disabled="statisticsLoading"
             @click="toggleStatisticsSort"
           >
-            <span>Sort by {{ statisticsSortLabel }}</span>
+            <span>{{ t("groupDetails.sortBy", { mode: statisticsSortLabel }) }}</span>
           </button>
         </div>
         <router-link
           class="btn btn-outline-primary btn-sm"
           :to="{ name: 'group-overview', params: { id: props.id } }"
         >
-          Open schedule and results
+          {{ t("groupDetails.openScheduleAndResults") }}
         </router-link>
       </div>
 
       <div class="statistics-legend">
         <span
-          v-for="item in STAT_LEGEND"
+          v-for="item in statLegend"
           :key="item.state"
           class="statistics-legend-item"
         >
@@ -604,22 +607,24 @@ onBeforeUnmount(() => {
         {{ statisticsError }}
       </div>
 
-      <div v-if="statisticsLoading" class="empty-box">Loading detailed statistics...</div>
+      <div v-if="statisticsLoading" class="empty-box">
+        {{ t("groupDetails.loadingDetailedStatistics") }}
+      </div>
 
       <div v-else-if="group.students.length === 0" class="empty-box">
-        No students in this group yet.
+        {{ t("groupDetails.noStudentsInGroup") }}
       </div>
 
       <div v-else>
         <div v-if="!hasScheduledTests" class="empty-box compact-empty-box">
-          No scheduled tests were found in the selected range yet.
+          {{ t("groupDetails.noScheduledTests") }}
         </div>
 
         <div class="statistics-table-wrap">
           <table class="statistics-table">
             <thead>
               <tr>
-                <th class="statistics-student-head">Student</th>
+                <th class="statistics-student-head">{{ t("groupDetails.studentHeader") }}</th>
                 <th
                   v-for="column in statistics.dates"
                   :key="column.date"
@@ -637,18 +642,18 @@ onBeforeUnmount(() => {
                   <div class="statistics-student-stack">
                     <div class="member-name">{{ row.username }}</div>
                     <div class="statistics-rank-row">
-                      <span class="statistics-rank-label">{{ formatStatisticsRank(row.rank) }}</span>
+                      <span class="statistics-rank-label">{{ statisticsRankLabel(row.rank) }}</span>
                       <span
                         v-if="row.rank_trend === 'up'"
                         class="statistics-rank-trend trend-up"
-                        title="Rank improved"
+                        :title="t('groupDetails.rankImproved')"
                       >
                         &uarr;
                       </span>
                       <span
                         v-else-if="row.rank_trend === 'down'"
                         class="statistics-rank-trend trend-down"
-                        title="Rank dropped"
+                        :title="t('groupDetails.rankDropped')"
                       >
                         &darr;
                       </span>
@@ -668,7 +673,7 @@ onBeforeUnmount(() => {
                       class="statistics-test-item"
                     >
                       <div class="statistics-test-title">
-                        {{ test.task_title || test.topic_title || "Task" }}
+                        {{ test.task_title || test.topic_title || t("common.task") }}
                       </div>
                       <div
                         class="statistics-test-result"
@@ -690,23 +695,28 @@ onBeforeUnmount(() => {
     <section class="surface-card search-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
-          <h2 class="section-title">Add New Student</h2>
-          <span class="pill">Live search</span>
+          <h2 class="section-title">{{ t("groupDetails.addNewStudent") }}</h2>
+          <span class="pill">{{ t("groupDetails.liveSearch") }}</span>
         </div>
       </div>
 
       <div class="search-column">
-        <p class="search-hint">Type user id or username, then add in one click.</p>
+        <p class="search-hint">{{ t("groupDetails.searchHint") }}</p>
 
-        <input v-model="searchQuery" class="form-control search-input" type="text" placeholder="e.g. 42 or alex" />
+        <input
+          v-model="searchQuery"
+          class="form-control search-input"
+          type="text"
+          :placeholder="t('groupDetails.searchPlaceholder')"
+        />
 
-        <div v-if="searchLoading" class="search-state">Searching...</div>
+        <div v-if="searchLoading" class="search-state">{{ t("groupDetails.searching") }}</div>
         <div v-if="searchError" class="alert alert-danger mt-3 mb-0">{{ searchError }}</div>
         <div
           v-if="!searchLoading && searchQuery.trim() && !searchError && searchResults.length === 0"
           class="search-state"
         >
-          Nothing found.
+          {{ t("groupDetails.nothingFound") }}
         </div>
 
         <div v-if="searchResults.length > 0" class="search-results">
@@ -717,11 +727,15 @@ onBeforeUnmount(() => {
           >
             <div>
               <div class="member-name">{{ student.username }}</div>
-              <div class="member-meta">user id: {{ student.user }}, student id: {{ student.id }}</div>
+              <div class="member-meta">
+                {{ t("groupDetails.memberUserMeta", { userId: student.user, studentId: student.id }) }}
+              </div>
             </div>
 
             <div class="search-actions">
-              <span v-if="student.in_group" class="badge text-bg-success">In group</span>
+              <span v-if="student.in_group" class="badge text-bg-success">
+                {{ t("groupDetails.inGroup") }}
+              </span>
               <button
                 v-else
                 class="btn btn-success btn-sm"
@@ -729,7 +743,7 @@ onBeforeUnmount(() => {
                 type="button"
                 @click="addStudentToGroup(student)"
               >
-                {{ addLoadingUserId === student.user ? "Adding..." : "Add" }}
+                {{ addLoadingUserId === student.user ? t("groupDetails.adding") : t("common.add") }}
               </button>
             </div>
           </article>
@@ -739,12 +753,12 @@ onBeforeUnmount(() => {
 
         <div class="current-students-wrap">
           <div class="column-head current-students-head">
-            <h3 class="current-students-title">Current Students</h3>
-            <span class="pill">{{ studentCount }} total</span>
+            <h3 class="current-students-title">{{ t("groupDetails.currentStudents") }}</h3>
+            <span class="pill">{{ t("common.totalCount", { count: studentCount }) }}</span>
           </div>
 
           <div v-if="group.students.length === 0" class="empty-box">
-            No students in this group yet.
+            {{ t("groupDetails.noStudentsInGroup") }}
           </div>
 
           <div v-else class="members-list compact-members-list">
@@ -756,8 +770,10 @@ onBeforeUnmount(() => {
             >
               <div class="member-index">#{{ index + 1 }}</div>
               <div class="member-info">
-                <div class="member-name">{{ student.username || "Unknown" }}</div>
-                <div class="member-meta">student id: {{ student.id }}, user id: {{ student.user }}</div>
+                <div class="member-name">{{ student.username || t("common.unknown") }}</div>
+                <div class="member-meta">
+                  {{ t("groupDetails.memberStudentMeta", { studentId: student.id, userId: student.user }) }}
+                </div>
               </div>
               <button
                 class="ghost-danger-btn"
@@ -765,7 +781,7 @@ onBeforeUnmount(() => {
                 :disabled="removeLoadingUserId === student.user"
                 @click="removeStudentFromGroup(student)"
               >
-                {{ removeLoadingUserId === student.user ? "Removing..." : "Remove" }}
+                {{ removeLoadingUserId === student.user ? t("groupDetails.removing") : t("common.remove") }}
               </button>
             </article>
           </div>

@@ -806,7 +806,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response(
                 {
                     "detail": (
-                        "This subject or workbook change would remove schedule dates that already have student attempts."
+                        "This subject or textbook change would remove schedule dates that already have student attempts."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -997,7 +997,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
         if assignment.workbook_id and topic.unit.workbook_id != assignment.workbook_id:
             return Response(
-                {"task": "Task must belong to your saved workbook for this group."},
+                {"task": "Task must belong to your saved textbook for this group."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

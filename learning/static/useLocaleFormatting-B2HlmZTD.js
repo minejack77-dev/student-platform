@@ -1,0 +1,1 @@
+import{u as r,j as l}from"./index-D3H1ryl3.js";const s=()=>{const{locale:e}=r(),o=l(()=>e.value==="ru"?"ru-RU":"en-US");return{locale:e,localeTag:o,formatWithLocale:(t,a)=>t?new Intl.DateTimeFormat(o.value,a).format(t):"",createCollator:t=>new Intl.Collator(o.value,t)}};export{s as u};

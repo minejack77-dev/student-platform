@@ -15,6 +15,7 @@ from celery.schedules import crontab
 from pathlib import Path
 
 from dotenv import load_dotenv
+from django.utils.translation import gettext_lazy as _
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -78,6 +79,7 @@ AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -148,7 +150,14 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
-LANGUAGE_CODE = os.getenv("DJANGO_LANGUAGE_CODE", "en-us")
+LANGUAGE_CODE = os.getenv("DJANGO_LANGUAGE_CODE", "en")
+
+LANGUAGES = [
+    ("en", _("English")),
+    ("ru", _("Russian")),
+]
+
+LOCALE_PATHS = [BASE_DIR / "locale"]
 
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 
@@ -186,10 +195,11 @@ CELERY_BEAT_SCHEDULE = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-# STATIC_URL = os.getenv("DJANGO_STATIC_URL", "static/")
+STATIC_URL = os.getenv("DJANGO_STATIC_URL", "/static/")
 # STATICFILES_DIRS = [
 #    BASE_DIR / "student-platform-frontend" / "dist" / "static",
 # ]
-STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", "./static/")
-MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", "./static/")
+STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+MEDIA_URL = os.getenv("DJANGO_MEDIA_URL", "/media/")
+MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

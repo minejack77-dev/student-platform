@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('accounts', '0004_grant_teacher_learning_permissions'),
-        ('webpush', '0006_alter_subscriptioninfo_user_agent'),
+        ('webpush', '0005_auto_20230614_1529'),
     ]
 
     operations = [

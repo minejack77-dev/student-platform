@@ -9,6 +9,7 @@ if ("serviceWorker" in navigator) {
 }
 
 import App from "./App.vue";
+import { i18n, initializeLocale } from "./i18n";
 import router from "./router";
 import { pinia } from "./stores";
 
@@ -18,10 +19,12 @@ axios.defaults.xsrfHeaderName = "X-CSRFToken";
 axios.defaults.xsrfCookieName = "csrftoken";
 axios.defaults.withXSRFToken = true;
 axios.defaults.withCredentials = true;
+initializeLocale();
 
 const app = createApp(App);
 
 app.use(pinia);
+app.use(i18n);
 app.use(router);
 
 app.mount("#app");

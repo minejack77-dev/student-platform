@@ -1,25 +1,21 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Group, Task, Topic } from "@/api.js";
+import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const props = defineProps(["id"]);
 
 const WEEK_LENGTH = 7;
-const dayNameFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
-const dayNumberFormatter = new Intl.DateTimeFormat("en-US", { day: "numeric" });
-const monthDayFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-const monthRangeFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  year: "numeric",
-});
-const fullDateFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-});
+const DAY_NAME_FORMAT = { weekday: "short" };
+const DAY_NUMBER_FORMAT = { day: "numeric" };
+const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
+const MONTH_RANGE_FORMAT = { month: "long", year: "numeric" };
+const FULL_DATE_FORMAT = { weekday: "long", month: "long", day: "numeric" };
+const SHORT_DATE_FORMAT = { day: "2-digit", month: "2-digit", year: "numeric" };
+
+const { t } = useI18n();
+const { formatWithLocale } = useLocaleFormatting();
 
 const formatISODate = (date) => {
   const year = date.getFullYear();
@@ -132,7 +128,7 @@ const loadGroup = async () => {
       students: response.students ?? [],
     };
   } catch {
-    loadError.value = "Failed to load group.";
+    loadError.value = t("groupOverview.loadGroupError");
   }
 };
 
@@ -150,12 +146,12 @@ const loadRanking = async () => {
     rankingDate.value = response.results_date || rankingDate.value;
   } catch (error) {
     if (error?.response?.status === 403) {
-      rankingError.value = "Save a subject in Group Details first to unlock results.";
+      rankingError.value = t("groupOverview.rankingErrors.unlock");
     } else {
       rankingError.value =
         error?.response?.data?.date ||
         error?.response?.data?.detail ||
-        "Could not load results for this date.";
+        t("groupOverview.rankingErrors.load");
     }
     rankingByStudentId.value = {};
   } finally {
@@ -251,7 +247,7 @@ const loadTopicCalendar = async () => {
     await primeCalendarTaskOptions();
   } catch (error) {
     calendarError.value =
-      error?.response?.data?.detail || "Could not load the topic calendar.";
+      error?.response?.data?.detail || t("groupOverview.calendarErrors.load");
     calendarDays.value = [];
   } finally {
     calendarLoading.value = false;
@@ -297,12 +293,15 @@ const saveCalendarTask = async (day, item) => {
       task: Number(item.taskDraft),
     });
     await loadTopicCalendar();
-    calendarMessage.value = `${response.task_title || response.topic_title} saved for ${fullDateFormatter.format(parseISODate(day.date))}.`;
+    calendarMessage.value = t("groupOverview.calendarMessages.saved", {
+      title: response.task_title || response.topic_title || t("common.task"),
+      date: formatWithLocale(parseISODate(day.date), FULL_DATE_FORMAT),
+    });
   } catch (error) {
     calendarError.value =
       error?.response?.data?.task?.[0] ||
       error?.response?.data?.detail ||
-      "Could not save this date.";
+      t("groupOverview.calendarErrors.save");
   } finally {
     calendarSavingKey.value = "";
   }
@@ -320,10 +319,12 @@ const clearCalendarTask = async (day, item) => {
   try {
     await Group.clearTopicCalendarItem(props.id, { schedule_entry: item.id });
     await loadTopicCalendar();
-    calendarMessage.value = `Task removed from ${fullDateFormatter.format(parseISODate(day.date))}.`;
+    calendarMessage.value = t("groupOverview.calendarMessages.removed", {
+      date: formatWithLocale(parseISODate(day.date), FULL_DATE_FORMAT),
+    });
   } catch (error) {
     calendarError.value =
-      error?.response?.data?.detail || "Could not clear this date.";
+      error?.response?.data?.detail || t("groupOverview.calendarErrors.clear");
   } finally {
     calendarSavingKey.value = "";
   }
@@ -383,7 +384,7 @@ const loadOverviewPage = async () => {
 const studentCount = computed(() => group.value.students.length);
 const assignmentLabel = computed(() => {
   if (!savedAssignmentSubjectName.value) {
-    return "Not assigned yet";
+    return t("groupOverview.assignmentMessages.notAssigned");
   }
   if (!savedAssignmentWorkbookName.value) {
     return savedAssignmentSubjectName.value;
@@ -392,10 +393,10 @@ const assignmentLabel = computed(() => {
 });
 const scheduleDisabledMessage = computed(() => {
   if (!savedAssignmentSubject.value) {
-    return "Set a subject in Group Details first. After that this weekly calendar will unlock.";
+    return t("groupOverview.assignmentMessages.missingSubject");
   }
   if (!savedAssignmentWorkbook.value) {
-    return "Choose a workbook in Group Details first. After that this weekly calendar will show only matching topics and tasks.";
+    return t("groupOverview.assignmentMessages.missingTextbook");
   }
   return "";
 });
@@ -414,27 +415,26 @@ const calendarRangeLabel = computed(() => {
   if (!first || !last) {
     return "";
   }
-  return `${monthRangeFormatter.format(first)} | ${monthDayFormatter.format(first)} - ${monthDayFormatter.format(last)}`;
+  return `${formatWithLocale(first, MONTH_RANGE_FORMAT)} | ${formatWithLocale(first, MONTH_DAY_FORMAT)} - ${formatWithLocale(last, MONTH_DAY_FORMAT)}`;
 });
 const selectedRankingDate = computed(() => parseISODate(rankingDate.value));
 const isViewingToday = computed(() => isToday(rankingDate.value));
 const rankingDateButtonLabel = computed(() => {
   if (!selectedRankingDate.value) {
-    return "Select date";
+    return t("groupOverview.selectDate");
   }
-  const day = `${selectedRankingDate.value.getDate()}`.padStart(2, "0");
-  const month = `${selectedRankingDate.value.getMonth() + 1}`.padStart(2, "0");
-  const year = selectedRankingDate.value.getFullYear();
-  return `${day}.${month}.${year}`;
+  return formatWithLocale(selectedRankingDate.value, SHORT_DATE_FORMAT);
 });
 const memberEmptyResultsLabel = computed(() => {
   if (!selectedRankingDate.value) {
-    return "No tests on this date";
+    return t("groupOverview.noTestsOnDate");
   }
   if (isViewingToday.value) {
-    return "No tests today";
+    return t("groupOverview.noTestsToday");
   }
-  return `No tests on ${monthDayFormatter.format(selectedRankingDate.value)}`;
+  return t("groupOverview.noTestsOnFormattedDate", {
+    date: formatWithLocale(selectedRankingDate.value, MONTH_DAY_FORMAT),
+  });
 });
 
 const isCalendarTaskDirty = (item) =>
@@ -445,11 +445,12 @@ const isWeekend = (value) => {
   const day = date?.getDay();
   return day === 0 || day === 6;
 };
-const formatDayName = (value) => dayNameFormatter.format(parseISODate(value));
-const formatDayNumber = (value) => dayNumberFormatter.format(parseISODate(value));
-const formatMonthDay = (value) => monthDayFormatter.format(parseISODate(value));
+const formatDayName = (value) => formatWithLocale(parseISODate(value), DAY_NAME_FORMAT);
+const formatDayNumber = (value) => formatWithLocale(parseISODate(value), DAY_NUMBER_FORMAT);
+const formatMonthDay = (value) => formatWithLocale(parseISODate(value), MONTH_DAY_FORMAT);
 const getStudentResults = (studentId) => rankingByStudentId.value[studentId]?.today_results ?? [];
-const formatMemberRank = (rank) => (rank == null ? "rank: -" : `rank: #${rank}`);
+const formatMemberRank = (rank) =>
+  rank == null ? t("groupOverview.formatRankEmpty") : t("groupOverview.formatRank", { rank });
 
 watch(
   () => props.id,
@@ -469,23 +470,23 @@ onMounted(async () => {
     <section class="surface-card group-hero">
       <div class="hero-topline">
         <div class="hero-heading-row">
-          <span class="pill">Group Overview</span>
-          <h1 class="group-title">{{ group.name || "Untitled group" }}</h1>
+          <span class="pill">{{ t("groupOverview.badge") }}</span>
+          <h1 class="group-title">{{ group.name || t("common.untitledGroup") }}</h1>
         </div>
       </div>
 
       <div class="hero-copy">
-        <p class="group-description">{{ group.description || "No description available." }}</p>
+        <p class="group-description">{{ group.description || t("common.noDescriptionAvailable") }}</p>
       </div>
 
       <div class="hero-summary-row">
         <div class="hero-meta">
           <div class="meta-card">
-            <div class="meta-label">Members</div>
+            <div class="meta-label">{{ t("common.members") }}</div>
             <div class="meta-value">{{ studentCount }}</div>
           </div>
           <div class="meta-card meta-card-wide">
-            <div class="meta-label">Subject</div>
+            <div class="meta-label">{{ t("common.subject") }}</div>
             <div class="meta-value meta-value-small">{{ assignmentLabel }}</div>
           </div>
         </div>
@@ -494,10 +495,10 @@ onMounted(async () => {
           class="hero-link-button hero-link-primary"
           :to="{ name: 'group-details', params: { id: props.id } }"
         >
-          Group Details
+          {{ t("groupDetails.badge") }}
         </router-link>
         <router-link class="home-link hero-link-button hero-link-secondary" to="/">
-          Back to dashboard
+          {{ t("common.backToDashboard") }}
         </router-link>
       </div>
     </section>
@@ -507,33 +508,33 @@ onMounted(async () => {
     <section class="surface-card schedule-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
-          <h2 class="section-title">Schedule</h2>
-          <span class="pill">{{ calendarAssignedCount }} tasks scheduled</span>
+          <h2 class="section-title">{{ t("groupOverview.schedule") }}</h2>
+          <span class="pill">{{ t("common.tasksScheduled", { count: calendarAssignedCount }) }}</span>
         </div>
       </div>
 
       <div class="schedule-header">
         <p class="assignment-hint schedule-hint">
-          Move week by week and pin the exact task for each lesson date.
+          {{ t("groupOverview.assignmentHint") }}
         </p>
 
         <div class="calendar-toolbar">
           <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(-1)">
-            Previous week
+            {{ t("common.previousWeek") }}
           </button>
           <button class="btn btn-outline-primary btn-sm" type="button" @click="jumpToCurrentWeek">
-            Current week
+            {{ t("common.currentWeek") }}
           </button>
           <button class="btn btn-outline-primary btn-sm" type="button" @click="shiftCalendarWeek(1)">
-            Next week
+            {{ t("common.nextWeek") }}
           </button>
         </div>
       </div>
 
       <div class="schedule-summary">
-        <div class="schedule-range">{{ calendarRangeLabel || "Pick a week" }}</div>
+        <div class="schedule-range">{{ calendarRangeLabel || t("common.pickAWeek") }}</div>
         <div class="schedule-subject">
-          Task pool:
+          {{ t("groupOverview.taskPool") }}
           <strong>{{ assignmentLabel }}</strong>
         </div>
       </div>
@@ -541,22 +542,24 @@ onMounted(async () => {
       <div v-if="calendarError" class="alert alert-danger mt-3 mb-0">{{ calendarError }}</div>
       <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0">{{ calendarMessage }}</div>
 
-      <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">Loading weekly schedule...</div>
+      <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">
+        {{ t("groupOverview.loadingSchedule") }}
+      </div>
 
       <div v-else-if="scheduleDisabledMessage" class="schedule-empty">
-        <div class="schedule-empty-title">Calendar is waiting for group setup</div>
+        <div class="schedule-empty-title">{{ t("groupOverview.waitingForSetup") }}</div>
         <p class="schedule-empty-copy">
           {{ scheduleDisabledMessage }}
           <router-link class="inline-link" :to="{ name: 'group-details', params: { id: props.id } }">
-            Open Group Details
+            {{ t("groupOverview.openGroupDetails") }}
           </router-link>
         </p>
       </div>
 
       <div v-else-if="topics.length === 0" class="schedule-empty">
-        <div class="schedule-empty-title">No active topics found</div>
+        <div class="schedule-empty-title">{{ t("groupOverview.noActiveLessons") }}</div>
         <p class="schedule-empty-copy">
-          This workbook has no active topics yet. Add a topic inside the selected workbook, then come back here.
+          {{ t("groupOverview.noActiveLessonsCopy") }}
         </p>
       </div>
 
@@ -586,16 +589,16 @@ onMounted(async () => {
               class="schedule-task-row"
             >
               <div class="schedule-field">
-                <label class="form-label schedule-label">Topic</label>
+                <label class="form-label schedule-label">{{ t("common.lesson") }}</label>
                 <select
                   v-model="item.topicDraft"
                   class="form-select form-select-sm schedule-select"
                   :disabled="topics.length === 0"
-                  :aria-label="`Topic for ${day.date}`"
+                  :aria-label="t('common.lesson')"
                   @change="onTopicChange(item)"
                 >
                   <option value="">
-                    {{ topics.length ? "Choose topic" : "No topics in workbook" }}
+                    {{ topics.length ? t("groupOverview.chooseLesson") : t("groupOverview.noLessonsInTextbook") }}
                   </option>
                   <option v-for="topicItem in topics" :key="topicItem.id" :value="String(topicItem.id)">
                     {{ topicItem.title }}
@@ -604,15 +607,15 @@ onMounted(async () => {
               </div>
 
               <div class="schedule-field">
-                <label class="form-label schedule-label">Task</label>
+                <label class="form-label schedule-label">{{ t("common.task") }}</label>
                 <select
                   v-model="item.taskDraft"
                   class="form-select form-select-sm schedule-select"
                   :disabled="!item.topicDraft"
-                  :aria-label="`Task for ${day.date}`"
+                  :aria-label="t('common.task')"
                 >
                   <option value="">
-                    {{ item.topicDraft ? "Choose task" : "Choose topic first" }}
+                    {{ item.topicDraft ? t("groupOverview.chooseTask") : t("groupOverview.chooseLessonFirst") }}
                   </option>
                   <option
                     v-for="taskItem in getTasksForTopic(item.topicDraft)"
@@ -625,8 +628,8 @@ onMounted(async () => {
               </div>
 
               <div class="schedule-topic-state">
-                <span class="schedule-topic-caption">Current</span>
-                <strong>{{ item.task_title || item.topic_title || "Free slot" }}</strong>
+                <span class="schedule-topic-caption">{{ t("common.current") }}</span>
+                <strong>{{ item.task_title || item.topic_title || t("common.freeSlot") }}</strong>
               </div>
 
               <div class="schedule-day-actions">
@@ -636,7 +639,7 @@ onMounted(async () => {
                   :disabled="calendarSavingKey === item.clientKey || !item.taskDraft || !isCalendarTaskDirty(item)"
                   @click="saveCalendarTask(day, item)"
                 >
-                  {{ calendarSavingKey === item.clientKey ? "Saving..." : "Save" }}
+                  {{ calendarSavingKey === item.clientKey ? t("common.saving") : t("groupOverview.saveShort") }}
                 </button>
                 <button
                   class="btn btn-outline-secondary btn-sm"
@@ -644,14 +647,14 @@ onMounted(async () => {
                   :disabled="calendarSavingKey === item.clientKey || (!item.id && day.items.length === 1 && !item.taskDraft)"
                   @click="clearCalendarTask(day, item)"
                 >
-                  Clear
+                  {{ t("groupOverview.clearShort") }}
                 </button>
               </div>
             </article>
           </div>
 
           <button class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
-            Add another task
+            {{ t("groupOverview.addAnotherTask") }}
           </button>
         </article>
       </div>
@@ -660,8 +663,8 @@ onMounted(async () => {
     <section class="surface-card members-panel">
       <div class="panel-header">
         <div class="members-title-row">
-          <h2 class="section-title">Results</h2>
-          <span class="pill">{{ studentCount }} students</span>
+          <h2 class="section-title">{{ t("groupOverview.results") }}</h2>
+          <span class="pill">{{ t("common.studentsCount", { count: studentCount }) }}</span>
         </div>
       </div>
 
@@ -673,7 +676,7 @@ onMounted(async () => {
                 class="btn btn-outline-primary btn-sm member-nav-btn"
                 type="button"
                 :disabled="rankingLoading"
-                aria-label="Previous date"
+                :aria-label="t('groupOverview.previousDate')"
                 @click="shiftRankingDate(-1)"
               >
                 <span aria-hidden="true">&lt;</span>
@@ -691,7 +694,7 @@ onMounted(async () => {
                 class="btn btn-outline-primary btn-sm member-nav-btn"
                 type="button"
                 :disabled="rankingLoading"
-                aria-label="Next date"
+                :aria-label="t('groupOverview.nextDate')"
                 @click="shiftRankingDate(1)"
               >
                 <span aria-hidden="true">&gt;</span>
@@ -714,9 +717,7 @@ onMounted(async () => {
         {{ rankingError }}
       </div>
 
-      <div v-if="group.students.length === 0" class="empty-box">
-        No students in this group yet.
-      </div>
+      <div v-if="group.students.length === 0" class="empty-box">{{ t("groupDetails.noStudentsInGroup") }}</div>
 
       <div v-else class="members-list">
         <article
@@ -727,27 +728,27 @@ onMounted(async () => {
         >
           <div class="member-index">#{{ index + 1 }}</div>
           <div class="member-info">
-            <div class="member-name">{{ student.username || "Unknown" }}</div>
+            <div class="member-name">{{ student.username || t("common.unknown") }}</div>
             <div class="member-meta member-rank-row">
               <span>{{ formatMemberRank(rankingByStudentId[student.id]?.rank) }}</span>
               <span
                 v-if="rankingByStudentId[student.id]?.rank_trend === 'up'"
                 class="member-rank-trend trend-up"
-                title="Rank improved"
+                :title="t('groupDetails.rankImproved')"
               >
                 &uarr;
               </span>
               <span
                 v-else-if="rankingByStudentId[student.id]?.rank_trend === 'down'"
                 class="member-rank-trend trend-down"
-                title="Rank dropped"
+                :title="t('groupDetails.rankDropped')"
               >
                 &darr;
               </span>
             </div>
           </div>
           <div class="member-last-result">
-            <div v-if="rankingLoading" class="member-result-placeholder">Loading...</div>
+            <div v-if="rankingLoading" class="member-result-placeholder">{{ t("common.loading") }}</div>
             <div
               v-else-if="getStudentResults(student.id).length"
               class="member-results-list"
@@ -758,7 +759,7 @@ onMounted(async () => {
                 class="member-result-item"
               >
                 <span class="member-result-task">
-                  {{ result.task_title || result.topic_title || "Task" }}
+                  {{ result.task_title || result.topic_title || t("common.task") }}
                 </span>
                 <span
                   v-if="result.result"
@@ -767,7 +768,7 @@ onMounted(async () => {
                 >
                   {{ result.correct_count }} / {{ result.total_questions }}
                 </span>
-                <span v-else class="member-result-placeholder">No result yet</span>
+                <span v-else class="member-result-placeholder">{{ t("common.noResultYet") }}</span>
               </div>
             </div>
             <span v-else class="member-result-placeholder">{{ memberEmptyResultsLabel }}</span>

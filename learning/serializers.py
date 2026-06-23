@@ -218,7 +218,7 @@ class TopicSerializer(serializers.ModelSerializer):
             queryset = queryset.exclude(pk=self.instance.pk)
         if queryset.exists():
             raise serializers.ValidationError(
-                {"title": "Topic with this title already exists in the selected unit."}
+                {"title": "Lesson with this title already exists in the selected unit."}
             )
 
     def validate(self, attrs):
@@ -249,7 +249,7 @@ class TopicSerializer(serializers.ModelSerializer):
                 )
             if Unit.objects.filter(workbook__subject=subject, is_active=True).exists():
                 raise serializers.ValidationError(
-                    {"unit": "Unit is required when this subject already has workbooks."}
+                    {"unit": "Unit is required when this subject already has textbooks."}
                 )
             attrs["unit"] = Topic.get_default_unit(subject)
             self._validate_unique_title(attrs["unit"], title)
@@ -362,7 +362,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         if task is not None:
             if topic is not None and task.topic_id != topic.id:
                 raise serializers.ValidationError(
-                    {"task": "Task must belong to the selected topic."}
+                    {"task": "Task must belong to the selected lesson."}
                 )
             attrs["topic"] = task.topic
         elif self.instance is None and topic is None:
@@ -659,7 +659,7 @@ class AttemptSerializer(serializers.ModelSerializer):
 
     def validate_topic(self, value):
         if not value.is_active:
-            raise serializers.ValidationError("Topic must be active.")
+            raise serializers.ValidationError("Lesson must be active.")
         return value
 
     @transaction.atomic
@@ -691,23 +691,23 @@ class AttemptSerializer(serializers.ModelSerializer):
             )
         if topic.id != schedule_entry.topic_id:
             raise serializers.ValidationError(
-                {"topic": "Topic must match the scheduled task."}
+                {"topic": "Lesson must match the scheduled task."}
             )
         if task.topic_id != topic.id:
             raise serializers.ValidationError(
-                {"task": "Task must belong to the scheduled topic."}
+                {"task": "Task must belong to the scheduled lesson."}
             )
         if not topic.is_active:
             raise serializers.ValidationError(
-                {"topic": "Topic must be active."}
+                {"topic": "Lesson must be active."}
             )
         if subject and topic.subject_id != subject.id:
             raise serializers.ValidationError(
-                {"topic": "Topic must belong to the selected subject."}
+                {"topic": "Lesson must belong to the selected subject."}
             )
         if schedule_entry.topic.subject_id != topic.subject_id:
             raise serializers.ValidationError(
-                {"schedule_entry": "Schedule entry subject does not match the topic."}
+                {"schedule_entry": "Schedule entry subject does not match the lesson."}
             )
         if not schedule_entry.group.students.filter(id=student.id).exists():
             raise serializers.ValidationError(
@@ -982,19 +982,19 @@ class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
 
         if subject is None and (workbook is not None or topic is not None or task is not None):
             raise serializers.ValidationError(
-                {"subject": "Subject is required when workbook, topic, or task is set."}
+                {"subject": "Subject is required when textbook, lesson, or task is set."}
             )
         if workbook and subject and workbook.subject_id != subject.id:
             raise serializers.ValidationError(
-                {"workbook": "Workbook must belong to the selected subject."}
+                {"workbook": "Textbook must belong to the selected subject."}
             )
         if topic and subject and topic.subject_id != subject.id:
             raise serializers.ValidationError(
-                {"topic": "Topic must belong to the selected subject."}
+                {"topic": "Lesson must belong to the selected subject."}
             )
         if topic and workbook and topic.unit.workbook_id != workbook.id:
             raise serializers.ValidationError(
-                {"topic": "Topic must belong to the selected workbook."}
+                {"topic": "Lesson must belong to the selected textbook."}
             )
         if task:
             if subject and task.topic.subject_id != subject.id:
@@ -1003,11 +1003,11 @@ class GroupTeachingAssignmentWriteSerializer(serializers.Serializer):
                 )
             if workbook and task.topic.unit.workbook_id != workbook.id:
                 raise serializers.ValidationError(
-                    {"task": "Task must belong to the selected workbook."}
+                    {"task": "Task must belong to the selected textbook."}
                 )
             if topic and task.topic_id != topic.id:
                 raise serializers.ValidationError(
-                    {"task": "Task must belong to the selected topic."}
+                    {"task": "Task must belong to the selected lesson."}
                 )
             attrs["topic"] = task.topic
             attrs["workbook"] = task.topic.unit.workbook

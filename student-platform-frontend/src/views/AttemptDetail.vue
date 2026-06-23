@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { Answer, Attempt, AttemptQuestion } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
 
 const props = defineProps(["id"]);
 const router = useRouter();
+const { t } = useI18n();
 
 const attempt = ref(null);
 const questionList = ref([]);
@@ -58,21 +60,21 @@ const activeQuestionSaveState = computed(() => {
 
 const activeQuestionSaveLabel = computed(() => {
   if (attemptCompleted.value) {
-    return "Attempt finished";
+    return t("attemptDetail.finished");
   }
   if (attemptInteractionLocked.value) {
-    return "Window closed";
+    return t("attemptDetail.windowClosed");
   }
   if (activeQuestionSaveState.value === "saving") {
-    return "Autosaving...";
+    return t("attemptDetail.autosaving");
   }
   if (activeQuestionSaveState.value === "saved") {
-    return "Saved";
+    return t("attemptDetail.saved");
   }
   if (activeQuestionSaveState.value === "error") {
-    return "Save failed";
+    return t("attemptDetail.saveFailed");
   }
-  return "No changes yet";
+  return t("attemptDetail.noChangesYet");
 });
 
 const renderRichText = (value) => sanitizeInlineRichText(value || "");
@@ -114,7 +116,7 @@ const loadAttemptData = async () => {
       activeQuestionIndex.value = 0;
     }
   } catch (error) {
-    loadError.value = error?.response?.data?.detail || "Could not load attempt data.";
+    loadError.value = error?.response?.data?.detail || t("attemptDetail.errors.load");
   } finally {
     isLoading.value = false;
   }
@@ -153,12 +155,12 @@ const reviewStatusTone = (attemptQuestion) => {
 
 const reviewStatusLabel = (attemptQuestion) => {
   if (attemptQuestion?.answer?.is_correct === true) {
-    return "Correct";
+    return t("attemptDetail.reviewStatus.correct");
   }
   if (submittedChoicesFor(attemptQuestion).length === 0) {
-    return "No answer";
+    return t("attemptDetail.reviewStatus.noAnswer");
   }
-  return "Wrong";
+  return t("attemptDetail.reviewStatus.wrong");
 };
 
 const saveAnswer = async (attemptQuestion) => {
@@ -205,7 +207,7 @@ const saveAnswer = async (attemptQuestion) => {
       error?.response?.data?.selected_choices?.[0] ||
       error?.response?.data?.attempt_question?.[0] ||
       error?.response?.data?.detail ||
-      "Could not autosave answer.";
+      t("attemptDetail.errors.autosave");
   } finally {
     savingByQuestion.value = {
       ...savingByQuestion.value,
@@ -271,7 +273,7 @@ const completeAttempt = async () => {
     });
     await loadAttemptData();
   } catch (error) {
-    completeError.value = error?.response?.data?.detail || "Could not complete attempt.";
+    completeError.value = error?.response?.data?.detail || t("attemptDetail.errors.complete");
   } finally {
     isCompleting.value = false;
   }
@@ -298,20 +300,20 @@ onMounted(async () => {
   <div class="attempt-page">
     <section class="surface-card attempt-hero">
       <div>
-        <span class="pill">Attempt</span>
-        <h1 class="attempt-title">{{ attempt?.subject_name || "Subject" }}</h1>
-        <p class="attempt-topic">{{ attempt?.topic_title || "Topic" }}</p>
+        <span class="pill">{{ t("attemptDetail.badge") }}</span>
+        <h1 class="attempt-title">{{ attempt?.subject_name || t("common.subject") }}</h1>
+        <p class="attempt-topic">{{ attempt?.topic_title || t("common.lesson") }}</p>
       </div>
 
       <div class="hero-metrics">
         <div class="metric-card">
-          <div class="metric-label">Questions</div>
+          <div class="metric-label">{{ t("common.questions") }}</div>
           <div class="metric-value">{{ totalQuestions }}</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Status</div>
+          <div class="metric-label">{{ t("common.status") }}</div>
           <div class="metric-status" :class="{ done: attemptCompleted }">
-            {{ attemptCompleted ? "Completed" : "In progress" }}
+            {{ attemptCompleted ? t("attemptDetail.completed") : t("attemptDetail.inProgress") }}
           </div>
         </div>
       </div>
@@ -321,24 +323,24 @@ onMounted(async () => {
     <div v-if="saveError" class="alert alert-danger">{{ saveError }}</div>
     <div v-if="completeError" class="alert alert-danger">{{ completeError }}</div>
     <div v-if="attemptInteractionLocked" class="alert alert-warning">
-      This scheduled test can only be completed on its assigned date. The window is closed.
+      {{ t("attemptDetail.scheduledWindowClosed") }}
     </div>
 
     <section v-if="isLoading" class="surface-card attempt-state">
-      Loading attempt...
+      {{ t("attemptDetail.loadingAttempt") }}
     </section>
 
     <section
       v-else-if="totalQuestions === 0 && !attemptCompleted"
       class="surface-card attempt-state"
     >
-      No questions were assigned to this attempt.
+      {{ t("attemptDetail.noQuestionsAssigned") }}
     </section>
 
     <section v-else-if="!attemptCompleted" class="surface-card question-panel">
       <div class="panel-head">
         <div class="pill">
-          Question {{ activeQuestionIndex + 1 }} / {{ totalQuestions }}
+          {{ t("attemptDetail.saveIndicator.questionCounter", { current: activeQuestionIndex + 1, total: totalQuestions }) }}
         </div>
         <div class="save-indicator" :class="activeQuestionSaveState">
           {{ activeQuestionSaveLabel }}
@@ -377,7 +379,7 @@ onMounted(async () => {
           :disabled="isFirstQuestion"
           @click="previousQuestion"
         >
-          Previous question
+          {{ t("attemptDetail.previousQuestion") }}
         </button>
 
         <button
@@ -386,7 +388,7 @@ onMounted(async () => {
           :disabled="isLastQuestion"
           @click="nextQuestion"
         >
-          Next question
+          {{ t("attemptDetail.nextQuestion") }}
         </button>
 
         <button
@@ -395,39 +397,39 @@ onMounted(async () => {
           :disabled="!isLastQuestion || hasPendingSaves || isCompleting || attemptInteractionLocked"
           @click="completeAttempt"
         >
-          {{ isCompleting ? "Finishing..." : "Finish attempt" }}
+          {{ isCompleting ? t("attemptDetail.finishing") : t("attemptDetail.finishAttempt") }}
         </button>
       </div>
     </section>
 
     <section v-if="attemptCompleted" class="surface-card result-panel">
       <div class="result-head">
-        <h2 class="section-title">Result</h2>
+        <h2 class="section-title">{{ t("attemptDetail.result") }}</h2>
         <button class="btn btn-primary" type="button" @click="goHome">
-          Back to home
+          {{ t("attemptDetail.backHome") }}
         </button>
       </div>
       <div class="attempt-result-badge" :class="attemptOutcome">
-        {{ attemptOutcome === "success" ? "Success" : "Fail" }}
-        | {{ correctCount }} / {{ totalQuestions }} correct
-        | pass from {{ passingScore }}
+        {{ attemptOutcome === "success" ? t("attemptDetail.success") : t("attemptDetail.fail") }}
+        | {{ t("attemptDetail.correctSummary", { count: correctCount, total: totalQuestions }) }}
+        | {{ t("attemptDetail.passFromLabel", { count: passingScore }) }}
       </div>
       <div class="result-grid">
         <div class="result-card success">
-          <div class="result-label">Correct</div>
+          <div class="result-label">{{ t("attemptDetail.correct") }}</div>
           <div class="result-value">{{ correctCount }}</div>
         </div>
         <div class="result-card danger">
-          <div class="result-label">Wrong</div>
+          <div class="result-label">{{ t("attemptDetail.wrong") }}</div>
           <div class="result-value">{{ wrongCount }}</div>
         </div>
       </div>
 
       <div class="result-review">
         <div class="review-head">
-          <h3 class="review-title">Answer review</h3>
+          <h3 class="review-title">{{ t("attemptDetail.answerReview") }}</h3>
           <p class="review-subtitle">
-            Review each question and compare your choice with the correct answer.
+            {{ t("attemptDetail.answerReviewSubtitle") }}
           </p>
         </div>
 
@@ -439,7 +441,7 @@ onMounted(async () => {
             :class="reviewStatusTone(attemptQuestion)"
           >
             <div class="review-question-head">
-              <span class="pill">Question {{ attemptQuestion.order }}</span>
+              <span class="pill">{{ t("attemptDetail.questionNumber", { order: attemptQuestion.order }) }}</span>
               <span class="review-status" :class="reviewStatusTone(attemptQuestion)">
                 {{ reviewStatusLabel(attemptQuestion) }}
               </span>
@@ -458,7 +460,7 @@ onMounted(async () => {
               v-if="submittedChoicesFor(attemptQuestion).length === 0"
               class="review-empty"
             >
-              No answer was selected for this question.
+              {{ t("attemptDetail.noAnswerSelected") }}
             </p>
 
             <div class="review-choices">
@@ -490,13 +492,13 @@ onMounted(async () => {
                     v-if="isSubmittedChoiceSelected(attemptQuestion, choice.id)"
                     class="review-tag selected"
                   >
-                    Selected
+                    {{ t("attemptDetail.selected") }}
                   </span>
                   <span
                     v-if="isSubmittedChoiceCorrect(attemptQuestion, choice.id)"
                     class="review-tag correct"
                   >
-                    Correct answer
+                    {{ t("attemptDetail.correctAnswer") }}
                   </span>
                 </div>
               </div>
@@ -504,7 +506,7 @@ onMounted(async () => {
           </article>
         </div>
 
-        <p v-else class="review-empty">No questions available for review.</p>
+        <p v-else class="review-empty">{{ t("attemptDetail.noQuestionsForReview") }}</p>
       </div>
     </section>
   </div>

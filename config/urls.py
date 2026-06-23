@@ -64,6 +64,7 @@ router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
 urlpatterns += [
+    path("i18n/", include("django.conf.urls.i18n")),
     path("sw.js", serve_sw, name="sw"),
     path("api/auth/csrf/", accounts_views.CsrfCookieView.as_view(), name="auth-csrf"),
     path("api/auth/login/", accounts_views.LoginView.as_view(), name="auth-login"),
