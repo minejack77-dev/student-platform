@@ -2,12 +2,14 @@
   align-items: center;
   display: flex;
   min-height: calc(100vh - 160px);
+  justify-content: center;
 }
 
 .login-grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 460px);
+  grid-template-columns: minmax(280px, 420px) minmax(320px, 440px);
+  max-width: 920px;
   width: 100%;
 }
 
@@ -18,15 +20,13 @@
 
 .login-aside {
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.7)),
-    radial-gradient(circle at top right, rgba(12, 169, 146, 0.16), transparent 42%);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(244, 250, 255, 0.86));
 }
 
 .login-title {
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 0.95;
+  font-size: clamp(2rem, 3.5vw, 2.8rem);
+  line-height: 1.02;
   margin: 18px 0 16px;
-  max-width: 11ch;
 }
 
 .login-copy {
@@ -37,27 +37,12 @@
   max-width: 54ch;
 }
 
-.login-badges {
-  display: grid;
-  gap: 14px;
-  margin-top: 28px;
-}
-
-.login-badge {
-  background: rgba(255, 255, 255, 0.68);
-  border: 1px solid rgba(17, 35, 59, 0.1);
-  border-radius: 18px;
-  padding: 16px 18px;
-}
-
-.login-badge strong,
 .field-wrap span,
 .login-card-head h2 {
   display: block;
   font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
 }
 
-.login-badge span,
 .login-card-head p {
   color: var(--ink-soft);
   display: block;

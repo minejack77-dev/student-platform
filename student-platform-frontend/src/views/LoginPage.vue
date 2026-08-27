@@ -10,7 +10,6 @@ const route = useRoute();
 const { t } = useI18n();
 const authStore = useAuthStore();
 
-// Логин пароль с формы
 const form = reactive({
   username: "",
   password: "",
@@ -19,7 +18,6 @@ const form = reactive({
 const isSubmitting = ref(false);
 const errorMessage = ref("");
 
-// Вычисляет маршрут откуда пришел пользователь
 const nextRoute = computed(() => {
   const redirect = route.query.redirect;
   if (typeof redirect === "string" && redirect.startsWith("/")) {
@@ -47,7 +45,6 @@ const submit = async () => {
       return;
     }
 
-    // Редирект в зависимости от роли
     await router.push(user.role === "student" ? "/student" : "/");
   } catch (error) {
     errorMessage.value =
@@ -66,17 +63,6 @@ const submit = async () => {
         <span class="pill">{{ t("login.badge") }}</span>
         <h1 class="login-title">{{ t("login.title") }}</h1>
         <p class="login-copy">{{ t("login.copy") }}</p>
-
-        <div class="login-badges">
-          <div class="login-badge">
-            <strong>{{ t("app.role.teacher") }}</strong>
-            <span>{{ t("login.teacherBadge") }}</span>
-          </div>
-          <div class="login-badge">
-            <strong>{{ t("app.role.student") }}</strong>
-            <span>{{ t("login.studentBadge") }}</span>
-          </div>
-        </div>
       </div>
 
       <div class="surface-card login-card">

@@ -50,9 +50,9 @@ export const useAuthStore = defineStore("auth", () => {
   };
 
   const login = async (credentials) => {
-    await Auth.fetchCsrf(); // Получаем CSRF токен с бэка
-    const payload = await Auth.login(credentials); // Авторизуем пользователя
-    setUser(payload); // Сохраняем пользователя внутри store
+    await Auth.fetchCsrf();
+    const payload = await Auth.login(credentials);
+    setUser(payload);
     initialized.value = true;
     if (payload?.role === "student") {
       subscribeToPush().catch(() => {});

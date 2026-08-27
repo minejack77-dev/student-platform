@@ -1,43 +1,17 @@
 <script setup>
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import { localeOptions, setAppLocale } from "@/i18n";
 import { useAuthStore } from "@/stores/auth";
 
-const route = useRoute();
 const router = useRouter();
 const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const { isAuthenticated, role, user } = storeToRefs(authStore);
 const logoutError = ref("");
-
-const pageLabel = computed(() => {
-  if (route.name === "login") {
-    return t("app.pageLabel.login");
-  }
-  if (route.name === "topic-detail") {
-    return t("app.pageLabel.topicDetail");
-  }
-  if (route.name === "subject-detail") {
-    return t("app.pageLabel.subjectDetail");
-  }
-  if (route.name === "group-overview") {
-    return t("app.pageLabel.groupOverview");
-  }
-  if (route.name === "group-details") {
-    return t("app.pageLabel.groupDetails");
-  }
-  if (route.name === "student-home") {
-    return t("app.pageLabel.studentHome");
-  }
-  if (route.name === "attempt-detail") {
-    return t("app.pageLabel.attemptDetail");
-  }
-  return t("app.pageLabel.default");
-});
 
 const roleLabel = computed(() => {
   if (role.value === "student") {
@@ -80,7 +54,7 @@ const handleLogout = async () => {
     <header class="topbar">
       <div class="container app-container topbar-inner">
         <router-link class="brand-link" to="/">
-          <div class="brand-glyph">SP</div>
+          <div class="brand-glyph">УП</div>
           <div>
             <div class="brand-title">{{ t("app.brandTitle") }}</div>
             <div class="brand-subtitle">{{ t("app.brandSubtitle") }}</div>
@@ -124,7 +98,6 @@ const handleLogout = async () => {
               {{ option.label }}
             </option>
           </select>
-          <span class="pill">{{ pageLabel }}</span>
         </nav>
       </div>
     </header>

@@ -2,32 +2,6 @@
   position: relative;
 }
 
-.app-shell::before,
-.app-shell::after {
-  border-radius: 999px;
-  content: "";
-  filter: blur(42px);
-  pointer-events: none;
-  position: fixed;
-  z-index: 0;
-}
-
-.app-shell::before {
-  background: rgba(255, 179, 71, 0.16);
-  height: 280px;
-  left: -110px;
-  top: 80px;
-  width: 280px;
-}
-
-.app-shell::after {
-  background: rgba(31, 95, 216, 0.16);
-  height: 300px;
-  right: -120px;
-  top: 240px;
-  width: 300px;
-}
-
 .topbar {
   background: linear-gradient(
     140deg,

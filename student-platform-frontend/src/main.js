@@ -3,7 +3,6 @@ import "bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./theme.css";
 
-// Регистрируем SW в браузере
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }

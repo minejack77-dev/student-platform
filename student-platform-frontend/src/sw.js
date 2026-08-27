@@ -9,7 +9,7 @@ cleanupOutdatedCaches();
 // Получает уведомление
 self.addEventListener("push", (event) => {
   const data = event.data?.json() ?? {};
-  const title = data.head ?? "Student Platform";
+  const title = data.head ?? "Учебный портал";
   const options = {
     body: data.body ?? "",
     icon: "/static/icons/icon-192.png",

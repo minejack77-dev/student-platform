@@ -5,17 +5,17 @@ export default {
     russian: "Russian",
   },
   app: {
-    brandTitle: "Student Platform",
-    brandSubtitle: "Learning workspace",
+    brandTitle: "Learning Portal",
+    brandSubtitle: "For students and teachers",
     pageLabel: {
       login: "Access portal",
       topicDetail: "Lesson workspace",
       subjectDetail: "Subject workspace",
       groupOverview: "Group overview",
       groupDetails: "Group details",
-      studentHome: "Student workspace",
-      attemptDetail: "Attempt session",
-      default: "Teaching dashboard",
+      studentHome: "My tests",
+      attemptDetail: "Test session",
+      default: "Teacher account",
     },
     role: {
       student: "Student",
@@ -24,7 +24,7 @@ export default {
     },
     nav: {
       teacher: "Teacher",
-      tasks: "Tasks",
+      tasks: "My tests",
       signOut: "Sign out",
     },
     errors: {
@@ -51,12 +51,12 @@ export default {
     optional: "Optional",
     question: "Question",
     questions: "Questions",
-    task: "Task",
-    tasks: "Tasks",
-    subject: "Subject",
-    subjects: "Subjects",
-    lesson: "Lesson",
-    lessons: "Lessons",
+    task: "Test",
+    tasks: "Tests",
+    subject: "Course",
+    subjects: "Courses",
+    lesson: "Topic",
+    lessons: "Topics",
     textbook: "Textbook",
     unit: "Unit",
     group: "Group",
@@ -101,13 +101,13 @@ export default {
   },
   login: {
     badge: "Authorization",
-    title: "Sign in to Student Platform",
+    title: "Learning Portal",
     copy:
       "Teachers manage groups and subjects. Students open assigned tasks and start attempts.",
     teacherBadge: "Create subjects, lessons, and group assignments.",
     studentBadge: "See your tasks and continue learning from one place.",
     welcome: "Welcome back",
-    helper: "Use the same username and password as in Django admin or the seeded users.",
+    helper: "Use your university account username and password.",
     username: "Username",
     password: "Password",
     usernamePlaceholder: "teacher_1",
@@ -120,8 +120,8 @@ export default {
     },
   },
   teacherHome: {
-    badge: "Workspace",
-    title: "Teaching Hub",
+    badge: "Account",
+    title: "Teacher Account",
     subtitle:
       "Manage groups and subjects. Subject/lesson assignment is personal for each teacher.",
     groupsSubtitle:
@@ -157,16 +157,16 @@ export default {
     },
   },
   studentHome: {
-    badge: "Workspace",
-    title: "Student Schedule",
+    badge: "Student",
+    title: "My Tests",
     subtitle:
       "See your weekly lessons by date and start the assigned task right from the calendar.",
     tasksThisWeek: "Tasks This Week",
     activeDates: "Active Dates",
-    weeklyCalendar: "Weekly Task Calendar",
+    weeklyCalendar: "Weekly Schedule",
     weeklySubtitle:
       "Your teachers can schedule different lessons on different dates. This week is shown below.",
-    searchPlaceholder: "Search by task, lesson, group, subject, or teacher",
+    searchPlaceholder: "Search for a test or course",
     loadingSchedule: "Loading weekly schedule...",
     noSchedule: "No schedule data found.",
     noMatchingTasks: "No matching tasks for this day.",

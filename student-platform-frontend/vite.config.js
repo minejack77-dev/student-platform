@@ -18,8 +18,8 @@ const pwa = VitePWA({
     rollupFormat: "iife",
   },
   manifest: {
-    name: "StudentPlatform",
-    short_name: "StudentPlatform",
+    name: "Учебный портал",
+    short_name: "Учебный портал",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",

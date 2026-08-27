@@ -14,7 +14,7 @@ const routes = [
     name: "teacher-home",
     path: "/",
     component: () => import("@/views/TeacherHomePage.vue"),
-    meta: { requiresAuth: true, roles: ["teacher"] }, // Дополнительная информация о маршруте
+    meta: { requiresAuth: true, roles: ["teacher"] },
   },
   {
     name: "student-home",
@@ -77,13 +77,13 @@ const defaultRouteByRole = (role) => {
 
 router.beforeEach(async (to) => {
   const authStore = useAuthStore(pinia);
-  await authStore.initialize(); // Пробуем понять есть ли у пользователся активная сессия
+  await authStore.initialize();
 
-  if (to.meta.guestOnly && authStore.isAuthenticated) { // Для авторизованных пользователей не нужно показывать страницу входа
-    return defaultRouteByRole(authStore.role); // Отправляем на гланую страницу пользователя
+  if (to.meta.guestOnly && authStore.isAuthenticated) {
+    return defaultRouteByRole(authStore.role);
   }
 
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) { // Правило для защищенных страниц
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return {
       name: "login",
       query: { redirect: to.fullPath },
@@ -91,7 +91,7 @@ router.beforeEach(async (to) => {
   }
 
   const allowedRoles = to.meta.roles;
-  if (allowedRoles?.length && !allowedRoles.includes(authStore.role)) { // Ограничение маршрута по ролям
+  if (allowedRoles?.length && !allowedRoles.includes(authStore.role)) {
     return defaultRouteByRole(authStore.role);
   }
 

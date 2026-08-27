@@ -8,7 +8,7 @@ import { Attempt, Group, Student, subscribeToPush } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const WEEK_LENGTH = 7;
-const RECENT_RESULTS_LIMIT = 6;
+const RECENT_RESULTS_LIMIT = 3;
 const DAY_NAME_FORMAT = { weekday: "short" };
 const DAY_NUMBER_FORMAT = { day: "numeric" };
 const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
@@ -366,23 +366,8 @@ const filteredCalendarDays = computed(() => {
   }));
 });
 
-const totalTasks = computed(() =>
-  calendarDays.value.reduce((sum, day) => sum + day.items.length, 0),
-);
 const filteredTaskCount = computed(() =>
   filteredCalendarDays.value.reduce((sum, day) => sum + day.items.length, 0),
-);
-const groupsCount = computed(() => {
-  const groups = new Set();
-  for (const day of calendarDays.value) {
-    for (const task of day.items) {
-      groups.add(task.group_id);
-    }
-  }
-  return groups.size;
-});
-const activeDatesCount = computed(
-  () => calendarDays.value.filter((day) => day.items.length > 0).length,
 );
 const calendarRangeLabel = computed(() => {
   if (calendarDays.value.length === 0) {
@@ -477,21 +462,6 @@ onMounted(async () => {
         <h1 class="hero-title">{{ t("studentHome.title") }}</h1>
         <p class="hero-subtitle">{{ t("studentHome.subtitle") }}</p>
       </div>
-
-      <div class="hero-stats">
-        <div class="stat-card">
-          <div class="stat-label">{{ t("studentHome.tasksThisWeek") }}</div>
-          <div class="stat-value">{{ totalTasks }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">{{ t("studentHome.activeDates") }}</div>
-          <div class="stat-value">{{ activeDatesCount }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">{{ t("common.groups") }}</div>
-          <div class="stat-value">{{ groupsCount }}</div>
-        </div>
-      </div>
     </section>
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
@@ -504,7 +474,6 @@ onMounted(async () => {
             <h2 class="section-title">{{ t("studentHome.weeklyCalendar") }}</h2>
             <span class="pill">{{ t("common.visibleTasks", { count: filteredTaskCount }) }}</span>
           </div>
-          <p class="section-subtitle">{{ t("studentHome.weeklySubtitle") }}</p>
         </div>
 
         <div class="calendar-toolbar">
@@ -649,10 +618,6 @@ onMounted(async () => {
           <div class="stats-row">
             <span class="stats-label">{{ t("studentHome.passed") }}</span>
             <span class="stats-value">{{ passedCount }}</span>
-          </div>
-          <div class="stats-row">
-            <span class="stats-label">{{ t("studentHome.requiredForCredit") }}</span>
-            <span class="stats-value stats-future">{{ t("studentHome.inFuture") }}</span>
           </div>
           <div class="stats-row">
             <span class="stats-label">{{ t("studentHome.rating") }}</span>
