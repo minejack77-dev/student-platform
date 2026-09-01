@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { Answer, Attempt, AttemptQuestion } from "@/api.js";
@@ -12,9 +12,15 @@ const { t } = useI18n();
 const attempt = ref(null);
 const questionList = ref([]);
 const selectionsByQuestion = ref({});
+const matchingSelectionsByQuestion = ref({});
+const activeMatchingLeftByQuestion = ref({});
 const saveStateByQuestion = ref({});
 const savingByQuestion = ref({});
 const activeQuestionIndex = ref(0);
+const matchingBoardRef = ref(null);
+const matchingItemRefs = ref({});
+const matchingLinks = ref([]);
+let matchingLinkFrame = null;
 
 const isLoading = ref(false);
 const isCompleting = ref(false);
@@ -79,18 +85,28 @@ const activeQuestionSaveLabel = computed(() => {
 
 const renderRichText = (value) => sanitizeInlineRichText(value || "");
 
+const isMatchingQuestion = (attemptQuestion) =>
+  attemptQuestion?.question?.question_type === "matching";
+
 const initializeLocalState = () => {
   const nextSelections = {};
+  const nextMatchingSelections = {};
+  const nextActiveMatchingLeft = {};
   const nextSaveStates = {};
   const nextSavingState = {};
 
   for (const attemptQuestion of questionList.value) {
     nextSelections[attemptQuestion.id] = attemptQuestion.answer?.selected_choices ?? [];
+    nextMatchingSelections[attemptQuestion.id] =
+      attemptQuestion.answer?.selected_matching_pairs ?? {};
+    nextActiveMatchingLeft[attemptQuestion.id] = null;
     nextSaveStates[attemptQuestion.id] = "";
     nextSavingState[attemptQuestion.id] = false;
   }
 
   selectionsByQuestion.value = nextSelections;
+  matchingSelectionsByQuestion.value = nextMatchingSelections;
+  activeMatchingLeftByQuestion.value = nextActiveMatchingLeft;
   saveStateByQuestion.value = nextSaveStates;
   savingByQuestion.value = nextSavingState;
 };
@@ -115,6 +131,7 @@ const loadAttemptData = async () => {
     if (activeQuestionIndex.value >= questionList.value.length) {
       activeQuestionIndex.value = 0;
     }
+    scheduleMatchingLinkUpdate();
   } catch (error) {
     loadError.value = error?.response?.data?.detail || t("attemptDetail.errors.load");
   } finally {
@@ -143,11 +160,116 @@ const isSubmittedChoiceSelected = (attemptQuestion, choiceId) =>
 const isSubmittedChoiceCorrect = (attemptQuestion, choiceId) =>
   correctChoiceIdsFor(attemptQuestion).includes(choiceId);
 
+const matchingSelectionFor = (attemptQuestionId) =>
+  matchingSelectionsByQuestion.value[attemptQuestionId] ?? {};
+
+const submittedMatchingSelectionFor = (attemptQuestion) =>
+  attemptQuestion?.answer?.selected_matching_pairs ?? {};
+
+const correctMatchingSelectionFor = (attemptQuestion) =>
+  attemptQuestion?.correct_matching_pairs ?? {};
+
+const hasSubmittedAnswer = (attemptQuestion) => {
+  if (isMatchingQuestion(attemptQuestion)) {
+    return Object.keys(submittedMatchingSelectionFor(attemptQuestion)).length > 0;
+  }
+  return submittedChoicesFor(attemptQuestion).length > 0;
+};
+
+const activeMatchingLeftFor = (attemptQuestionId) =>
+  activeMatchingLeftByQuestion.value[attemptQuestionId] ?? null;
+
+const isMatchingLeftActive = (attemptQuestionId, pairId) =>
+  activeMatchingLeftFor(attemptQuestionId) === pairId;
+
+const isMatchingLeftPaired = (attemptQuestionId, pairId) =>
+  Object.prototype.hasOwnProperty.call(matchingSelectionFor(attemptQuestionId), String(pairId));
+
+const isMatchingRightPaired = (attemptQuestionId, pairId) =>
+  Object.values(matchingSelectionFor(attemptQuestionId)).some(
+    (value) => Number(value) === Number(pairId),
+  );
+
+const findMatchingItem = (items, itemId) =>
+  items.find((item) => Number(item.id) === Number(itemId));
+
+const setMatchingItemRef = (side, id, element) => {
+  const key = `${side}-${id}`;
+  if (element) {
+    matchingItemRefs.value[key] = element;
+  } else {
+    delete matchingItemRefs.value[key];
+  }
+  scheduleMatchingLinkUpdate();
+};
+
+const updateMatchingLinks = () => {
+  const board = matchingBoardRef.value;
+  const attemptQuestion = activeQuestion.value;
+  if (!board || !attemptQuestion || !isMatchingQuestion(attemptQuestion)) {
+    matchingLinks.value = [];
+    return;
+  }
+
+  const boardRect = board.getBoundingClientRect();
+  const links = [];
+  const selection = matchingSelectionFor(attemptQuestion.id);
+  for (const [leftId, rightId] of Object.entries(selection)) {
+    const leftElement = matchingItemRefs.value[`left-${leftId}`];
+    const rightElement = matchingItemRefs.value[`right-${rightId}`];
+    if (!leftElement || !rightElement) {
+      continue;
+    }
+    const leftRect = leftElement.getBoundingClientRect();
+    const rightRect = rightElement.getBoundingClientRect();
+    links.push({
+      key: `${leftId}-${rightId}`,
+      x1: leftRect.right - boardRect.left,
+      y1: leftRect.top + leftRect.height / 2 - boardRect.top,
+      x2: rightRect.left - boardRect.left,
+      y2: rightRect.top + rightRect.height / 2 - boardRect.top,
+    });
+  }
+  matchingLinks.value = links;
+};
+
+const scheduleMatchingLinkUpdate = async () => {
+  await nextTick();
+  if (typeof window === "undefined") {
+    updateMatchingLinks();
+    return;
+  }
+  if (matchingLinkFrame) {
+    window.cancelAnimationFrame(matchingLinkFrame);
+  }
+  matchingLinkFrame = window.requestAnimationFrame(() => {
+    matchingLinkFrame = null;
+    updateMatchingLinks();
+  });
+};
+
+const activeMatchingLinkSignature = computed(() => {
+  const attemptQuestion = activeQuestion.value;
+  if (!attemptQuestion || !isMatchingQuestion(attemptQuestion)) {
+    return "";
+  }
+  const selection = matchingSelectionFor(attemptQuestion.id);
+  return [
+    attemptQuestion.id,
+    attemptQuestion.matching_left_items?.map((item) => item.id).join(",") ?? "",
+    attemptQuestion.matching_right_items?.map((item) => item.id).join(",") ?? "",
+    Object.entries(selection)
+      .map(([leftId, rightId]) => `${leftId}:${rightId}`)
+      .sort()
+      .join(","),
+  ].join("|");
+});
+
 const reviewStatusTone = (attemptQuestion) => {
   if (attemptQuestion?.answer?.is_correct === true) {
     return "success";
   }
-  if (submittedChoicesFor(attemptQuestion).length === 0) {
+  if (!hasSubmittedAnswer(attemptQuestion)) {
     return "neutral";
   }
   return "danger";
@@ -157,7 +279,7 @@ const reviewStatusLabel = (attemptQuestion) => {
   if (attemptQuestion?.answer?.is_correct === true) {
     return t("attemptDetail.reviewStatus.correct");
   }
-  if (submittedChoicesFor(attemptQuestion).length === 0) {
+  if (!hasSubmittedAnswer(attemptQuestion)) {
     return t("attemptDetail.reviewStatus.noAnswer");
   }
   return t("attemptDetail.reviewStatus.wrong");
@@ -180,20 +302,33 @@ const saveAnswer = async (attemptQuestion) => {
   };
 
   try {
-    const payload = {
-      attempt_question: attemptQuestionId,
-      selected_choices: selectedChoicesFor(attemptQuestionId),
-    };
+    const payload = isMatchingQuestion(attemptQuestion)
+      ? {
+          attempt_question: attemptQuestionId,
+          selected_matching_pairs: matchingSelectionFor(attemptQuestionId),
+        }
+      : {
+          attempt_question: attemptQuestionId,
+          selected_choices: selectedChoicesFor(attemptQuestionId),
+        };
     if (attemptQuestion.answer?.id) {
       payload.id = attemptQuestion.answer.id;
     }
 
     const savedAnswer = await Answer.save(payload);
     attemptQuestion.answer = savedAnswer;
-    selectionsByQuestion.value = {
-      ...selectionsByQuestion.value,
-      [attemptQuestionId]: savedAnswer.selected_choices ?? [],
-    };
+    if (isMatchingQuestion(attemptQuestion)) {
+      matchingSelectionsByQuestion.value = {
+        ...matchingSelectionsByQuestion.value,
+        [attemptQuestionId]: savedAnswer.selected_matching_pairs ?? {},
+      };
+      await scheduleMatchingLinkUpdate();
+    } else {
+      selectionsByQuestion.value = {
+        ...selectionsByQuestion.value,
+        [attemptQuestionId]: savedAnswer.selected_choices ?? [],
+      };
+    }
     saveStateByQuestion.value = {
       ...saveStateByQuestion.value,
       [attemptQuestionId]: "saved",
@@ -205,6 +340,7 @@ const saveAnswer = async (attemptQuestion) => {
     };
     saveError.value =
       error?.response?.data?.selected_choices?.[0] ||
+      error?.response?.data?.selected_matching_pairs?.[0] ||
       error?.response?.data?.attempt_question?.[0] ||
       error?.response?.data?.detail ||
       t("attemptDetail.errors.autosave");
@@ -214,6 +350,48 @@ const saveAnswer = async (attemptQuestion) => {
       [attemptQuestionId]: false,
     };
   }
+};
+
+const handleMatchingLeftClick = async (attemptQuestion, pairId) => {
+  if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
+    return;
+  }
+
+  const currentActive = activeMatchingLeftFor(attemptQuestion.id);
+  activeMatchingLeftByQuestion.value = {
+    ...activeMatchingLeftByQuestion.value,
+    [attemptQuestion.id]: currentActive === pairId ? null : pairId,
+  };
+};
+
+const handleMatchingRightClick = async (attemptQuestion, pairId) => {
+  if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
+    return;
+  }
+
+  const leftId = activeMatchingLeftFor(attemptQuestion.id);
+  if (!leftId) {
+    return;
+  }
+
+  const nextSelection = { ...matchingSelectionFor(attemptQuestion.id) };
+  for (const existingLeftId of Object.keys(nextSelection)) {
+    if (Number(nextSelection[existingLeftId]) === Number(pairId)) {
+      delete nextSelection[existingLeftId];
+    }
+  }
+  nextSelection[String(leftId)] = pairId;
+
+  matchingSelectionsByQuestion.value = {
+    ...matchingSelectionsByQuestion.value,
+    [attemptQuestion.id]: nextSelection,
+  };
+  activeMatchingLeftByQuestion.value = {
+    ...activeMatchingLeftByQuestion.value,
+    [attemptQuestion.id]: null,
+  };
+  await scheduleMatchingLinkUpdate();
+  await saveAnswer(attemptQuestion);
 };
 
 const handleChoiceChange = async (attemptQuestion, choiceId, checked) => {
@@ -243,12 +421,14 @@ const handleChoiceChange = async (attemptQuestion, choiceId, checked) => {
 const previousQuestion = () => {
   if (!isFirstQuestion.value) {
     activeQuestionIndex.value -= 1;
+    scheduleMatchingLinkUpdate();
   }
 };
 
 const nextQuestion = () => {
   if (!isLastQuestion.value) {
     activeQuestionIndex.value += 1;
+    scheduleMatchingLinkUpdate();
   }
 };
 
@@ -291,8 +471,21 @@ watch(
   },
 );
 
+watch(activeMatchingLinkSignature, () => {
+  scheduleMatchingLinkUpdate();
+});
+
 onMounted(async () => {
+  window.addEventListener("resize", updateMatchingLinks);
   await loadAttemptData();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", updateMatchingLinks);
+  if (matchingLinkFrame) {
+    window.cancelAnimationFrame(matchingLinkFrame);
+    matchingLinkFrame = null;
+  }
 });
 </script>
 
@@ -354,7 +547,53 @@ onMounted(async () => {
         v-html="renderRichText(activeQuestion.question.instruction)"
       />
 
-      <div class="choices-list">
+      <div v-if="isMatchingQuestion(activeQuestion)" ref="matchingBoardRef" class="matching-board">
+        <svg class="matching-lines" aria-hidden="true">
+          <line
+            v-for="link in matchingLinks"
+            :key="link.key"
+            :x1="link.x1"
+            :y1="link.y1"
+            :x2="link.x2"
+            :y2="link.y2"
+          />
+        </svg>
+
+        <div class="matching-column">
+          <button
+            v-for="item in activeQuestion.matching_left_items"
+            :key="item.id"
+            :ref="(element) => setMatchingItemRef('left', item.id, element)"
+            class="matching-item matching-left"
+            :class="{
+              active: isMatchingLeftActive(activeQuestion.id, item.id),
+              paired: isMatchingLeftPaired(activeQuestion.id, item.id),
+            }"
+            type="button"
+            :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
+            @click="handleMatchingLeftClick(activeQuestion, item.id)"
+          >
+            <span v-html="renderRichText(item.content)" />
+          </button>
+        </div>
+
+        <div class="matching-column">
+          <button
+            v-for="item in activeQuestion.matching_right_items"
+            :key="item.id"
+            :ref="(element) => setMatchingItemRef('right', item.id, element)"
+            class="matching-item matching-right"
+            :class="{ paired: isMatchingRightPaired(activeQuestion.id, item.id) }"
+            type="button"
+            :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
+            @click="handleMatchingRightClick(activeQuestion, item.id)"
+          >
+            <span v-html="renderRichText(item.content)" />
+          </button>
+        </div>
+      </div>
+
+      <div v-else class="choices-list">
         <label
           v-for="choice in activeQuestion.question.choices"
           :key="choice.id"
@@ -457,13 +696,70 @@ onMounted(async () => {
               v-html="renderRichText(attemptQuestion.question.instruction)"
             />
             <p
-              v-if="submittedChoicesFor(attemptQuestion).length === 0"
+              v-if="
+                isMatchingQuestion(attemptQuestion)
+                  ? Object.keys(submittedMatchingSelectionFor(attemptQuestion)).length === 0
+                  : submittedChoicesFor(attemptQuestion).length === 0
+              "
               class="review-empty"
             >
               {{ t("attemptDetail.noAnswerSelected") }}
             </p>
 
-            <div class="review-choices">
+            <div v-if="isMatchingQuestion(attemptQuestion)" class="review-matching-list">
+              <div
+                v-for="leftItem in attemptQuestion.matching_left_items"
+                :key="leftItem.id"
+                class="review-matching-row"
+                :class="{
+                  correct:
+                    Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) ===
+                    Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
+                  wrong:
+                    submittedMatchingSelectionFor(attemptQuestion)[leftItem.id] &&
+                    Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
+                      Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
+                }"
+              >
+                <div class="review-matching-side" v-html="renderRichText(leftItem.content)" />
+                <div class="review-matching-arrow">&rarr;</div>
+                <div class="review-matching-side">
+                  <div
+                    v-if="findMatchingItem(attemptQuestion.matching_right_items, submittedMatchingSelectionFor(attemptQuestion)[leftItem.id])"
+                    v-html="
+                      renderRichText(
+                        findMatchingItem(
+                          attemptQuestion.matching_right_items,
+                          submittedMatchingSelectionFor(attemptQuestion)[leftItem.id],
+                        ).content,
+                      )
+                    "
+                  />
+                  <span v-else class="review-empty">{{ t("attemptDetail.noAnswerSelected") }}</span>
+                  <div
+                    v-if="
+                      Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
+                      Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id])
+                    "
+                    class="review-correct-match"
+                  >
+                    <span class="review-tag correct">{{ t("attemptDetail.correctAnswer") }}</span>
+                    <span
+                      v-html="
+                        renderRichText(
+                          findMatchingItem(
+                            attemptQuestion.matching_right_items,
+                            correctMatchingSelectionFor(attemptQuestion)[leftItem.id],
+                          )?.content || '',
+                        )
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="review-choices">
               <div
                 v-for="choice in attemptQuestion.question.choices"
                 :key="choice.id"

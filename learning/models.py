@@ -213,6 +213,7 @@ class Question(models.Model):
     class QuestionType(models.TextChoices):
         SINGLE_CHOICE = "single_choice", "Single choice"
         MULTIPLE_CHOICE = "multiple_choice", "Multiple choice"
+        MATCHING = "matching", "Matching"
 
     topic = models.ForeignKey(
         "Topic",
@@ -270,6 +271,21 @@ class Choice(models.Model):
 
     def __str__(self) -> str:
         return self.text
+
+
+class MatchingPair(models.Model):
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name="matching_pairs"
+    )
+    left_content = models.TextField()
+    right_content = models.TextField()
+    order = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.left_content[:40]} -> {self.right_content[:40]}"
 
 
 class Attempt(models.Model):
@@ -380,6 +396,8 @@ class AttemptQuestion(models.Model):
         Question, on_delete=models.PROTECT, related_name="attempt_questions"
     )
     order = models.PositiveSmallIntegerField()  # 1..10
+    matching_left_order = models.JSONField(default=list, blank=True)
+    matching_right_order = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -405,6 +423,7 @@ class Answer(models.Model):
     selected_choices = models.ManyToManyField(
         "Choice", blank=True, related_name="answers"
     )
+    selected_matching_pairs = models.JSONField(default=dict, blank=True)
 
     answered_at = models.DateTimeField(auto_now_add=True, null=True)
 
@@ -420,6 +439,24 @@ class Answer(models.Model):
         return f"Answer for Attempt #{self.attempt_question.attempt_id} Q{self.attempt_question.order}"
 
     def check_answer(self):
+        if self.attempt_question.question.question_type == Question.QuestionType.MATCHING:
+            pair_ids = set(
+                self.attempt_question.question.matching_pairs.values_list("id", flat=True)
+            )
+            selected = {
+                int(left_id): int(right_id)
+                for left_id, right_id in (self.selected_matching_pairs or {}).items()
+                if str(left_id).isdigit() and str(right_id).isdigit()
+            }
+            self.is_correct = (
+                bool(pair_ids)
+                and set(selected.keys()) == pair_ids
+                and set(selected.values()) == pair_ids
+                and all(left_id == right_id for left_id, right_id in selected.items())
+            )
+            self.save(update_fields=["is_correct"])
+            return self.is_correct
+
         correct = set(
             self.attempt_question.question.choices.filter(is_correct=True).values_list(
                 "id", flat=True

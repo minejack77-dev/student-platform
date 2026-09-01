@@ -21,6 +21,7 @@ from learning.models import (
     Group,
     GroupTopicSchedule,
     GroupTeachingAssignment,
+    MatchingPair,
     Question,
     Subject,
     Task,
@@ -130,6 +131,7 @@ class LearningApiTests(APITestCase):
             "text": "2 + 2 = ?",
             "question_type": "single_choice",
             "is_active": True,
+            "matching_pairs": [],
             "choices": [
                 {"text": "3", "is_correct": False, "order": 1},
                 {"text": "4", "is_correct": True, "order": 2},
@@ -151,6 +153,105 @@ class LearningApiTests(APITestCase):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         topic.refresh_from_db()
         self.assertGreater(topic.updated_at, second_old_timestamp)
+
+    def test_matching_question_can_be_created_answered_and_reviewed(self):
+        subject = Subject.objects.create(name="English Matching")
+        topic = Topic.objects.create(subject=subject, title="Vocabulary", is_active=True)
+        payload = {
+            "topic": topic.id,
+            "text": "Match words with translations",
+            "question_type": "matching",
+            "is_active": True,
+            "choices": [],
+            "matching_pairs": [
+                {"left_content": "cat", "right_content": "кошка", "order": 1},
+                {
+                    "left_content": '<audio controls src="/media/cat.mp3"></audio>',
+                    "right_content": '<img src="/media/cat.png" alt="">',
+                    "order": 2,
+                },
+            ],
+        }
+
+        response = self.client.post("/api/question/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        question = Question.objects.get(text="Match words with translations")
+        pairs = list(question.matching_pairs.order_by("order"))
+        self.assertEqual(question.question_type, Question.QuestionType.MATCHING)
+        self.assertEqual(len(pairs), 2)
+
+        task = question.task
+        task.questions_per_attempt = 1
+        task.passing_correct_answers = 1
+        task.save()
+        student = self._authenticate_student("student_matching")
+        group = Group.objects.create(name="Matching Group", is_active=True)
+        group.students.add(student)
+        schedule_entry = GroupTopicSchedule.objects.create(
+            group=group,
+            teacher=self.teacher,
+            task=task,
+            scheduled_for=timezone.localdate(),
+        )
+
+        start_response = self.client.post(
+            "/api/attempt/",
+            {"schedule_entry": schedule_entry.id, "subject": subject.id},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        attempt = Attempt.objects.get(id=start_response.data["id"])
+        attempt_question = attempt.attempt_questions.get()
+
+        review_response = self.client.get(
+            "/api/attempt_question/",
+            {"attempt": attempt.id},
+            format="json",
+        )
+        self.assertEqual(review_response.status_code, status.HTTP_200_OK)
+        attempt_payload = review_response.data["results"][0]
+        self.assertEqual(attempt_payload["correct_matching_pairs"], {})
+        self.assertEqual(
+            {item["id"] for item in attempt_payload["matching_left_items"]},
+            {pair.id for pair in pairs},
+        )
+        self.assertEqual(
+            {item["id"] for item in attempt_payload["matching_right_items"]},
+            {pair.id for pair in pairs},
+        )
+
+        answer_response = self.client.post(
+            "/api/answer/",
+            {
+                "attempt_question": attempt_question.id,
+                "selected_matching_pairs": {
+                    str(pairs[0].id): pairs[0].id,
+                    str(pairs[1].id): pairs[1].id,
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(answer_response.status_code, status.HTTP_201_CREATED)
+
+        finish_response = self.client.patch(
+            f"/api/attempt/{attempt.id}/",
+            {"status": Attempt.Status.COMPLETED},
+            format="json",
+        )
+        self.assertEqual(finish_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(finish_response.data["correct_count"], 1)
+        self.assertEqual(finish_response.data["result_outcome"], "success")
+
+        completed_review = self.client.get(
+            "/api/attempt_question/",
+            {"attempt": attempt.id},
+            format="json",
+        )
+        self.assertEqual(
+            completed_review.data["results"][0]["correct_matching_pairs"],
+            {str(pairs[0].id): pairs[0].id, str(pairs[1].id): pairs[1].id},
+        )
 
     def test_group_find_and_add_student_by_user_id(self):
         group = Group.objects.create(name="Group A", teacher=self.teacher)
@@ -2207,6 +2308,49 @@ class QuestionImportTests(APITestCase):
                 ("promise", False, 6),
                 ("learn", False, 7),
                 ("try", False, 8),
+            ],
+        )
+
+    def test_import_creates_matching_questions_from_paired_cells(self):
+        subject = Subject.objects.create(name="English matching import")
+        topic = Topic.objects.create(subject=subject, title="Matching import")
+        spreadsheet_rows = [
+            [
+                SpreadsheetCell("Match the items", "Match the items"),
+                SpreadsheetCell("type", "type"),
+                SpreadsheetCell("left 1", "left 1"),
+                SpreadsheetCell("right 1", "right 1"),
+            ],
+            [
+                SpreadsheetCell("Match words", "Match words"),
+                SpreadsheetCell("matching", "matching"),
+                SpreadsheetCell("cat", "cat"),
+                SpreadsheetCell("кошка", "кошка"),
+                SpreadsheetCell("dog", "dog"),
+                SpreadsheetCell("собака", "собака"),
+            ],
+        ]
+
+        with patch(
+            "learning.services.question_import._read_spreadsheet_rows",
+            return_value=spreadsheet_rows,
+        ):
+            questions = import_questions_from_xls(topic=topic, src="matching.xlsx")
+
+        self.assertEqual(len(questions), 1)
+        question = questions[0]
+        self.assertEqual(question.question_type, Question.QuestionType.MATCHING)
+        self.assertEqual(question.choices.count(), 0)
+        self.assertEqual(question.matching_pairs.count(), 2)
+        self.assertEqual(
+            list(
+                question.matching_pairs.values_list(
+                    "left_content", "right_content", "order"
+                )
+            ),
+            [
+                ("cat", "кошка", 1),
+                ("dog", "собака", 2),
             ],
         )
 

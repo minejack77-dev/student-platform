@@ -221,12 +221,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             "0",
             "no",
         )
+        question_type = request.data.get("question_type") or None
 
         try:
             questions = import_questions_from_xls(
                 task=task,
                 src=task.src,
                 is_active=is_active,
+                question_type=question_type,
             )
         except Exception as exc:
             payload = getattr(exc, "message_dict", None)
@@ -261,7 +263,7 @@ class QuestionSetFilter(FilterSet):
 class QuestionViewSet(viewsets.ModelViewSet):
     queryset = (
         Question.objects.select_related("topic", "topic__subject")
-        .prefetch_related("choices")
+        .prefetch_related("choices", "matching_pairs")
         .all()
     )
     serializer_class = QuestionSerializer
@@ -1443,7 +1445,7 @@ class AttemptViewSet(viewsets.ModelViewSet):
 class AttemptQuestionSetFilter(FilterSet):
     class Meta:
         model = AttemptQuestion
-        fields = "__all__"
+        fields = ("id", "attempt", "question", "order")
 
 
 class AttemptQuestionViewSet(viewsets.ModelViewSet):
@@ -1454,6 +1456,7 @@ class AttemptQuestionViewSet(viewsets.ModelViewSet):
         "question__topic",
     ).prefetch_related(
         "question__choices",
+        "question__matching_pairs",
         "answer__selected_choices",
     )
     serializer_class = AttemptQuestionSerializer
@@ -1470,7 +1473,7 @@ class AttemptQuestionViewSet(viewsets.ModelViewSet):
 class AnswerSetFilter(FilterSet):
     class Meta:
         model = Answer
-        fields = "__all__"
+        fields = ("id", "attempt_question", "is_correct")
 
 
 class AnswerViewSet(viewsets.ModelViewSet):

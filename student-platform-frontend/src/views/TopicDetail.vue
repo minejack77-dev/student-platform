@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Question, Task, Topic } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
+import QuestionEditorForm from "./QuestionEditorForm.vue";
 
 const props = defineProps(["id"]);
 const { t } = useI18n();
@@ -20,8 +21,13 @@ const deletingQuestionId = ref(null);
 const questionFile = ref(null);
 const fileInputRef = ref(null);
 const importForm = ref({
-  is_active: true,
+  question_type: "single_choice",
 });
+const questionForm = ref(createBlankQuestionForm());
+const questionFormError = ref("");
+const questionFormSuccess = ref("");
+const isQuestionSaving = ref(false);
+const openQuestionEditorId = ref(null);
 const taskForm = ref({
   title: "",
   description: "",
@@ -40,6 +46,30 @@ const currentTaskSaveError = ref("");
 const currentTaskSaveSuccess = ref("");
 const isCurrentTaskSaving = ref(false);
 
+function createBlankQuestionForm() {
+  return {
+    id: null,
+    question_type: "single_choice",
+    text: "",
+    instruction: "",
+    is_active: true,
+    choices: [
+      { id: null, text: "", is_correct: true, order: 1 },
+      { id: null, text: "", is_correct: false, order: 2 },
+    ],
+    matching_pairs: [
+      { id: null, left_content: "", right_content: "", order: 1 },
+      { id: null, left_content: "", right_content: "", order: 2 },
+    ],
+  };
+}
+
+const questionTypes = computed(() => [
+  { value: "single_choice", label: t("topicDetail.singleChoice") },
+  { value: "multiple_choice", label: t("topicDetail.multipleChoice") },
+  { value: "matching", label: t("topicDetail.matching") },
+]);
+
 const getApiErrorMessage = (data) => {
   if (!data) {
     return "";
@@ -53,6 +83,11 @@ const getApiErrorMessage = (data) => {
     "src",
     "task",
     "topic",
+    "question_type",
+    "text",
+    "instruction",
+    "choices",
+    "matching_pairs",
     "questions_per_attempt",
     "passing_correct_answers",
     "non_field_errors",
@@ -86,10 +121,17 @@ const validateAttemptSettings = (form) => {
 
 const resetImportForm = () => {
   questionFile.value = null;
-  importForm.value = { is_active: true };
+  importForm.value = { question_type: "single_choice" };
   if (fileInputRef.value) {
     fileInputRef.value.value = "";
   }
+};
+
+const resetQuestionForm = () => {
+  questionForm.value = createBlankQuestionForm();
+  questionFormError.value = "";
+  questionFormSuccess.value = "";
+  openQuestionEditorId.value = null;
 };
 
 const getTopic = async () => {
@@ -206,6 +248,226 @@ const updateCurrentTaskSettings = async () => {
   }
 };
 
+const isMatchingForm = computed(() => questionForm.value.question_type === "matching");
+const isSingleChoiceForm = computed(
+  () => questionForm.value.question_type === "single_choice",
+);
+
+const addChoice = () => {
+  questionForm.value.choices.push({
+    id: null,
+    text: "",
+    is_correct: false,
+    order: questionForm.value.choices.length + 1,
+  });
+};
+
+const removeChoice = (index) => {
+  if (questionForm.value.choices.length <= 2) {
+    return;
+  }
+  questionForm.value.choices.splice(index, 1);
+  questionForm.value.choices = questionForm.value.choices.map((choice, choiceIndex) => ({
+    ...choice,
+    order: choiceIndex + 1,
+  }));
+  if (
+    isSingleChoiceForm.value &&
+    !questionForm.value.choices.some((choice) => choice.is_correct)
+  ) {
+    questionForm.value.choices[0].is_correct = true;
+  }
+};
+
+const setChoiceCorrect = (index, checked) => {
+  if (isSingleChoiceForm.value) {
+    questionForm.value.choices = questionForm.value.choices.map((choice, choiceIndex) => ({
+      ...choice,
+      is_correct: choiceIndex === index,
+    }));
+    return;
+  }
+  questionForm.value.choices[index].is_correct = checked;
+};
+
+const addMatchingPair = () => {
+  questionForm.value.matching_pairs.push({
+    id: null,
+    left_content: "",
+    right_content: "",
+    order: questionForm.value.matching_pairs.length + 1,
+  });
+};
+
+const removeMatchingPair = (index) => {
+  if (questionForm.value.matching_pairs.length <= 2) {
+    return;
+  }
+  questionForm.value.matching_pairs.splice(index, 1);
+  questionForm.value.matching_pairs = questionForm.value.matching_pairs.map(
+    (pair, pairIndex) => ({
+      ...pair,
+      order: pairIndex + 1,
+    }),
+  );
+};
+
+const onQuestionTypeChange = () => {
+  questionFormError.value = "";
+  questionFormSuccess.value = "";
+  if (isSingleChoiceForm.value) {
+    const firstCorrectIndex = questionForm.value.choices.findIndex(
+      (choice) => choice.is_correct,
+    );
+    questionForm.value.choices = questionForm.value.choices.map((choice, index) => ({
+      ...choice,
+      is_correct: index === Math.max(firstCorrectIndex, 0),
+    }));
+  }
+};
+
+const startNewQuestion = () => {
+  questionForm.value = createBlankQuestionForm();
+  questionFormError.value = "";
+  questionFormSuccess.value = "";
+  deleteError.value = "";
+  importError.value = "";
+  importSuccess.value = "";
+  openQuestionEditorId.value = "new";
+};
+
+const editQuestion = (question) => {
+  questionFormError.value = "";
+  questionFormSuccess.value = "";
+  deleteError.value = "";
+  importError.value = "";
+  importSuccess.value = "";
+  questionForm.value = {
+    id: question.id,
+    question_type: question.question_type,
+    text: question.text || "",
+    instruction: question.instruction || "",
+    is_active: true,
+    choices:
+      question.choices?.length > 0
+        ? question.choices.map((choice, index) => ({
+            id: choice.id,
+            text: choice.text || "",
+            is_correct: Boolean(choice.is_correct),
+            order: choice.order || index + 1,
+          }))
+        : createBlankQuestionForm().choices,
+    matching_pairs:
+      question.matching_pairs?.length > 0
+        ? question.matching_pairs.map((pair, index) => ({
+            id: pair.id,
+            left_content: pair.left_content || "",
+            right_content: pair.right_content || "",
+            order: pair.order || index + 1,
+          }))
+        : createBlankQuestionForm().matching_pairs,
+  };
+  openQuestionEditorId.value = question.id;
+};
+
+const validateQuestionForm = () => {
+  if (!selectedTaskId.value) {
+    return t("topicDetail.errors.createOrSelectTask");
+  }
+  if (!questionForm.value.text.trim()) {
+    return t("topicDetail.errors.questionTextRequired");
+  }
+
+  if (isMatchingForm.value) {
+    const pairs = questionForm.value.matching_pairs.filter(
+      (pair) => pair.left_content.trim() || pair.right_content.trim(),
+    );
+    if (pairs.length < 2) {
+      return t("topicDetail.errors.matchingPairsMin");
+    }
+    if (pairs.some((pair) => !pair.left_content.trim() || !pair.right_content.trim())) {
+      return t("topicDetail.errors.matchingPairsComplete");
+    }
+    return "";
+  }
+
+  const choices = questionForm.value.choices.filter((choice) => choice.text.trim());
+  if (choices.length < 2) {
+    return t("topicDetail.errors.choicesMin");
+  }
+  const correctCount = choices.filter((choice) => choice.is_correct).length;
+  if (isSingleChoiceForm.value && correctCount !== 1) {
+    return t("topicDetail.errors.singleCorrectRequired");
+  }
+  if (!isSingleChoiceForm.value && correctCount < 1) {
+    return t("topicDetail.errors.multipleCorrectRequired");
+  }
+  return "";
+};
+
+const saveQuestion = async () => {
+  questionFormError.value = "";
+  questionFormSuccess.value = "";
+  deleteError.value = "";
+  importError.value = "";
+  importSuccess.value = "";
+
+  const validationError = validateQuestionForm();
+  if (validationError) {
+    questionFormError.value = validationError;
+    return;
+  }
+
+  const payload = {
+    topic: Number(props.id),
+    task: Number(selectedTaskId.value),
+    instruction: questionForm.value.instruction.trim(),
+    text: questionForm.value.text.trim(),
+    question_type: questionForm.value.question_type,
+    is_active: true,
+  };
+  if (questionForm.value.id) {
+    payload.id = questionForm.value.id;
+  }
+
+  if (isMatchingForm.value) {
+    payload.choices = [];
+    payload.matching_pairs = questionForm.value.matching_pairs
+      .filter((pair) => pair.left_content.trim() || pair.right_content.trim())
+      .map((pair, index) => ({
+        left_content: pair.left_content.trim(),
+        right_content: pair.right_content.trim(),
+        order: index + 1,
+      }));
+  } else {
+    payload.matching_pairs = [];
+    payload.choices = questionForm.value.choices
+      .filter((choice) => choice.text.trim())
+      .map((choice, index) => ({
+        text: choice.text.trim(),
+        is_correct: Boolean(choice.is_correct),
+        order: index + 1,
+      }));
+  }
+
+  isQuestionSaving.value = true;
+  try {
+    await Question.save(payload);
+    const successMessage = questionForm.value.id
+      ? t("topicDetail.questionUpdated")
+      : t("topicDetail.questionCreated");
+    resetQuestionForm();
+    questionFormSuccess.value = successMessage;
+    await getQuestions();
+  } catch (error) {
+    questionFormError.value =
+      getApiErrorMessage(error?.response?.data) ||
+      t("topicDetail.errors.saveQuestion");
+  } finally {
+    isQuestionSaving.value = false;
+  }
+};
+
 const onQuestionFileChange = (event) => {
   importError.value = "";
   importSuccess.value = "";
@@ -228,7 +490,7 @@ const importQuestions = async () => {
 
   const formData = new FormData();
   formData.append("src", questionFile.value);
-  formData.append("is_active", importForm.value.is_active ? "true" : "false");
+  formData.append("question_type", importForm.value.question_type);
 
   isImporting.value = true;
   try {
@@ -254,6 +516,9 @@ const deleteQuestion = async (questionId) => {
 
   try {
     await Question.delete({ id: questionId });
+    if (openQuestionEditorId.value === questionId) {
+      resetQuestionForm();
+    }
     questions.value = questions.value.filter((item) => item.id !== questionId);
   } catch (error) {
     deleteError.value = error?.response?.data?.detail || t("topicDetail.errors.deleteQuestion");
@@ -268,6 +533,9 @@ const questionTypeLabel = (value) => {
   }
   if (value === "multiple_choice") {
     return t("topicDetail.multipleChoice");
+  }
+  if (value === "matching") {
+    return t("topicDetail.matching");
   }
   return value;
 };
@@ -303,6 +571,7 @@ watch(selectedTaskId, async () => {
   deleteError.value = "";
   currentTaskSaveError.value = "";
   currentTaskSaveSuccess.value = "";
+  resetQuestionForm();
   resetImportForm();
   await getQuestions();
 });
@@ -487,6 +756,15 @@ watch(
 
       <div class="import-grid">
         <div>
+          <label class="form-label">{{ t("topicDetail.questionType") }}</label>
+          <select v-model="importForm.question_type" class="form-select">
+            <option v-for="type in questionTypes" :key="type.value" :value="type.value">
+              {{ type.label }}
+            </option>
+          </select>
+        </div>
+
+        <div>
           <label class="form-label">{{ t("topicDetail.questionFile") }}</label>
           <label class="file-drop">
             <input
@@ -499,14 +777,6 @@ watch(
             <span class="file-name">{{ selectedFileName }}</span>
             <span class="file-action">{{ t("common.chooseFile") }}</span>
           </label>
-        </div>
-
-        <div class="import-state">
-          <label class="form-label d-block">{{ t("topicDetail.questionState") }}</label>
-          <div class="form-check mt-2">
-            <input id="import-active" v-model="importForm.is_active" class="form-check-input" type="checkbox" />
-            <label class="form-check-label" for="import-active">{{ t("common.active") }}</label>
-          </div>
         </div>
 
         <button
@@ -528,18 +798,65 @@ watch(
 
     <section class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">{{ t("topicDetail.questionsInTask") }}</h2>
-        <span class="pill">{{ t("common.totalCount", { count: questionsCount }) }}</span>
+        <div>
+          <h2 class="section-title">{{ t("topicDetail.questionsInTask") }}</h2>
+          <p v-if="selectedTask" class="section-subtitle">
+            {{ t("topicDetail.selectedPool", { title: selectedTask.title }) }}
+          </p>
+        </div>
+        <div class="question-panel-actions">
+          <span class="pill">{{ t("common.totalCount", { count: questionsCount }) }}</span>
+          <button
+            class="btn btn-outline-primary btn-sm"
+            type="button"
+            :disabled="!selectedTaskId"
+            @click="startNewQuestion"
+          >
+            {{ t("topicDetail.newQuestion") }}
+          </button>
+        </div>
       </div>
 
       <div v-if="deleteError" class="alert alert-danger mb-3">{{ deleteError }}</div>
+      <div v-if="questionFormSuccess" class="alert alert-success mb-3">{{ questionFormSuccess }}</div>
+
+      <article
+        v-if="openQuestionEditorId === 'new'"
+        class="question-item question-editor-card"
+      >
+        <div class="inline-editor-title">
+          {{ t("topicDetail.newQuestion") }}
+        </div>
+        <QuestionEditorForm
+          :form="questionForm"
+          :question-types="questionTypes"
+          :is-matching="isMatchingForm"
+          :is-single-choice="isSingleChoiceForm"
+          :is-saving="isQuestionSaving"
+          :can-save="Boolean(selectedTaskId)"
+          :error="questionFormError"
+          :success="''"
+          :save-label="isQuestionSaving ? t('common.saving') : t('topicDetail.createQuestion')"
+          @question-type-change="onQuestionTypeChange"
+          @add-choice="addChoice"
+          @remove-choice="removeChoice"
+          @set-choice-correct="setChoiceCorrect"
+          @add-matching-pair="addMatchingPair"
+          @remove-matching-pair="removeMatchingPair"
+          @save="saveQuestion"
+          @cancel="resetQuestionForm"
+        />
+      </article>
 
       <div v-if="questions.length === 0" class="empty-box">{{ t("topicDetail.noQuestionsYet") }}</div>
 
       <article
         v-for="(question, index) in questions"
         :key="question.id"
-        class="question-item"
+        :class="[
+          'question-item',
+          { 'question-item-editing': openQuestionEditorId === question.id },
+        ]"
         :style="{ '--delay': `${index * 45}ms` }"
       >
         <div class="question-head">
@@ -552,6 +869,13 @@ watch(
           <div class="question-actions">
             <span class="question-type">{{ questionTypeLabel(question.question_type) }}</span>
             <button
+              class="ghost-edit-btn"
+              type="button"
+              @click="editQuestion(question)"
+            >
+              {{ t("topicDetail.edit") }}
+            </button>
+            <button
               class="ghost-danger-btn"
               type="button"
               :disabled="deletingQuestionId === question.id"
@@ -562,12 +886,46 @@ watch(
           </div>
         </div>
 
-        <ul class="choice-list">
+        <div v-if="question.question_type === 'matching'" class="matching-pair-list">
+          <div
+            v-for="pair in question.matching_pairs"
+            :key="pair.id"
+            class="matching-pair-preview"
+          >
+            <span v-html="renderRichText(pair.left_content)" />
+            <span class="matching-pair-arrow">&rarr;</span>
+            <span v-html="renderRichText(pair.right_content)" />
+          </div>
+        </div>
+
+        <ul v-else class="choice-list">
           <li v-for="choice in question.choices" :key="choice.id" :class="{ 'choice-correct-text': choice.is_correct }">
             <span v-html="renderRichText(choice.text)" />
             <span v-if="choice.is_correct"> {{ t("topicDetail.correctTag") }}</span>
           </li>
         </ul>
+
+        <QuestionEditorForm
+          v-if="openQuestionEditorId === question.id"
+          class="inline-question-editor"
+          :form="questionForm"
+          :question-types="questionTypes"
+          :is-matching="isMatchingForm"
+          :is-single-choice="isSingleChoiceForm"
+          :is-saving="isQuestionSaving"
+          :can-save="Boolean(selectedTaskId)"
+          :error="questionFormError"
+          :success="''"
+          :save-label="isQuestionSaving ? t('common.saving') : t('topicDetail.updateQuestion')"
+          @question-type-change="onQuestionTypeChange"
+          @add-choice="addChoice"
+          @remove-choice="removeChoice"
+          @set-choice-correct="setChoiceCorrect"
+          @add-matching-pair="addMatchingPair"
+          @remove-matching-pair="removeMatchingPair"
+          @save="saveQuestion"
+          @cancel="resetQuestionForm"
+        />
       </article>
     </section>
   </div>

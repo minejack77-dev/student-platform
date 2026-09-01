@@ -159,7 +159,7 @@ LANGUAGES = [
 
 LOCALE_PATHS = [BASE_DIR / "locale"]
 
-TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
+TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Asia/Yekaterinburg")
 
 USE_I18N = True
 

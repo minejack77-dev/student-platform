@@ -72,6 +72,12 @@
   margin: 0;
 }
 
+.section-subtitle {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
 .task-sections {
   display: grid;
   gap: 18px;
@@ -117,7 +123,15 @@
   align-items: end;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.35fr) auto;
+  grid-template-columns: minmax(180px, 0.5fr) minmax(260px, 1fr) auto;
+}
+
+.question-panel-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .file-drop {
@@ -191,6 +205,29 @@
   padding: 14px;
 }
 
+.question-item-editing {
+  border-color: rgba(31, 95, 216, 0.68);
+  border-width: 2px;
+  box-shadow: 0 0 0 3px rgba(31, 95, 216, 0.1);
+}
+
+.question-editor-card {
+  border-color: rgba(31, 95, 216, 0.28);
+}
+
+.inline-editor-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.inline-question-editor {
+  border-top: 1px solid rgba(16, 39, 64, 0.1);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
 .question-head {
   align-items: flex-start;
   display: flex;
@@ -248,6 +285,45 @@
   margin: 10px 0 0;
 }
 
+.ghost-edit-btn {
+  background: rgba(31, 95, 216, 0.1);
+  border: 1px solid rgba(31, 95, 216, 0.22);
+  border-radius: 999px;
+  color: var(--brand-blue-strong);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 10px;
+  transition: background 120ms ease;
+}
+
+.ghost-edit-btn:hover {
+  background: rgba(31, 95, 216, 0.16);
+}
+
+.matching-pair-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.matching-pair-preview {
+  align-items: center;
+  background: rgba(31, 95, 216, 0.06);
+  border: 1px solid rgba(31, 95, 216, 0.12);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+
+.matching-pair-arrow {
+  color: var(--brand-blue-strong);
+  font-weight: 700;
+  text-align: center;
+}
+
 .choice-correct-text {
   color: var(--success);
   font-weight: 700;
@@ -297,6 +373,20 @@
   .task-settings-grid,
   .new-task-grid {
     grid-template-columns: 1fr;
+  }
+
+  .question-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .question-panel-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .question-panel-actions .btn {
+    width: 100%;
   }
 
   .task-settings-grid > :first-child,

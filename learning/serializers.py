@@ -1,3 +1,5 @@
+import random
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -12,6 +14,7 @@ from learning.models import (
     Group,
     GroupTopicSchedule,
     GroupTeachingAssignment,
+    MatchingPair,
     Question,
     Subject,
     Task,
@@ -331,8 +334,16 @@ class ChoiceSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
+class MatchingPairSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MatchingPair
+        fields = ("id", "left_content", "right_content", "order")
+        read_only_fields = ("id",)
+
+
 class QuestionSerializer(serializers.ModelSerializer):
-    choices = ChoiceSerializer(many=True)
+    choices = ChoiceSerializer(many=True, required=False)
+    matching_pairs = MatchingPairSerializer(many=True, required=False)
     task = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.filter(is_active=True),
         required=False,
@@ -353,6 +364,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "choices",
+            "matching_pairs",
         )
         read_only_fields = ("id", "created_at")
 
@@ -375,6 +387,20 @@ class QuestionSerializer(serializers.ModelSerializer):
             ),
         )
         choices = attrs.get("choices")
+        matching_pairs = attrs.get("matching_pairs")
+        if question_type == Question.QuestionType.MATCHING:
+            if self.instance is None and matching_pairs is None:
+                raise serializers.ValidationError(
+                    {"matching_pairs": "This field is required."}
+                )
+            if matching_pairs is None:
+                return attrs
+            if len(matching_pairs) < 2:
+                raise serializers.ValidationError(
+                    {"matching_pairs": "At least two matching pairs are required."}
+                )
+            return attrs
+
         if self.instance is None and choices is None:
             raise serializers.ValidationError({"choices": "This field is required."})
         if choices is None:
@@ -402,7 +428,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     def validate_choices(self, choices):
         if not choices:
-            raise serializers.ValidationError("At least one answer choice is required.")
+            return choices
         for idx, choice in enumerate(choices, start=1):
             text = (choice.get("text") or "").strip()
             if not text:
@@ -410,6 +436,22 @@ class QuestionSerializer(serializers.ModelSerializer):
                     f"Choice #{idx} must have non-empty text."
                 )
         return choices
+
+    def validate_matching_pairs(self, matching_pairs):
+        if not matching_pairs:
+            return matching_pairs
+        for idx, pair in enumerate(matching_pairs, start=1):
+            left_content = (pair.get("left_content") or "").strip()
+            right_content = (pair.get("right_content") or "").strip()
+            if not left_content:
+                raise serializers.ValidationError(
+                    f"Matching pair #{idx} must have non-empty left content."
+                )
+            if not right_content:
+                raise serializers.ValidationError(
+                    f"Matching pair #{idx} must have non-empty right content."
+                )
+        return matching_pairs
 
     def _replace_choices(self, question, choices_data):
         question.choices.all().delete()
@@ -421,19 +463,41 @@ class QuestionSerializer(serializers.ModelSerializer):
                 order=choice.get("order") or idx,
             )
 
+    def _replace_matching_pairs(self, question, pairs_data):
+        question.matching_pairs.all().delete()
+        for idx, pair in enumerate(pairs_data, start=1):
+            MatchingPair.objects.create(
+                question=question,
+                left_content=pair["left_content"].strip(),
+                right_content=pair["right_content"].strip(),
+                order=pair.get("order") or idx,
+            )
+
     def create(self, validated_data):
-        choices_data = validated_data.pop("choices")
+        choices_data = validated_data.pop("choices", [])
+        matching_pairs_data = validated_data.pop("matching_pairs", [])
         question = Question.objects.create(**validated_data)
-        self._replace_choices(question, choices_data)
+        if question.question_type == Question.QuestionType.MATCHING:
+            self._replace_matching_pairs(question, matching_pairs_data)
+        else:
+            self._replace_choices(question, choices_data)
         return question
 
     def update(self, instance, validated_data):
         choices_data = validated_data.pop("choices", None)
+        matching_pairs_data = validated_data.pop("matching_pairs", None)
         for key, value in validated_data.items():
             setattr(instance, key, value)
         instance.save()
-        if choices_data is not None:
+        if instance.question_type == Question.QuestionType.MATCHING:
+            if matching_pairs_data is not None:
+                self._replace_matching_pairs(instance, matching_pairs_data)
+            if choices_data is not None:
+                instance.choices.all().delete()
+        elif choices_data is not None:
             self._replace_choices(instance, choices_data)
+            if matching_pairs_data is not None:
+                instance.matching_pairs.all().delete()
         return instance
 
 
@@ -443,6 +507,7 @@ class AnswerSerializer(serializers.ModelSerializer):
         many=True,
         required=False,
     )
+    selected_matching_pairs = serializers.JSONField(required=False)
 
     class Meta:
         model = Answer
@@ -450,6 +515,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "id",
             "attempt_question",
             "selected_choices",
+            "selected_matching_pairs",
             "answered_at",
             "is_correct",
             "teacher_comment",
@@ -504,6 +570,23 @@ class AnswerSerializer(serializers.ModelSerializer):
             )
 
         selected_choices = attrs.get("selected_choices")
+        selected_matching_pairs = attrs.get("selected_matching_pairs")
+        question = attempt_question.question
+        if question.question_type == Question.QuestionType.MATCHING:
+            if selected_choices:
+                raise serializers.ValidationError(
+                    {"selected_choices": "Choice answers are not allowed for matching questions."}
+                )
+            if selected_matching_pairs is not None:
+                attrs["selected_matching_pairs"] = self._validate_matching_answer(
+                    question, selected_matching_pairs
+                )
+            return attrs
+
+        if selected_matching_pairs:
+            raise serializers.ValidationError(
+                {"selected_matching_pairs": "Matching answers are only allowed for matching questions."}
+            )
         if selected_choices is not None:
             valid_choice_ids = set(
                 attempt_question.question.choices.values_list("id", flat=True)
@@ -524,9 +607,43 @@ class AnswerSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    def _validate_matching_answer(self, question, selected_matching_pairs):
+        if selected_matching_pairs in (None, ""):
+            return {}
+        if not isinstance(selected_matching_pairs, dict):
+            raise serializers.ValidationError(
+                "Matching answer must be an object of left pair id to right pair id."
+            )
+
+        valid_pair_ids = set(question.matching_pairs.values_list("id", flat=True))
+        normalized = {}
+        right_ids = []
+        for raw_left_id, raw_right_id in selected_matching_pairs.items():
+            try:
+                left_id = int(raw_left_id)
+                right_id = int(raw_right_id)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    "Matching pair ids must be numeric."
+                )
+
+            if left_id not in valid_pair_ids or right_id not in valid_pair_ids:
+                raise serializers.ValidationError(
+                    "Matching pairs must belong to the question."
+                )
+            normalized[str(left_id)] = right_id
+            right_ids.append(right_id)
+
+        if len(right_ids) != len(set(right_ids)):
+            raise serializers.ValidationError(
+                "Each right-side value can only be used once."
+            )
+        return normalized
+
     @transaction.atomic
     def create(self, validated_data):
         selected_choices = validated_data.pop("selected_choices", [])
+        selected_matching_pairs = validated_data.pop("selected_matching_pairs", {})
         attempt_question = validated_data.pop("attempt_question")
 
         answer, _ = Answer.objects.get_or_create(
@@ -534,6 +651,7 @@ class AnswerSerializer(serializers.ModelSerializer):
         )
         for key, value in validated_data.items():
             setattr(answer, key, value)
+        answer.selected_matching_pairs = selected_matching_pairs
         answer.save()
         answer.selected_choices.set(selected_choices)
         return answer
@@ -541,8 +659,11 @@ class AnswerSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         selected_choices = validated_data.pop("selected_choices", None)
+        selected_matching_pairs = validated_data.pop("selected_matching_pairs", None)
         for key, value in validated_data.items():
             setattr(instance, key, value)
+        if selected_matching_pairs is not None:
+            instance.selected_matching_pairs = selected_matching_pairs
         instance.save()
         if selected_choices is not None:
             instance.selected_choices.set(selected_choices)
@@ -750,12 +871,29 @@ class AttemptSerializer(serializers.ModelSerializer):
             schedule_entry=schedule_entry,
             status=Attempt.Status.IN_PROGRESS,
         )
-        AttemptQuestion.objects.bulk_create(
-            [
-                AttemptQuestion(attempt=attempt, question=question, order=index)
-                for index, question in enumerate(questions, start=1)
-            ]
-        )
+        attempt_questions = []
+        for index, question in enumerate(questions, start=1):
+            matching_left_order = []
+            matching_right_order = []
+            if question.question_type == Question.QuestionType.MATCHING:
+                pair_ids = list(
+                    question.matching_pairs.values_list("id", flat=True)
+                )
+                matching_left_order = pair_ids[:]
+                matching_right_order = pair_ids[:]
+                random.shuffle(matching_left_order)
+                random.shuffle(matching_right_order)
+            attempt_questions.append(
+                AttemptQuestion(
+                    attempt=attempt,
+                    question=question,
+                    order=index,
+                    matching_left_order=matching_left_order,
+                    matching_right_order=matching_right_order,
+                )
+            )
+
+        AttemptQuestion.objects.bulk_create(attempt_questions)
         return attempt
 
     def update(self, instance, validated_data):
@@ -821,6 +959,9 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
     question = QuestionInlineSerializer(read_only=True)
     answer = AnswerSerializer(read_only=True)
     correct_choice_ids = serializers.SerializerMethodField()
+    matching_left_items = serializers.SerializerMethodField()
+    matching_right_items = serializers.SerializerMethodField()
+    correct_matching_pairs = serializers.SerializerMethodField()
 
     class Meta:
         model = AttemptQuestion
@@ -831,12 +972,51 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
             "order",
             "answer",
             "correct_choice_ids",
+            "matching_left_items",
+            "matching_right_items",
+            "correct_matching_pairs",
         )
 
     def get_correct_choice_ids(self, obj):
         if obj.attempt.status != Attempt.Status.COMPLETED:
             return []
         return [choice.id for choice in obj.question.choices.all() if choice.is_correct]
+
+    def _ordered_matching_items(self, obj, order_field, content_field):
+        pairs_by_id = {pair.id: pair for pair in obj.question.matching_pairs.all()}
+        ordered_ids = [
+            int(pair_id)
+            for pair_id in getattr(obj, order_field, [])
+            if str(pair_id).isdigit() and int(pair_id) in pairs_by_id
+        ]
+        if not ordered_ids:
+            ordered_ids = [pair.id for pair in obj.question.matching_pairs.all()]
+        return [
+            {
+                "id": pair_id,
+                "content": getattr(pairs_by_id[pair_id], content_field),
+                "order": index,
+            }
+            for index, pair_id in enumerate(ordered_ids, start=1)
+        ]
+
+    def get_matching_left_items(self, obj):
+        if obj.question.question_type != Question.QuestionType.MATCHING:
+            return []
+        return self._ordered_matching_items(obj, "matching_left_order", "left_content")
+
+    def get_matching_right_items(self, obj):
+        if obj.question.question_type != Question.QuestionType.MATCHING:
+            return []
+        return self._ordered_matching_items(obj, "matching_right_order", "right_content")
+
+    def get_correct_matching_pairs(self, obj):
+        if (
+            obj.question.question_type != Question.QuestionType.MATCHING
+            or obj.attempt.status != Attempt.Status.COMPLETED
+        ):
+            return {}
+        return {str(pair.id): pair.id for pair in obj.question.matching_pairs.all()}
 
 
 class GroupSerializer(serializers.ModelSerializer):

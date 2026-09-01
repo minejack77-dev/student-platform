@@ -12,6 +12,7 @@ from .models import (
     Group,
     GroupStudent,
     GroupTeachingAssignment,
+    MatchingPair,
     Question,
     Subject,
     Task,
@@ -356,13 +357,20 @@ class ChoiceInline(admin.TabularInline):
     ordering = ("order",)
 
 
+class MatchingPairInline(admin.TabularInline):
+    model = MatchingPair
+    extra = 2
+    fields = ("order", "left_content", "right_content")
+    ordering = ("order",)
+
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "task", "topic", "is_active", "created_at")
-    list_filter = ("topic__subject", "topic", "task", "is_active")
+    list_display = ("id", "task", "topic", "question_type", "is_active", "created_at")
+    list_filter = ("question_type", "topic__subject", "topic", "task", "is_active")
     search_fields = ("text",)
     autocomplete_fields = ("topic", "task")
-    inlines = (ChoiceInline,)
+    inlines = (ChoiceInline, MatchingPairInline)
 
 
 class AnswerInline(admin.StackedInline):

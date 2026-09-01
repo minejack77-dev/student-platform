@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
@@ -26,8 +26,30 @@ const nextRoute = computed(() => {
   return null;
 });
 
+const defaultRouteByRole = (role) => (role === "student" ? "/student" : "/");
+
+const redirectAuthenticatedUser = async () => {
+  if (!authStore.isAuthenticated) {
+    return;
+  }
+  errorMessage.value = "";
+  await router.replace(nextRoute.value || defaultRouteByRole(authStore.role));
+};
+
+watch(
+  () => authStore.isAuthenticated,
+  () => {
+    redirectAuthenticatedUser();
+  },
+  { immediate: true },
+);
+
 const submit = async () => {
   errorMessage.value = "";
+  if (authStore.isAuthenticated) {
+    await redirectAuthenticatedUser();
+    return;
+  }
   if (!form.username.trim() || !form.password) {
     errorMessage.value = t("login.errors.missingCredentials");
     return;
@@ -41,12 +63,16 @@ const submit = async () => {
     });
 
     if (nextRoute.value) {
-      await router.push(nextRoute.value);
+      await router.replace(nextRoute.value);
       return;
     }
 
-    await router.push(user.role === "student" ? "/student" : "/");
+    await router.replace(defaultRouteByRole(user.role));
   } catch (error) {
+    if (authStore.isAuthenticated) {
+      await redirectAuthenticatedUser();
+      return;
+    }
     errorMessage.value =
       error?.response?.data?.detail ||
       t("login.errors.signIn");

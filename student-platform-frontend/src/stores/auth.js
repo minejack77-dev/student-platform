@@ -7,6 +7,7 @@ export const useAuthStore = defineStore("auth", () => {
   const user = ref(null);
   const initialized = ref(false);
   const loading = ref(false);
+  let initializationPromise = null;
 
   const isAuthenticated = computed(() => Boolean(user.value));
   const role = computed(() => user.value?.role ?? null);
@@ -37,15 +38,20 @@ export const useAuthStore = defineStore("auth", () => {
   };
 
   const initialize = async () => {
-    if (initialized.value || loading.value) {
+    if (initialized.value) {
       return user.value;
+    }
+    if (initializationPromise) {
+      return initializationPromise;
     }
 
     loading.value = true;
+    initializationPromise = fetchMe();
     try {
-      return await fetchMe();
+      return await initializationPromise;
     } finally {
       loading.value = false;
+      initializationPromise = null;
     }
   };
 

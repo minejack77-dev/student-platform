@@ -1,4 +1,5 @@
 const INLINE_TAGS = new Set(["b", "strong", "i", "em", "u"]);
+const SAFE_MEDIA_PROTOCOLS = new Set(["http:", "https:"]);
 
 const escapeHtml = (value) =>
   value
@@ -35,6 +36,26 @@ const normalizeSpanWithStyle = (element, content) => {
   return result;
 };
 
+const sanitizeMediaSrc = (rawSrc) => {
+  const src = (rawSrc || "").trim();
+  if (!src) {
+    return "";
+  }
+  try {
+    const parsed = new URL(src, window.location.origin);
+    if (
+      SAFE_MEDIA_PROTOCOLS.has(parsed.protocol) ||
+      parsed.pathname.startsWith("/media/") ||
+      parsed.pathname.startsWith("/static/")
+    ) {
+      return parsed.href;
+    }
+  } catch (_error) {
+    return "";
+  }
+  return "";
+};
+
 const sanitizeNode = (node) => {
   if (node.nodeType === 3) {
     return escapeHtml(node.textContent || "");
@@ -54,6 +75,14 @@ const sanitizeNode = (node) => {
   }
   if (tag === "span") {
     return normalizeSpanWithStyle(node, content);
+  }
+  if (tag === "img") {
+    const src = sanitizeMediaSrc(node.getAttribute("src"));
+    return src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy">` : "";
+  }
+  if (tag === "audio") {
+    const src = sanitizeMediaSrc(node.getAttribute("src"));
+    return src ? `<audio controls preload="none" src="${escapeHtml(src)}"></audio>` : "";
   }
   return content;
 };
