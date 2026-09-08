@@ -26,6 +26,7 @@ from django.views.generic import TemplateView
 from django.views.generic import RedirectView
 from django.http import FileResponse, Http404
 from django.conf import settings
+from django.conf.urls.static import static
 
 def serve_sw(request):
     sw_path = settings.BASE_DIR / "student-platform-frontend" / "dist" / "static" / "sw.js"
@@ -63,6 +64,9 @@ router.register(
 router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
 urlpatterns += [
     path("i18n/", include("django.conf.urls.i18n")),
     path("sw.js", serve_sw, name="sw"),

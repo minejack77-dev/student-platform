@@ -1,4 +1,16 @@
 export default {
+  imageViewer: {
+    dialog: "Image viewer",
+    image: "Question image",
+    open: "Open image",
+    close: "Close",
+    previous: "Previous image",
+    next: "Next image",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    resetZoom: "Reset zoom",
+    counter: "{current} of {total}",
+  },
   language: {
     label: "Language",
     english: "English",
@@ -428,6 +440,10 @@ export default {
     updateQuestion: "Update question",
     questionCreated: "Question created.",
     questionUpdated: "Question updated.",
+    addImages: "Add images",
+    questionImages: "Question images",
+    uploadingImages: "Uploading...",
+    questionImage: "Question image",
     importQuestions: "Import Questions",
     questionFile: "Question file",
     questionState: "Question state",
@@ -461,6 +477,8 @@ export default {
       matchingPairsMin: "Add at least two matching pairs.",
       matchingPairsComplete: "Every matching pair must have both left and right values.",
       saveQuestion: "Could not save question.",
+      uploadImages: "Could not upload images.",
+      deleteImage: "Could not delete image.",
       chooseFile: "Choose a .xls or .xlsx file.",
       importQuestions: "Could not import questions.",
       deleteQuestion: "Could not delete question.",
@@ -471,6 +489,7 @@ export default {
   },
   attemptDetail: {
     badge: "Attempt",
+    questionImage: "Question image",
     completed: "Completed",
     inProgress: "In progress",
     scheduledWindowClosed:

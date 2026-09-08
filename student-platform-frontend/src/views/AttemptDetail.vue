@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { Answer, Attempt, AttemptQuestion } from "@/api.js";
+import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
 
 const props = defineProps(["id"]);
@@ -547,6 +548,11 @@ onBeforeUnmount(() => {
         v-html="renderRichText(activeQuestion.question.instruction)"
       />
 
+      <QuestionImageGallery
+        v-if="activeQuestion.question.images?.length"
+        :images="activeQuestion.question.images"
+      />
+
       <div v-if="isMatchingQuestion(activeQuestion)" ref="matchingBoardRef" class="matching-board">
         <svg class="matching-lines" aria-hidden="true">
           <line
@@ -694,6 +700,11 @@ onBeforeUnmount(() => {
               v-if="attemptQuestion.question.instruction"
               class="question-instruction"
               v-html="renderRichText(attemptQuestion.question.instruction)"
+            />
+            <QuestionImageGallery
+              v-if="attemptQuestion.question.images?.length"
+              :images="attemptQuestion.question.images"
+              compact
             />
             <p
               v-if="

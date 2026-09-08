@@ -16,6 +16,7 @@ from learning.models import (
     GroupTeachingAssignment,
     MatchingPair,
     Question,
+    QuestionImage,
     Subject,
     Task,
     Topic,
@@ -341,9 +342,17 @@ class MatchingPairSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
+class QuestionImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuestionImage
+        fields = ("id", "image", "original_name", "order")
+        read_only_fields = fields
+
+
 class QuestionSerializer(serializers.ModelSerializer):
     choices = ChoiceSerializer(many=True, required=False)
     matching_pairs = MatchingPairSerializer(many=True, required=False)
+    images = QuestionImageSerializer(many=True, read_only=True)
     task = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.filter(is_active=True),
         required=False,
@@ -365,6 +374,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "created_at",
             "choices",
             "matching_pairs",
+            "images",
         )
         read_only_fields = ("id", "created_at")
 
@@ -938,6 +948,7 @@ class ChoiceInlineSerializer(serializers.ModelSerializer):
 
 class QuestionInlineSerializer(serializers.ModelSerializer):
     choices = ChoiceInlineSerializer(many=True)
+    images = QuestionImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Question
@@ -951,6 +962,7 @@ class QuestionInlineSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "choices",
+            "images",
         )
         read_only_fields = ("id", "created_at")
 

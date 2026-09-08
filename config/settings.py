@@ -196,9 +196,8 @@ CELERY_BEAT_SCHEDULE = {
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = os.getenv("DJANGO_STATIC_URL", "/static/")
-# STATICFILES_DIRS = [
-#    BASE_DIR / "student-platform-frontend" / "dist" / "static",
-# ]
+FRONTEND_STATIC_DIR = BASE_DIR / "student-platform-frontend" / "dist" / "static"
+STATICFILES_DIRS = [FRONTEND_STATIC_DIR] if FRONTEND_STATIC_DIR.exists() else []
 STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 MEDIA_URL = os.getenv("DJANGO_MEDIA_URL", "/media/")
 MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media"))

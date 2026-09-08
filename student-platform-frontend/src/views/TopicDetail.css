@@ -259,7 +259,9 @@
 .question-actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .ghost-danger-btn {

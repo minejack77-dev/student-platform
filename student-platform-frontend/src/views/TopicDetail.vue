@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Question, Task, Topic } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
+import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 import QuestionEditorForm from "./QuestionEditorForm.vue";
 
 const props = defineProps(["id"]);
@@ -53,6 +54,9 @@ function createBlankQuestionForm() {
     text: "",
     instruction: "",
     is_active: true,
+    images: [],
+    pending_images: [],
+    removed_image_ids: [],
     choices: [
       { id: null, text: "", is_correct: true, order: 1 },
       { id: null, text: "", is_correct: false, order: 2 },
@@ -86,6 +90,7 @@ const getApiErrorMessage = (data) => {
     "question_type",
     "text",
     "instruction",
+    "images",
     "choices",
     "matching_pairs",
     "questions_per_attempt",
@@ -128,6 +133,7 @@ const resetImportForm = () => {
 };
 
 const resetQuestionForm = () => {
+  revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
   questionFormError.value = "";
   questionFormSuccess.value = "";
@@ -327,6 +333,7 @@ const onQuestionTypeChange = () => {
 };
 
 const startNewQuestion = () => {
+  revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
   questionFormError.value = "";
   questionFormSuccess.value = "";
@@ -337,6 +344,7 @@ const startNewQuestion = () => {
 };
 
 const editQuestion = (question) => {
+  revokePendingImagePreviews();
   questionFormError.value = "";
   questionFormSuccess.value = "";
   deleteError.value = "";
@@ -348,6 +356,9 @@ const editQuestion = (question) => {
     text: question.text || "",
     instruction: question.instruction || "",
     is_active: true,
+    images: [...(question.images ?? [])],
+    pending_images: [],
+    removed_image_ids: [],
     choices:
       question.choices?.length > 0
         ? question.choices.map((choice, index) => ({
@@ -368,6 +379,48 @@ const editQuestion = (question) => {
         : createBlankQuestionForm().matching_pairs,
   };
   openQuestionEditorId.value = question.id;
+};
+
+const revokePendingImagePreviews = () => {
+  for (const image of questionForm.value.pending_images ?? []) {
+    URL.revokeObjectURL(image.preview_url);
+  }
+};
+
+const addQuestionImages = (files) => {
+  const existingFiles = new Set(
+    (questionForm.value.pending_images ?? []).map(
+      ({ file }) => `${file.name}:${file.size}:${file.lastModified}`,
+    ),
+  );
+  const additions = [];
+  for (const file of files) {
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (!existingFiles.has(key)) {
+      additions.push({
+        file,
+        preview_url: URL.createObjectURL(file),
+      });
+      existingFiles.add(key);
+    }
+  }
+  questionForm.value.pending_images.push(...additions);
+};
+
+const removePendingQuestionImage = (index) => {
+  const [removed] = questionForm.value.pending_images.splice(index, 1);
+  if (removed) {
+    URL.revokeObjectURL(removed.preview_url);
+  }
+};
+
+const removeSavedQuestionImage = (imageId) => {
+  questionForm.value.images = questionForm.value.images.filter(
+    (image) => image.id !== imageId,
+  );
+  if (!questionForm.value.removed_image_ids.includes(imageId)) {
+    questionForm.value.removed_image_ids.push(imageId);
+  }
 };
 
 const validateQuestionForm = () => {
@@ -452,8 +505,21 @@ const saveQuestion = async () => {
 
   isQuestionSaving.value = true;
   try {
-    await Question.save(payload);
-    const successMessage = questionForm.value.id
+    const wasEditing = Boolean(payload.id);
+    const savedQuestion = await Question.save(payload);
+    questionForm.value.id = savedQuestion.id;
+
+    for (const imageId of questionForm.value.removed_image_ids) {
+      await Question.deleteImage(savedQuestion.id, imageId);
+    }
+    questionForm.value.removed_image_ids = [];
+
+    const pendingFiles = questionForm.value.pending_images.map(({ file }) => file);
+    if (pendingFiles.length > 0) {
+      await Question.uploadImages(savedQuestion.id, pendingFiles);
+    }
+
+    const successMessage = wasEditing
       ? t("topicDetail.questionUpdated")
       : t("topicDetail.questionCreated");
     resetQuestionForm();
@@ -461,8 +527,7 @@ const saveQuestion = async () => {
     await getQuestions();
   } catch (error) {
     questionFormError.value =
-      getApiErrorMessage(error?.response?.data) ||
-      t("topicDetail.errors.saveQuestion");
+      getApiErrorMessage(error?.response?.data) || t("topicDetail.errors.saveQuestion");
   } finally {
     isQuestionSaving.value = false;
   }
@@ -563,6 +628,10 @@ watch(
 
 onMounted(async () => {
   await loadTopicPage();
+});
+
+onBeforeUnmount(() => {
+  revokePendingImagePreviews();
 });
 
 watch(selectedTaskId, async () => {
@@ -843,6 +912,9 @@ watch(
           @set-choice-correct="setChoiceCorrect"
           @add-matching-pair="addMatchingPair"
           @remove-matching-pair="removeMatchingPair"
+          @add-images="addQuestionImages"
+          @remove-pending-image="removePendingQuestionImage"
+          @remove-saved-image="removeSavedQuestionImage"
           @save="saveQuestion"
           @cancel="resetQuestionForm"
         />
@@ -886,6 +958,12 @@ watch(
           </div>
         </div>
 
+        <QuestionImageGallery
+          v-if="question.images?.length"
+          :images="question.images"
+          compact
+        />
+
         <div v-if="question.question_type === 'matching'" class="matching-pair-list">
           <div
             v-for="pair in question.matching_pairs"
@@ -923,6 +1001,9 @@ watch(
           @set-choice-correct="setChoiceCorrect"
           @add-matching-pair="addMatchingPair"
           @remove-matching-pair="removeMatchingPair"
+          @add-images="addQuestionImages"
+          @remove-pending-image="removePendingQuestionImage"
+          @remove-saved-image="removeSavedQuestionImage"
           @save="saveQuestion"
           @cancel="resetQuestionForm"
         />

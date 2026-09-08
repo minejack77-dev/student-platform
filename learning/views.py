@@ -1,6 +1,7 @@
 from datetime import timedelta
+from pathlib import Path
 
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
@@ -19,6 +20,7 @@ from learning.models import (
     GroupTopicSchedule,
     GroupTeachingAssignment,
     Question,
+    QuestionImage,
     Subject,
     Task,
     Topic,
@@ -40,6 +42,7 @@ from learning.serializers import (
     GroupTeachingAssignmentSerializer,
     GroupTeachingAssignmentWriteSerializer,
     QuestionSerializer,
+    QuestionImageSerializer,
     StudentBriefSerializer,
     SubjectSerializer,
     TaskSerializer,
@@ -49,6 +52,20 @@ from learning.serializers import (
 )
 from learning.sorting import natural_sort_key, sort_students_naturally
 from learning.services.question_import import import_questions_from_xls
+
+
+def detect_image_content_type(uploaded_file):
+    header = uploaded_file.read(12)
+    uploaded_file.seek(0)
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def get_request_teacher(request):
@@ -263,7 +280,7 @@ class QuestionSetFilter(FilterSet):
 class QuestionViewSet(viewsets.ModelViewSet):
     queryset = (
         Question.objects.select_related("topic", "topic__subject")
-        .prefetch_related("choices", "matching_pairs")
+        .prefetch_related("choices", "matching_pairs", "images")
         .all()
     )
     serializer_class = QuestionSerializer
@@ -295,6 +312,88 @@ class QuestionViewSet(viewsets.ModelViewSet):
         instance.delete()
         self._touch_topic(topic_id)
         self._touch_task(task_id)
+
+    @action(
+        detail=True,
+        methods=("post",),
+        url_path="images",
+        parser_classes=(MultiPartParser, FormParser),
+    )
+    def upload_images(self, request, pk=None):
+        question = self.get_object()
+        files = request.FILES.getlist("images")
+        if not files:
+            return Response(
+                {"images": ["Select at least one image."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_content_types = {
+            "image/gif",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        }
+        allowed_extensions = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
+        for uploaded_file in files:
+            detected_content_type = detect_image_content_type(uploaded_file)
+            if (
+                uploaded_file.content_type not in allowed_content_types
+                or detected_content_type != uploaded_file.content_type
+            ):
+                return Response(
+                    {"images": [f"{uploaded_file.name}: unsupported image format."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if Path(uploaded_file.name).suffix.lower() not in allowed_extensions:
+                return Response(
+                    {"images": [f"{uploaded_file.name}: unsupported image extension."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if uploaded_file.size > 10 * 1024 * 1024:
+                return Response(
+                    {"images": [f"{uploaded_file.name}: image must not exceed 10 MB."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        next_order = (
+            question.images.aggregate(max_order=Max("order"))["max_order"] or 0
+        ) + 1
+        created_images = []
+        for offset, uploaded_file in enumerate(files):
+            image = QuestionImage(
+                question=question,
+                image=uploaded_file,
+                original_name=uploaded_file.name[:255],
+                order=next_order + offset,
+            )
+            image.full_clean()
+            image.save()
+            created_images.append(image)
+
+        self._touch_topic(question.topic_id)
+        self._touch_task(question.task_id)
+        return Response(
+            QuestionImageSerializer(
+                created_images,
+                many=True,
+                context=self.get_serializer_context(),
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=("delete",),
+        url_path=r"images/(?P<image_id>[^/.]+)",
+    )
+    def delete_image(self, request, pk=None, image_id=None):
+        question = self.get_object()
+        image = get_object_or_404(question.images, pk=image_id)
+        image.delete()
+        self._touch_topic(question.topic_id)
+        self._touch_task(question.task_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class GroupSetFilter(FilterSet):
@@ -1457,6 +1556,7 @@ class AttemptQuestionViewSet(viewsets.ModelViewSet):
     ).prefetch_related(
         "question__choices",
         "question__matching_pairs",
+        "question__images",
         "answer__selected_choices",
     )
     serializer_class = AttemptQuestionSerializer

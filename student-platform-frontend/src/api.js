@@ -117,7 +117,21 @@ taskApi.importQuestions = async (taskId, payload) => {
   return response.data;
 };
 export let Task = taskApi;
-export let Question = apiConstructor("/api/question/");
+const questionApi = apiConstructor("/api/question/");
+questionApi.uploadImages = async (questionId, files) => {
+  const payload = new FormData();
+  for (const file of files) {
+    payload.append("images", file);
+  }
+  const response = await axios.post(`/api/question/${questionId}/images/`, payload, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+questionApi.deleteImage = async (questionId, imageId) => {
+  await axios.delete(`/api/question/${questionId}/images/${imageId}/`);
+};
+export let Question = questionApi;
 export let Group = groupApi;
 const studentApi = apiConstructor("/api/student/");
 studentApi.meAssignments = async () => {

@@ -1,7 +1,9 @@
 <script setup>
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 
-defineProps({
+const props = defineProps({
   form: {
     type: Object,
     required: true,
@@ -47,11 +49,45 @@ const emit = defineEmits([
   "set-choice-correct",
   "add-matching-pair",
   "remove-matching-pair",
+  "add-images",
+  "remove-pending-image",
+  "remove-saved-image",
   "save",
   "cancel",
 ]);
 
 const { t } = useI18n();
+const imageInputRef = ref(null);
+const editorImages = computed(() => [
+  ...props.form.images.map((image) => ({ ...image, source: "saved" })),
+  ...props.form.pending_images.map((image, index) => ({
+    id: `pending-${index}-${image.preview_url}`,
+    image: image.preview_url,
+    original_name: image.file.name,
+    source: "pending",
+    pending_index: index,
+  })),
+]);
+
+const openImagePicker = () => {
+  if (imageInputRef.value) {
+    imageInputRef.value.value = "";
+    imageInputRef.value.click();
+  }
+};
+
+const onImageFilesSelected = (event) => {
+  emit("add-images", Array.from(event.target.files ?? []));
+  event.target.value = "";
+};
+
+const removeImage = (image) => {
+  if (image.source === "pending") {
+    emit("remove-pending-image", image.pending_index);
+  } else {
+    emit("remove-saved-image", image.id);
+  }
+};
 </script>
 
 <template>
@@ -89,6 +125,37 @@ const { t } = useI18n();
         class="form-control"
         rows="2"
         :placeholder="t('common.optional')"
+      />
+    </div>
+
+    <div class="question-image-editor">
+      <div class="question-image-editor-head">
+        <h3 class="task-subsection-title">{{ t("topicDetail.questionImages") }}</h3>
+        <button
+          class="btn btn-outline-primary btn-sm"
+          type="button"
+          :disabled="isSaving"
+          @click="openImagePicker"
+        >
+          {{ t("topicDetail.addImages") }}
+        </button>
+        <input
+          ref="imageInputRef"
+          class="question-image-input"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          multiple
+          @change="onImageFilesSelected"
+        />
+      </div>
+
+      <QuestionImageGallery
+        v-if="editorImages.length"
+        :images="editorImages"
+        :disabled="isSaving"
+        compact
+        removable
+        @remove="removeImage"
       />
     </div>
 

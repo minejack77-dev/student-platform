@@ -1,6 +1,10 @@
+from pathlib import Path
+from uuid import uuid4
+
 from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 
@@ -256,6 +260,42 @@ class Question(models.Model):
     def __str__(self) -> str:
         owner = self.task.title if self.task_id else self.topic.title
         return f"[{owner}] {self.text[:60]}"
+
+
+def question_image_upload_to(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f"questions/{instance.question_id}/{uuid4().hex}{extension}"
+
+
+class QuestionImage(models.Model):
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE,
+        related_name="images",
+    )
+    image = models.FileField(
+        upload_to=question_image_upload_to,
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=("jpg", "jpeg", "png", "webp", "gif")
+            )
+        ],
+    )
+    original_name = models.CharField(max_length=255, blank=True)
+    order = models.PositiveSmallIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("order", "id")
+
+    def __str__(self) -> str:
+        return self.original_name or self.image.name
+
+
+@receiver(post_delete, sender=QuestionImage)
+def delete_question_image_file(sender, instance, **kwargs):
+    if instance.image:
+        instance.image.delete(save=False)
 
 
 class Choice(models.Model):

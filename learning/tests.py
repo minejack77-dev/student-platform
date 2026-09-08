@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.urls import reverse
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -23,6 +24,7 @@ from learning.models import (
     GroupTeachingAssignment,
     MatchingPair,
     Question,
+    QuestionImage,
     Subject,
     Task,
     Topic,
@@ -35,6 +37,7 @@ from learning.services.question_import import (
     _render_rich_text_html,
     import_questions_from_xls,
 )
+from learning.serializers import AttemptQuestionSerializer
 
 
 class LearningApiTests(APITestCase):
@@ -153,6 +156,86 @@ class LearningApiTests(APITestCase):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         topic.refresh_from_db()
         self.assertGreater(topic.updated_at, second_old_timestamp)
+
+    def test_question_images_can_be_uploaded_listed_and_deleted(self):
+        subject = Subject.objects.create(name="Geometry with images")
+        topic = Topic.objects.create(subject=subject, title="Triangles")
+        question = self._create_question_with_two_choices(topic, "Choose the triangle")
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            response = self.client.post(
+                f"/api/question/{question.id}/images/",
+                {
+                    "images": [
+                        SimpleUploadedFile(
+                            "triangle.png",
+                            b"\x89PNG\r\n\x1a\nimage-content",
+                            content_type="image/png",
+                        ),
+                        SimpleUploadedFile(
+                            "diagram.webp",
+                            b"RIFF\x00\x00\x00\x00WEBPimage-content",
+                            content_type="image/webp",
+                        ),
+                    ]
+                },
+                format="multipart",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(QuestionImage.objects.filter(question=question).count(), 2)
+            self.assertEqual([item["order"] for item in response.data], [1, 2])
+
+            question_response = self.client.get(f"/api/question/{question.id}/")
+            self.assertEqual(question_response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(question_response.data["images"]), 2)
+
+            student_user = User.objects.create_user(
+                username="student_with_question_image",
+                password="StrongPass123",
+                role=User.Role.STUDENT,
+            )
+            student = Student.objects.create(user=student_user)
+            attempt = Attempt.objects.create(
+                student=student,
+                topic=topic,
+                task=question.task,
+            )
+            attempt_question = AttemptQuestion.objects.create(
+                attempt=attempt,
+                question=question,
+                order=1,
+            )
+            serialized = AttemptQuestionSerializer(attempt_question).data
+            self.assertEqual(len(serialized["question"]["images"]), 2)
+
+            image = question.images.first()
+            image_path = Path(image.image.path)
+            self.assertTrue(image_path.exists())
+            delete_response = self.client.delete(
+                f"/api/question/{question.id}/images/{image.id}/"
+            )
+            self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+            self.assertFalse(image_path.exists())
+            self.assertEqual(question.images.count(), 1)
+
+    def test_question_image_upload_rejects_non_image_files(self):
+        subject = Subject.objects.create(name="Safe image uploads")
+        topic = Topic.objects.create(subject=subject, title="Files")
+        question = self._create_question_with_two_choices(topic, "Upload an image")
+
+        response = self.client.post(
+            f"/api/question/{question.id}/images/",
+            {
+                "images": SimpleUploadedFile(
+                    "fake.png", b"not-an-image", content_type="image/png"
+                )
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(question.images.count(), 0)
 
     def test_matching_question_can_be_created_answered_and_reviewed(self):
         subject = Subject.objects.create(name="English Matching")

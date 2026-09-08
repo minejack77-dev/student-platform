@@ -14,6 +14,7 @@ from .models import (
     GroupTeachingAssignment,
     MatchingPair,
     Question,
+    QuestionImage,
     Subject,
     Task,
     Topic,
@@ -364,13 +365,20 @@ class MatchingPairInline(admin.TabularInline):
     ordering = ("order",)
 
 
+class QuestionImageInline(admin.TabularInline):
+    model = QuestionImage
+    extra = 0
+    fields = ("order", "image", "original_name")
+    ordering = ("order",)
+
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "topic", "question_type", "is_active", "created_at")
     list_filter = ("question_type", "topic__subject", "topic", "task", "is_active")
     search_fields = ("text",)
     autocomplete_fields = ("topic", "task")
-    inlines = (ChoiceInline, MatchingPairInline)
+    inlines = (QuestionImageInline, ChoiceInline, MatchingPairInline)
 
 
 class AnswerInline(admin.StackedInline):
