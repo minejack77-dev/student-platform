@@ -1,14 +1,15 @@
 from datetime import timedelta
 from pathlib import Path
 
-from django.db.models import Count, Max, Q
+from django.db import transaction
+from django.db.models import Count, Max, Q, Sum
 from django.db.models.deletion import ProtectedError
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
+from rest_framework.generics import get_object_or_404
+from learning.services.dates import parse_date
 from django.utils import timezone
 from django_filters import FilterSet, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, viewsets
+from rest_framework import status, viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -30,7 +31,11 @@ from learning.models import (
     AttemptQuestion,
     Answer,
 )
-from learning.permissions import GroupRankingPermission, TeacherModelPermissions
+from learning.permissions import (
+    AttemptAccessPermission, GroupRankingPermission, TeacherModelPermissions,
+    GroupAccessPermission, can_manage_group, visible_groups, teacher_attempt_scope,
+    OwnedMaterialPermissions,
+)
 from learning.serializers import (
     AnswerSerializer,
     AttemptQuestionSerializer,
@@ -52,6 +57,9 @@ from learning.serializers import (
 )
 from learning.sorting import natural_sort_key, sort_students_naturally
 from learning.services.question_import import import_questions_from_xls
+from learning.services.safe_import import import_batch, undo_batch
+from learning.services.attempts import submit_attempt
+from learning.services.images import store_question_images
 
 
 def detect_image_content_type(uploaded_file):
@@ -99,11 +107,14 @@ class SubjectSetFilter(FilterSet):
 class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = SubjectSetFilter
     ordering_fields = ("name", "updated_at", "id")
     ordering = ("name",)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     @action(detail=True, methods=["get"], url_path="groups")
     def groups(self, request, pk=None):
@@ -137,7 +148,7 @@ class WorkbookSetFilter(FilterSet):
 class WorkbookViewSet(viewsets.ModelViewSet):
     queryset = Workbook.objects.select_related("subject").all()
     serializer_class = WorkbookSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = WorkbookSetFilter
     ordering_fields = ("title", "updated_at", "id", "subject")
@@ -157,7 +168,7 @@ class UnitSetFilter(FilterSet):
 class UnitViewSet(viewsets.ModelViewSet):
     queryset = Unit.objects.select_related("workbook", "workbook__subject").all()
     serializer_class = UnitSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = UnitSetFilter
     ordering_fields = ("title", "updated_at", "id", "workbook")
@@ -183,7 +194,7 @@ class TopicViewSet(viewsets.ModelViewSet):
         "unit__workbook__subject",
     ).all()
     serializer_class = TopicSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = TopicSetFilter
     ordering_fields = (
@@ -210,7 +221,7 @@ class TaskSetFilter(FilterSet):
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.select_related("topic", "topic__subject").all()
     serializer_class = TaskSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = TaskSetFilter
     ordering_fields = ("title", "updated_at", "id", "topic")
@@ -231,37 +242,23 @@ class TaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        task.src = uploaded_file
-        task.save(update_fields=["src", "updated_at"])
-        is_active = str(request.data.get("is_active", "true")).lower() not in (
-            "false",
-            "0",
-            "no",
-        )
-        question_type = request.data.get("question_type") or None
-
         try:
-            questions = import_questions_from_xls(
-                task=task,
-                src=task.src,
-                is_active=is_active,
-                question_type=question_type,
-            )
-        except Exception as exc:
-            payload = getattr(exc, "message_dict", None)
-            if payload is None:
-                messages = getattr(exc, "messages", None)
-                payload = {"detail": " ".join(messages) if messages else str(exc)}
-            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+            result = import_batch(task=task, upload=uploaded_file, user=request.user,
+                preview=str(request.data.get("preview", "false")).lower() == "true",
+                is_active=str(request.data.get("is_active", "true")).lower() not in ("false", "0", "no"),
+                question_type=request.data.get("question_type") or None)
+        except serializers.ValidationError:
+            raise
+        except Exception:
+            return Response({"code": "invalid_file"}, status=status.HTTP_400_BAD_REQUEST)
+        result["task"] = self.get_serializer(task).data
+        return Response(result, status=status.HTTP_200_OK if result["preview"] else status.HTTP_201_CREATED)
 
-        serializer = self.get_serializer(task)
-        return Response(
-            {
-                "imported_count": len(questions),
-                "task": serializer.data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+    @action(detail=True, methods=["post"], url_path="undo-import")
+    def undo_import(self, request, pk=None):
+        count = undo_batch(task=self.get_object(), user=request.user, token=request.data.get("token"))
+        return Response({"removed_count": count})
+
 
 
 class QuestionSetFilter(FilterSet):
@@ -284,7 +281,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
         .all()
     )
     serializer_class = QuestionSerializer
-    permission_classes = (TeacherModelPermissions,)
+    permission_classes = (OwnedMaterialPermissions,)
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = QuestionSetFilter
     ordering = ("-created_at",)
@@ -306,6 +303,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
         self._touch_topic(question.topic_id)
         self._touch_task(question.task_id)
 
+    @transaction.atomic
     def perform_destroy(self, instance):
         topic_id = instance.topic_id
         task_id = instance.task_id
@@ -328,48 +326,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        allowed_content_types = {
-            "image/gif",
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-        }
-        allowed_extensions = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
-        for uploaded_file in files:
-            detected_content_type = detect_image_content_type(uploaded_file)
-            if (
-                uploaded_file.content_type not in allowed_content_types
-                or detected_content_type != uploaded_file.content_type
-            ):
-                return Response(
-                    {"images": [f"{uploaded_file.name}: unsupported image format."]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if Path(uploaded_file.name).suffix.lower() not in allowed_extensions:
-                return Response(
-                    {"images": [f"{uploaded_file.name}: unsupported image extension."]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if uploaded_file.size > 10 * 1024 * 1024:
-                return Response(
-                    {"images": [f"{uploaded_file.name}: image must not exceed 10 MB."]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        next_order = (
-            question.images.aggregate(max_order=Max("order"))["max_order"] or 0
-        ) + 1
-        created_images = []
-        for offset, uploaded_file in enumerate(files):
-            image = QuestionImage(
-                question=question,
-                image=uploaded_file,
-                original_name=uploaded_file.name[:255],
-                order=next_order + offset,
-            )
-            image.full_clean()
-            image.save()
-            created_images.append(image)
+        created_images = store_question_images(question, files)
 
         self._touch_topic(question.topic_id)
         self._touch_task(question.task_id)
@@ -387,6 +344,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
         methods=("delete",),
         url_path=r"images/(?P<image_id>[^/.]+)",
     )
+    @transaction.atomic
     def delete_image(self, request, pk=None, image_id=None):
         question = self.get_object()
         image = get_object_or_404(question.images, pk=image_id)
@@ -465,7 +423,10 @@ class GroupViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "ranking":
             return [GroupRankingPermission()]
-        return [TeacherModelPermissions()]
+        return [GroupAccessPermission()]
+
+    def get_queryset(self):
+        return visible_groups(super().get_queryset(), self.request.user, include_student=self.action == "ranking")
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -475,15 +436,28 @@ class GroupViewSet(viewsets.ModelViewSet):
     def _touch_group(self, group_id):
         Group.objects.filter(id=group_id).update(updated_at=timezone.now())
 
-    def _has_group_member_management_access(self, group):
-        user = self.request.user
-        if user.is_staff or user.is_superuser:
-            return True
-
+    def perform_create(self, serializer):
         teacher = get_request_teacher(self.request)
-        if not teacher:
-            return False
-        return group.teacher_id == teacher.id
+        if teacher and not self.request.user.is_superuser:
+            serializer.save(teacher=teacher)
+        else:
+            serializer.save()
+
+    def _has_group_member_management_access(self, group):
+        return can_manage_group(self.request.user, group)
+
+    def _assignment_teacher(self, request, group):
+        teacher = get_request_teacher(request)
+        target = request.query_params.get("teacher") if request.method == "GET" else request.data.get("teacher")
+        if target is not None:
+            if not can_manage_group(request.user, group):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Only the group owner can select another teacher.")
+            field = serializers.PrimaryKeyRelatedField(queryset=Teacher.objects.filter(user__is_active=True, user__role="teacher"))
+            teacher = field.run_validation(target)
+        if teacher is None:
+            raise serializers.ValidationError({"teacher": "Select a teacher."})
+        return teacher
 
     def _group_member_management_denied_response(self):
         return Response(
@@ -609,7 +583,13 @@ class GroupViewSet(viewsets.ModelViewSet):
             correct_count = attempt.stats_correct_answers
             total_questions = attempt.stats_total_questions
         else:
-            result = "missed"
+            ready = bool(entry.task_id and entry.task.is_active and
+                         entry.task.questions.filter(is_active=True).count() >= entry.task.questions_per_attempt)
+            today = timezone.localdate()
+            result = ("not_ready" if not ready else
+                      "missed" if entry.scheduled_for < today else
+                      "in_progress" if attempt else
+                      "upcoming" if entry.scheduled_for > today else "not_started")
             correct_count = None
             total_questions = None
 
@@ -638,9 +618,11 @@ class GroupViewSet(viewsets.ModelViewSet):
             state = "no_test"
         elif any(test["result"] == "missed" for test in tests):
             state = "missed"
-        elif all(test["result"] == "success" for test in tests):
+        elif any(test["result"] in ("not_ready", "not_started", "upcoming", "in_progress") for test in tests):
+            state = "pending"
+        elif all(test["correct_count"] == test["total_questions"] and test["total_questions"] for test in tests):
             state = "all_correct"
-        elif any(test["result"] == "success" for test in tests):
+        elif any((test["correct_count"] or 0) > 0 for test in tests):
             state = "partial"
         else:
             state = "none_correct"
@@ -666,7 +648,9 @@ class GroupViewSet(viewsets.ModelViewSet):
             .order_by("scheduled_for", "id")
         )
 
-        total_past = past_entries.count()
+        expired_ready_ids = [entry.id for entry in past_entries.select_related("task")
+                             if entry.scheduled_for < current_date and entry.task_id and entry.task.is_active
+                             and entry.task.questions.filter(is_active=True).count() >= entry.task.questions_per_attempt]
         students = Student.objects.select_related("user").filter(groups=group).annotate(
             completed=Count(
                 "attempts",
@@ -710,12 +694,16 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         rows = []
         for student in students:
-            missed = total_past - student.completed
-            pass_rate = student.passed / total_past if total_past > 0 else 0
+            finished_expired = Attempt.objects.filter(student=student,
+                schedule_entry_id__in=expired_ready_ids, status=Attempt.Status.COMPLETED).count()
+            missed = len(expired_ready_ids) - finished_expired
+            total_counted = student.completed + missed
+            pass_rate = student.passed / total_counted if total_counted else 0
             today_results = []
             for entry in selected_entries:
                 today_attempt = today_attempts.get((student.id, entry.id))
                 today_results.append({
+                    "attempt_id": today_attempt.id if today_attempt else None,
                     "schedule_entry_id": entry.id,
                     "task_id": entry.task_id,
                     "task_title": entry.task.title if entry.task_id else None,
@@ -770,16 +758,13 @@ class GroupViewSet(viewsets.ModelViewSet):
         methods=["get", "patch", "put", "delete"],
         url_path="teacher-assignment",
     )
+    @transaction.atomic
     def teacher_assignment(self, request, pk=None):
-        teacher = get_request_teacher(request)
-        if not teacher:
-            return Response(
-                {"detail": "Only teachers can manage assignments."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         group = self.get_object()
+        teacher = self._assignment_teacher(request, group)
         assignment = self._get_teacher_assignment(group, teacher)
+        if request.method != "GET" and assignment is None and not can_manage_group(request.user, group):
+            return Response({"detail": "Only the group owner can create a teaching assignment."}, status=status.HTTP_403_FORBIDDEN)
 
         if request.method == "GET":
             if not assignment:
@@ -810,6 +795,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     assignment.delete()
                 self._delete_topic_schedule(group, teacher)
             except ProtectedError:
+                transaction.set_rollback(True)
                 return Response(
                     {
                         "detail": (
@@ -851,6 +837,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     assignment.delete()
                 self._delete_topic_schedule(group, teacher)
             except ProtectedError:
+                transaction.set_rollback(True)
                 return Response(
                     {
                         "detail": (
@@ -904,6 +891,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 exclude_workbook_id=assignment.workbook_id,
             )
         except ProtectedError:
+            transaction.set_rollback(True)
             return Response(
                 {
                     "detail": (
@@ -926,14 +914,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         url_path="topic-calendar",
     )
     def topic_calendar(self, request, pk=None):
-        teacher = get_request_teacher(request)
-        if not teacher:
-            return Response(
-                {"detail": "Only teachers can manage group schedules."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         group = self.get_object()
+        teacher = self._assignment_teacher(request, group)
         assignment = self._get_teacher_assignment(group, teacher)
 
         if request.method == "GET":
@@ -1024,6 +1006,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             date_param = request.query_params.get("date") or request.data.get("date")
             scheduled_for = parse_date(date_param) if date_param else None
             if entry_id:
+                entry_id = serializers.IntegerField(min_value=1, max_value=9223372036854775807).run_validation(entry_id)
                 queryset = GroupTopicSchedule.objects.filter(
                     id=entry_id,
                     group=group,
@@ -1037,6 +1020,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     scheduled_for=scheduled_for,
                 )
                 if task_id:
+                    task_id = serializers.IntegerField(min_value=1, max_value=9223372036854775807).run_validation(task_id)
                     queryset = queryset.filter(task_id=task_id)
             else:
                 return Response(
@@ -1102,6 +1086,12 @@ class GroupViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        task = task or Task.get_default_for_topic(topic)
+        active_count = task.questions.filter(is_active=True).count()
+        if not task.is_active or active_count < task.questions_per_attempt:
+            return Response({"code": "task_not_ready", "active": active_count,
+                             "required": task.questions_per_attempt}, status=status.HTTP_400_BAD_REQUEST)
+
         schedule_entry, created = GroupTopicSchedule.objects.update_or_create(
             group=group,
             teacher=teacher,
@@ -1118,8 +1108,9 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="detailed-statistics")
     def detailed_statistics(self, request, pk=None):
+        group = self.get_object()
         teacher = get_request_teacher(request)
-        if not teacher:
+        if not teacher and not request.user.is_superuser:
             return Response(
                 {"detail": "Only teachers can view detailed statistics."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1131,7 +1122,6 @@ class GroupViewSet(viewsets.ModelViewSet):
         if error_response is not None:
             return error_response
 
-        group = self.get_object()
         students = sort_students_naturally(
             Student.objects.select_related("user")
             .filter(groups=group)
@@ -1147,15 +1137,12 @@ class GroupViewSet(viewsets.ModelViewSet):
                 end_date - timedelta(days=1),
             )
         }
-        schedule_entries = list(
-            GroupTopicSchedule.objects.select_related("task", "topic")
-            .filter(
-                group=group,
-                teacher=teacher,
-                scheduled_for__range=(start_date, end_date),
-            )
-            .order_by("scheduled_for", "id")
+        schedules = GroupTopicSchedule.objects.select_related("task", "topic").filter(
+            group=group, scheduled_for__range=(start_date, end_date),
         )
+        if not can_manage_group(request.user, group):
+            schedules = schedules.filter(teacher=teacher)
+        schedule_entries = list(schedules.order_by("scheduled_for", "id"))
 
         attempts = (
             Attempt.objects.filter(
@@ -1248,7 +1235,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         else:
             students_qs = students_qs.filter(user__username__icontains=query)
 
-        students = sort_students_naturally(students_qs)[:20]
+        students = sort_students_naturally(students_qs.order_by("user__username", "pk")[:100])[:20]
         in_group_student_ids = set(group.students.values_list("id", flat=True))
 
         payload = []
@@ -1345,7 +1332,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        request_student = get_request_student(request)
+        request_student = get_request_student(request) if request.user.role == "student" and not request.user.is_superuser else None
         request_teacher = get_request_teacher(request)
 
         if request_student:
@@ -1354,7 +1341,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     {"detail": "You are not a member of this group."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-        elif request_teacher:
+        elif request_teacher and not can_manage_group(request.user, group):
             if not GroupTeachingAssignment.objects.filter(
                 group=group, teacher=request_teacher
             ).exists():
@@ -1362,7 +1349,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     {"detail": "You are not assigned to this group."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-        else:
+        elif not request_teacher and not request.user.is_superuser:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         rows = self._build_group_ranking_rows(group, selected_date)
@@ -1397,121 +1384,6 @@ class GroupViewSet(viewsets.ModelViewSet):
             "ranking": rows,
         })
 
-        schedule_entries = GroupTopicSchedule.objects.filter(
-            group=group,
-            topic__is_active=True,
-            topic__subject__is_active=True,
-        )
-        current_date = timezone.localdate()
-        ranking_cutoff = min(selected_date, current_date)
-        past_entries = schedule_entries.filter(scheduled_for__lte=ranking_cutoff)
-        selected_entries = list(
-            schedule_entries.filter(scheduled_for=selected_date)
-            .select_related("task", "topic")
-            .order_by("scheduled_for", "id")
-        )
-
-        total_past = past_entries.count()
-
-        students = Student.objects.select_related("user").filter(groups=group).annotate(
-            completed=Count(
-                "attempts",
-                filter=Q(
-                    attempts__schedule_entry__in=past_entries,
-                    attempts__status=Attempt.Status.COMPLETED,
-                ),
-                distinct=True,
-            ),
-            passed=Count(
-                "attempts",
-                filter=Q(
-                    attempts__schedule_entry__in=past_entries,
-                    attempts__status=Attempt.Status.COMPLETED,
-                    attempts__is_success=True,
-                ),
-                distinct=True,
-            ),
-            total_correct=Count(
-                "attempts__attempt_questions",
-                filter=Q(
-                    attempts__schedule_entry__in=past_entries,
-                    attempts__status=Attempt.Status.COMPLETED,
-                    attempts__attempt_questions__answer__is_correct=True,
-                ),
-                distinct=True,
-            ),
-        )
-
-        today_attempts = {}
-        for attempt in (
-            Attempt.objects.filter(
-                student__in=students,
-                schedule_entry__in=selected_entries,
-                status=Attempt.Status.COMPLETED,
-            )
-            .select_related("schedule_entry", "task", "topic")
-            .order_by("student_id", "schedule_entry_id", "-id")
-        ):
-            today_attempts.setdefault((attempt.student_id, attempt.schedule_entry_id), attempt)
-
-        rows = []
-        for student in students:
-            missed = total_past - student.completed
-            pass_rate = student.passed / total_past if total_past > 0 else 0
-            today_results = []
-            for entry in selected_entries:
-                today_attempt = today_attempts.get((student.id, entry.id))
-                today_results.append({
-                    "schedule_entry_id": entry.id,
-                    "task_id": entry.task_id,
-                    "task_title": entry.task.title if entry.task_id else None,
-                    "topic_title": entry.topic.title,
-                    "correct_count": (
-                        today_attempt.correct_count() if today_attempt else None
-                    ),
-                    "total_questions": (
-                        today_attempt.total_questions() if today_attempt else None
-                    ),
-                    "result": (
-                        "success" if today_attempt and today_attempt.is_success is True
-                        else "fail" if today_attempt and today_attempt.is_success is False
-                        else None
-                    ),
-                })
-            rows.append({
-                "student_id": student.id,
-                "username": student.user.username,
-                "completed": student.completed,
-                "missed": missed,
-                "passed": student.passed,
-                "total_correct": student.total_correct,
-                "pass_rate": round(pass_rate * 100, 1),
-                "today_results": today_results,
-            })
-
-        # Сортируем студентов
-        rows.sort(key=lambda r: (-r["pass_rate"], -r["total_correct"]))
-        # Добавляем рейтинг
-        for index, row in enumerate(rows, start=1):
-            row["rank"] = index
-
-        if request_student:
-            # Запись с нашим студентом
-            my_row = next((r for r in rows if r["student_id"] == request_student.id), None)
-            return Response({
-                "group_id": group.id,
-                "group_name": group.name,
-                "results_date": selected_date.isoformat(),
-                "rank": my_row["rank"] if my_row else None,
-                "total": len(rows),
-            })
-
-        return Response({
-            "group_id": group.id,
-            "group_name": group.name,
-            "results_date": selected_date.isoformat(),
-            "ranking": rows,
-        })
 
 
 class AttemptSetFilter(FilterSet):
@@ -1521,6 +1393,8 @@ class AttemptSetFilter(FilterSet):
 
 
 class AttemptViewSet(viewsets.ModelViewSet):
+    permission_classes = (AttemptAccessPermission,)
+    http_method_names = ["get", "post", "patch", "head", "options"]
     queryset = Attempt.objects.select_related(
         "topic",
         "topic__subject",
@@ -1535,10 +1409,29 @@ class AttemptViewSet(viewsets.ModelViewSet):
     filterset_class = AttemptSetFilter
 
     def get_queryset(self):
+        if self.request.user.is_superuser:
+            return super().get_queryset()
+        if self.request.user.role == "teacher":
+            teacher = get_request_teacher(self.request)
+            if not teacher:
+                return super().get_queryset().none()
+            return super().get_queryset().filter(
+                teacher_attempt_scope(self.request.user)
+            ).distinct()
         student = get_request_student(self.request)
         if not student:
             return super().get_queryset().none()
         return super().get_queryset().filter(student=student)
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        attempt = submit_attempt(
+            attempt_id=self.get_object().pk,
+            context=self.get_serializer_context(),
+            answers=request.data.get("answers"),
+            confirm_unanswered=request.data.get("confirm_unanswered") is True,
+        )
+        return Response(self.get_serializer(attempt).data)
 
 
 class AttemptQuestionSetFilter(FilterSet):
@@ -1548,6 +1441,8 @@ class AttemptQuestionSetFilter(FilterSet):
 
 
 class AttemptQuestionViewSet(viewsets.ModelViewSet):
+    permission_classes = (AttemptAccessPermission,)
+    http_method_names = ["get", "head", "options"]
     queryset = AttemptQuestion.objects.select_related(
         "attempt",
         "attempt__schedule_entry",
@@ -1564,6 +1459,15 @@ class AttemptQuestionViewSet(viewsets.ModelViewSet):
     filterset_class = AttemptQuestionSetFilter
 
     def get_queryset(self):
+        if self.request.user.is_superuser:
+            return super().get_queryset()
+        if self.request.user.role == "teacher":
+            teacher = get_request_teacher(self.request)
+            if not teacher:
+                return super().get_queryset().none()
+            return super().get_queryset().filter(
+                teacher_attempt_scope(self.request.user, "attempt__")
+            ).distinct()
         student = get_request_student(self.request)
         if not student:
             return super().get_queryset().none()
@@ -1577,6 +1481,7 @@ class AnswerSetFilter(FilterSet):
 
 
 class AnswerViewSet(viewsets.ModelViewSet):
+    http_method_names = ["get", "post", "put", "patch", "head", "options"]
     queryset = Answer.objects.select_related(
         "attempt_question",
         "attempt_question__attempt",

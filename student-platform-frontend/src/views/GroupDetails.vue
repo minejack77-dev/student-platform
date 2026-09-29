@@ -1,11 +1,17 @@
 <script setup>
+import { apiError } from "@/utils/apiError";
 import axios from "axios";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Group, Subject, Workbook } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const props = defineProps(["id"]);
+const route = useRoute();
+const resultsTab = computed(() => route.query.tab === "results");
+const confirmRemove = ref(false);
 
 const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
 const WEEKDAY_FORMAT = { weekday: "short" };
@@ -46,7 +52,13 @@ const assignmentError = ref("");
 const assignmentSuccess = ref("");
 
 const statistics = ref(createEmptyStatistics());
+const statisticsTable = ref(null);
+watch(statistics, async () => {
+  await nextTick();
+  if (statisticsTable.value) statisticsTable.value.scrollLeft = statisticsTable.value.scrollWidth;
+}, {flush: 'post'});
 const statisticsScale = ref("week");
+const statisticsEndDate = ref(new Date().toLocaleDateString("en-CA"));
 const statisticsSortMode = ref("name");
 const statisticsLoading = ref(false);
 const statisticsError = ref("");
@@ -71,6 +83,7 @@ const statLegend = computed(() => [
   { state: "partial", label: t("groupDetails.legend.partial") },
   { state: "none_correct", label: t("groupDetails.legend.noneCorrect") },
   { state: "missed", label: t("groupDetails.legend.missed") },
+  { state: "pending", label: t("ux.status.pending") },
   { state: "no_test", label: t("groupDetails.legend.noTest") },
 ]);
 
@@ -115,8 +128,7 @@ const loadTeacherAssignment = async () => {
     savedAssignmentSubject.value = assignmentForm.value.subject;
     savedAssignmentWorkbook.value = assignmentForm.value.workbook;
   } catch (error) {
-    assignmentError.value =
-      error?.response?.data?.detail || t("groupDetails.assignmentLoadError");
+    assignmentError.value = apiError(error, "groupDetails.assignmentLoadError");
     assignmentForm.value = { subject: "", workbook: "" };
     savedAssignmentSubject.value = "";
     savedAssignmentWorkbook.value = "";
@@ -130,13 +142,10 @@ const loadDetailedStatistics = async () => {
   try {
     statistics.value = await Group.getDetailedStatistics(props.id, {
       scale: statisticsScale.value,
+      end_date: statisticsEndDate.value,
     });
   } catch (error) {
-    statisticsError.value =
-      error?.response?.data?.detail ||
-      error?.response?.data?.scale ||
-      error?.response?.data?.end_date ||
-      t("groupDetails.statisticsLoadError");
+    statisticsError.value = apiError(error, "groupDetails.statisticsLoadError");
     statistics.value = createEmptyStatistics();
   } finally {
     statisticsLoading.value = false;
@@ -144,6 +153,7 @@ const loadDetailedStatistics = async () => {
 };
 
 const saveTeacherAssignment = async () => {
+  if (!assignmentForm.value.subject && savedAssignmentSubject.value) { confirmRemove.value = true; return; }
   assignmentError.value = "";
   assignmentSuccess.value = "";
   assignmentLoading.value = true;
@@ -177,18 +187,14 @@ const saveTeacherAssignment = async () => {
     }
     await loadGroup();
   } catch (error) {
-    assignmentError.value =
-      error?.response?.data?.workbook?.[0] ||
-      error?.response?.data?.topic?.[0] ||
-      error?.response?.data?.subject?.[0] ||
-      error?.response?.data?.detail ||
-      t("groupDetails.assignmentMessages.saveError");
+    assignmentError.value = apiError(error, "groupDetails.assignmentMessages.saveError");
   } finally {
     assignmentLoading.value = false;
   }
 };
 
 const clearTeacherAssignment = async () => {
+  confirmRemove.value = false;
   assignmentError.value = "";
   assignmentSuccess.value = "";
   assignmentLoading.value = true;
@@ -201,8 +207,7 @@ const clearTeacherAssignment = async () => {
     assignmentSuccess.value = t("groupDetails.assignmentMessages.removed");
     await loadGroup();
   } catch (error) {
-    assignmentError.value =
-      error?.response?.data?.detail || t("groupDetails.assignmentMessages.removeError");
+    assignmentError.value = apiError(error, "groupDetails.assignmentMessages.removeError");
   } finally {
     assignmentLoading.value = false;
   }
@@ -210,7 +215,6 @@ const clearTeacherAssignment = async () => {
 
 const onSubjectChange = async () => {
   assignmentForm.value.workbook = "";
-  savedAssignmentWorkbook.value = "";
   assignmentSuccess.value = "";
   await loadWorkbooks(assignmentForm.value.subject);
 };
@@ -230,7 +234,7 @@ const searchStudents = async (query) => {
     searchResults.value = response.data ?? [];
   } catch (error) {
     searchResults.value = [];
-    searchError.value = error?.response?.data?.detail || t("groupDetails.searchError");
+    searchError.value = apiError(error, "groupDetails.searchError");
   } finally {
     searchLoading.value = false;
   }
@@ -254,8 +258,7 @@ const addStudentToGroup = async (student) => {
     );
     await Promise.all([loadGroup(), loadDetailedStatistics()]);
   } catch (error) {
-    addResultMessage.value =
-      error?.response?.data?.detail || t("groupDetails.studentMessages.addError");
+    addResultMessage.value = apiError(error, "groupDetails.studentMessages.addError");
   } finally {
     addLoadingUserId.value = null;
   }
@@ -280,8 +283,7 @@ const removeStudentFromGroup = async (student) => {
       addResultMessage.value = t("groupDetails.studentMessages.notInGroup");
     }
   } catch (error) {
-    addResultMessage.value =
-      error?.response?.data?.detail || t("groupDetails.studentMessages.removeError");
+    addResultMessage.value = apiError(error, "groupDetails.studentMessages.removeError");
   } finally {
     removeLoadingUserId.value = null;
   }
@@ -394,6 +396,7 @@ const formatStatisticsWeekday = (value) => {
 };
 
 const formatTestOutcome = (test) => {
+  if (["not_ready", "not_started", "in_progress", "upcoming"].includes(test.result)) return t(`ux.status.${test.result}`);
   if (test.result === "missed") {
     return t("groupDetails.missed");
   }
@@ -460,7 +463,7 @@ onBeforeUnmount(() => {
     <section class="surface-card group-hero">
       <div class="hero-topline">
         <div class="hero-heading-row">
-          <span class="pill">{{ t("groupDetails.badge") }}</span>
+          <span class="pill">{{ t(resultsTab ? "ux.results" : "groupDetails.badge") }}</span>
           <h1 class="group-title">{{ group.name || t("common.untitledGroup") }}</h1>
         </div>
       </div>
@@ -495,7 +498,9 @@ onBeforeUnmount(() => {
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
-    <section class="surface-card assignment-panel">
+    <ConfirmDialog v-if="confirmRemove" :title="t('ux.removeSubject')" :description="t('ux.removeSubjectConfirm')" :confirm-label="t('ux.removeSubject')" @confirm="clearTeacherAssignment" @cancel="confirmRemove = false" />
+    <nav class="page-tabs"><router-link :to="{name: 'group-overview', params: {id: props.id}, query: {tab: 'results'}}" :aria-current="resultsTab ? 'page' : undefined">{{ t('ux.results') }}</router-link><router-link :to="{name: 'group-details', params: {id: props.id}}" :aria-current="!resultsTab ? 'page' : undefined">{{ t('ux.settings') }}</router-link></nav>
+    <section v-if="!resultsTab" class="surface-card assignment-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("common.subject") }}</h2>
@@ -535,6 +540,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="assignment-actions">
+        <button class="btn btn-outline-secondary" :disabled="assignmentLoading" @click="assignmentForm = {subject: savedAssignmentSubject, workbook: savedAssignmentWorkbook}; loadWorkbooks(savedAssignmentSubject)">{{ t('ux.resetForm') }}</button>
         <button class="btn btn-primary" type="button" :disabled="assignmentLoading" @click="saveTeacherAssignment">
           {{ assignmentLoading ? t("common.saving") : t("groupDetails.saveAssignment") }}
         </button>
@@ -542,9 +548,9 @@ onBeforeUnmount(() => {
           class="btn btn-outline-danger"
           type="button"
           :disabled="assignmentLoading"
-          @click="clearTeacherAssignment"
+          @click="confirmRemove = true"
         >
-          {{ t("groupDetails.removeAssignment") }}
+          {{ t("ux.removeSubject") }}
         </button>
       </div>
 
@@ -552,7 +558,7 @@ onBeforeUnmount(() => {
       <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0">{{ assignmentSuccess }}</div>
     </section>
 
-    <section class="surface-card members-panel">
+    <section v-if="resultsTab" class="surface-card members-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("groupDetails.detailedStatistics") }}</h2>
@@ -561,6 +567,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="statistics-toolbar">
+        <div class="statistics-date-controls">
+        <label class="field-wrap statistics-period">{{ t('ux.periodEnd') }} <input class="form-control" v-model="statisticsEndDate" type="date" @change="loadDetailedStatistics" /></label>
+        <button class="btn btn-outline-primary" @click="statisticsEndDate = new Date().toLocaleDateString('en-CA'); loadDetailedStatistics()">{{ t('ux.toToday') }}</button>
+        </div>
         <div class="statistics-toolbar-main">
           <div class="statistics-scale-toggle">
             <button
@@ -620,7 +630,20 @@ onBeforeUnmount(() => {
           {{ t("groupDetails.noScheduledTests") }}
         </div>
 
-        <div class="statistics-table-wrap">
+        <div class="statistics-mobile">
+          <article v-for="row in sortedStatisticsStudents" :key="row.student_id" class="surface-card">
+            <h3>{{ row.username }}</h3>
+            <template v-for="cell in [...row.cells].reverse()" :key="cell.date">
+              <div v-if="cell.tests.length"><strong>{{ formatStatisticsDay(cell.date) }}</strong>
+                <p v-for="test in cell.tests" :key="test.schedule_entry_id">
+                  {{ test.task_title || test.topic_title }} · {{ formatTestOutcome(test) }}
+                  <router-link class="inline-action-link" v-if="test.attempt_id" :to="{name: 'attempt-detail', params: {id: test.attempt_id}}">{{ t('ux.result') }}</router-link>
+                </p>
+              </div>
+            </template>
+          </article>
+        </div>
+        <div ref="statisticsTable" class="statistics-table-wrap">
           <table class="statistics-table">
             <thead>
               <tr>
@@ -680,6 +703,7 @@ onBeforeUnmount(() => {
                         :class="`result-${test.result}`"
                       >
                         {{ formatTestOutcome(test) }}
+                        <router-link class="inline-action-link" v-if="test.attempt_id" :to="{name: 'attempt-detail', params:{id:test.attempt_id}}">{{ t("ux.result") }}</router-link>
                       </div>
                     </div>
                   </div>
@@ -692,7 +716,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="surface-card search-panel">
+    <section v-if="!resultsTab" class="surface-card search-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("groupDetails.addNewStudent") }}</h2>
@@ -700,7 +724,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="search-column">
+      <p v-if="!group.can_manage_students" class="alert alert-info">{{ t('ux.noMemberAccess') }}</p>
+      <div v-else class="search-column">
         <p class="search-hint">{{ t("groupDetails.searchHint") }}</p>
 
         <input

@@ -1,7 +1,7 @@
 from django.contrib.auth.models import AbstractUser, Permission
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from webpush.models import PushInformation
 
@@ -35,8 +35,10 @@ class Teacher(models.Model):
     )
 
     def clean(self):
-        if self.user.role not in (User.Role.TEACHER, User.Role.STUDENT):
-            raise ValidationError({"user": "Unsupported user role for teacher profile."})
+        if self.user.role != User.Role.TEACHER:
+            raise ValidationError({"user": "A teacher profile requires the teacher role."})
+        if self.pk and Teacher.objects.filter(pk=self.pk).exclude(user_id=self.user_id).exists():
+            raise ValidationError({"user": "The profile owner cannot be changed."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -56,6 +58,8 @@ class Student(models.Model):
     def clean(self):
         if self.user.role not in (User.Role.STUDENT, User.Role.TEACHER):
             raise ValidationError({"user": "Unsupported user role for student profile."})
+        if self.pk and Student.objects.filter(pk=self.pk).exclude(user_id=self.user_id).exists():
+            raise ValidationError({"user": "The profile owner cannot be changed."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -76,23 +80,32 @@ TEACHER_API_MODELS = (
 )
 
 
-@receiver(post_save, sender=Teacher)
-def grant_teacher_learning_permissions(sender, instance, **kwargs):
-    user = instance.user
-    if user.is_superuser:
-        return
-
+def teacher_learning_permissions():
+    """Legacy teacher permissions, now granted explicitly by an administrator."""
     codenames = [
         f"{action}_{model_name}"
         for model_name in TEACHER_API_MODELS
         for action in ("view", "add", "change", "delete")
     ]
-    permissions = Permission.objects.filter(
+    return Permission.objects.filter(
         content_type__app_label="learning",
         codename__in=codenames,
     )
-    user.user_permissions.add(*permissions)
+
+
+@receiver(post_delete, sender=Teacher)
+def revoke_deleted_teacher_permissions(sender, instance, **kwargs):
+    # Recreating a profile must not restore the old automatic grant.
+    instance.user.user_permissions.remove(*teacher_learning_permissions())
+
+
+@receiver(post_save, sender=User)
+def revoke_non_teacher_permissions(sender, instance, **kwargs):
+    if instance.role != User.Role.TEACHER and not kwargs.get("raw", False):
+        instance.user_permissions.remove(*teacher_learning_permissions())
+
 
 class PushSubscription(models.Model):
+    endpoint_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
     push_information = models.OneToOneField(PushInformation, on_delete=models.CASCADE, related_name="subscription_meta")
     created_at = models.DateTimeField(auto_now_add=True)

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Group, Subject } from "@/api.js";
+import { apiError } from "@/utils/apiError";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const { t } = useI18n();
@@ -14,6 +15,12 @@ const subjectFilters = ref({ name: "" });
 const groupSort = ref("name");
 const subjectSort = ref("name");
 const loadError = ref("");
+const groupLoading = ref(true);
+const subjectLoading = ref(true);
+const groupError = ref("");
+const subjectError = ref("");
+let groupRequest = 0;
+let subjectRequest = 0;
 
 const isCreatingGroup = ref(false);
 const isCreatingSubject = ref(false);
@@ -33,21 +40,39 @@ const createSubjectForm = ref({
 });
 
 const getGroups = async () => {
+  const request = ++groupRequest;
+  groupLoading.value = true;
+  groupError.value = "";
+  try {
   const ordering = groupSort.value === "updated" ? "-updated_at" : "name";
   const response = await Group.filter({
     ...groupFilters.value,
     ordering,
   });
-  groupList.value = response.results ?? response;
+  if (request === groupRequest) groupList.value = response.results ?? response;
+  } catch (error) {
+    if (request === groupRequest) groupError.value = apiError(error);
+  } finally {
+    if (request === groupRequest) groupLoading.value = false;
+  }
 };
 
 const getSubjects = async () => {
+  const request = ++subjectRequest;
+  subjectLoading.value = true;
+  subjectError.value = "";
+  try {
   const ordering = subjectSort.value === "updated" ? "-updated_at" : "name";
   const response = await Subject.filter({
     ...subjectFilters.value,
     ordering,
   });
-  subjectList.value = response.results ?? response;
+  if (request === subjectRequest) subjectList.value = response.results ?? response;
+  } catch (error) {
+    if (request === subjectRequest) subjectError.value = apiError(error);
+  } finally {
+    if (request === subjectRequest) subjectLoading.value = false;
+  }
 };
 
 const loadDashboard = async () => {
@@ -87,8 +112,7 @@ const createGroup = async () => {
     resetGroupForm();
     await getGroups();
   } catch (error) {
-    createGroupError.value =
-      error?.response?.data?.name?.[0] || t("teacherHome.errors.createGroup");
+    createGroupError.value = apiError(error, "teacherHome.errors.createGroup");
   } finally {
     createGroupLoading.value = false;
   }
@@ -112,8 +136,7 @@ const createSubject = async () => {
     resetSubjectForm();
     await getSubjects();
   } catch (error) {
-    createSubjectError.value =
-      error?.response?.data?.name?.[0] || t("teacherHome.errors.createSubject");
+    createSubjectError.value = apiError(error, "teacherHome.errors.createSubject");
   } finally {
     createSubjectLoading.value = false;
   }
@@ -174,11 +197,11 @@ const subjectsCount = computed(() => subjectList.value.length);
       <div class="hero-stats">
         <div class="stat-card">
           <div class="stat-label">{{ t("common.groups") }}</div>
-          <div class="stat-value">{{ groupsCount }}</div>
+          <div class="stat-value">{{ groupLoading || groupError ? '—' : groupsCount }}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">{{ t("common.subjects") }}</div>
-          <div class="stat-value">{{ subjectsCount }}</div>
+          <div class="stat-value">{{ subjectLoading || subjectError ? '—' : subjectsCount }}</div>
         </div>
       </div>
     </section>
@@ -223,7 +246,9 @@ const subjectsCount = computed(() => subjectList.value.length);
         </div>
       </div>
 
-      <div v-if="groupList.length === 0" class="empty-box">{{ t("teacherHome.noGroups") }}</div>
+      <div v-if="groupLoading" role="status">{{ t('ux.loading') }}</div>
+      <div v-else-if="groupError" class="alert alert-danger" role="alert">{{ groupError }} <button class="btn btn-outline-primary" @click="getGroups">{{ t('ux.retry') }}</button></div>
+      <div v-else-if="groupList.length === 0" class="empty-box">{{ t("teacherHome.noGroups") }}</div>
 
       <div class="cards-grid">
         <article class="entity-card add-card">
@@ -265,7 +290,7 @@ const subjectsCount = computed(() => subjectList.value.length);
         </article>
 
         <article
-          v-for="(group, index) in groupList"
+          v-for="(group, index) in (groupError || groupLoading ? [] : groupList)"
           :key="group.id"
           class="entity-card"
           :style="{ '--delay': `${index * 50}ms` }"
@@ -332,7 +357,9 @@ const subjectsCount = computed(() => subjectList.value.length);
         </div>
       </div>
 
-      <div v-if="subjectList.length === 0" class="empty-box">{{ t("teacherHome.noSubjects") }}</div>
+      <div v-if="subjectLoading" role="status">{{ t('ux.loading') }}</div>
+      <div v-else-if="subjectError" class="alert alert-danger" role="alert">{{ subjectError }} <button class="btn btn-outline-primary" @click="getSubjects">{{ t('ux.retry') }}</button></div>
+      <div v-else-if="subjectList.length === 0" class="empty-box">{{ t("teacherHome.noSubjects") }}</div>
 
       <div class="cards-grid">
         <article class="entity-card add-card">
@@ -374,7 +401,7 @@ const subjectsCount = computed(() => subjectList.value.length);
         </article>
 
         <article
-          v-for="(subject, index) in subjectList"
+          v-for="(subject, index) in (subjectError || subjectLoading ? [] : subjectList)"
           :key="subject.id"
           class="entity-card"
           :style="{ '--delay': `${index * 50}ms` }"

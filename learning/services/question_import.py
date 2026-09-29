@@ -5,11 +5,60 @@ from pathlib import Path
 import re
 from xml.etree import ElementTree
 from zipfile import ZipFile
+from io import BytesIO
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from learning.models import Choice, MatchingPair, Question
+
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_XML_BYTES = 4 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 16 * 1024 * 1024
+MAX_ROWS = 2001
+MAX_COLUMNS = 128
+MAX_CELLS = 100000
+MAX_CELL_LENGTH = 10000
+
+
+def _limit_error():
+    return ValidationError({"src": "Spreadsheet exceeds safe import limits or has an invalid structure."})
+
+
+def _validate_archive(archive):
+    entries = archive.infolist()
+    if len(entries) > 128 or len({item.filename for item in entries}) != len(entries):
+        raise _limit_error()
+    total = 0
+    for item in entries:
+        total += item.file_size
+        if (item.flag_bits & 1 or item.file_size > MAX_XML_BYTES
+                or item.file_size > max(1, item.compress_size) * 100
+                or total > MAX_ARCHIVE_BYTES):
+            raise _limit_error()
+
+
+def _read_xml(archive, name):
+    with archive.open(name) as stream:
+        data = stream.read(MAX_XML_BYTES + 1)
+    if len(data) > MAX_XML_BYTES or b"\x00" in data or b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+        raise _limit_error()
+    depth, nodes = 0, 0
+    try:
+        parser = ElementTree.iterparse(BytesIO(data), events=("start", "end"))
+        for event, element in parser:
+            if event == "start":
+                depth += 1
+                nodes += 1
+                if depth > 32 or nodes > MAX_CELLS * 4:
+                    raise _limit_error()
+            else:
+                depth -= 1
+                if len(element.text or "") > MAX_CELL_LENGTH:
+                    raise _limit_error()
+        return parser.root
+    except ElementTree.ParseError:
+        raise _limit_error()
 
 
 @dataclass(frozen=True)
@@ -72,6 +121,8 @@ def _read_spreadsheet_rows(src) -> list[list[SpreadsheetCell]]:
     src_path = Path(getattr(src, "path", src))
     if not src_path.exists():
         raise ValidationError({"src": f"Source file '{src_path}' does not exist."})
+    if src_path.stat().st_size > MAX_UPLOAD_BYTES:
+        raise _limit_error()
     suffix = src_path.suffix.lower()
     if suffix == ".xlsx":
         return _read_xlsx_rows(src_path)
@@ -85,18 +136,25 @@ def _read_spreadsheet_rows(src) -> list[list[SpreadsheetCell]]:
             {"src": "Excel import requires the 'xlrd' package to be installed."}
         ) from exc
 
-    workbook = xlrd.open_workbook(src_path, formatting_info=True)
+    workbook = xlrd.open_workbook(src_path, formatting_info=True, on_demand=True, ragged_rows=True)
     sheet = workbook.sheet_by_index(0)
+    if sheet.nrows > MAX_ROWS or sheet.ncols > MAX_COLUMNS or sheet.nrows * sheet.ncols > MAX_CELLS:
+        workbook.release_resources()
+        raise _limit_error()
     rows = []
 
     for row_index in range(sheet.nrows):
         row = [
             _build_cell(sheet, workbook, row_index, col_index)
-            for col_index in range(sheet.ncols)
+            for col_index in range(sheet.row_len(row_index))
         ]
+        if any(len(cell.plain) > MAX_CELL_LENGTH for cell in row):
+            workbook.release_resources()
+            raise _limit_error()
         if any(cell.plain for cell in row):
             rows.append(row)
 
+    workbook.release_resources()
     return rows
 
 
@@ -123,6 +181,8 @@ def _xlsx_text_runs(element) -> list[tuple[str, bool]]:
 
 def _xlsx_cell_from_runs(runs) -> SpreadsheetCell:
     plain = "".join(text for text, _is_bold in runs)
+    if len(plain) > MAX_CELL_LENGTH:
+        raise _limit_error()
     html_parts = []
     for text, is_bold in runs:
         fragment = escape(text)
@@ -134,7 +194,9 @@ def _read_xlsx_shared_strings(archive) -> list[SpreadsheetCell]:
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
 
-    root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+    root = _read_xml(archive, "xl/sharedStrings.xml")
+    if len(root) > MAX_CELLS:
+        raise _limit_error()
     return [
         _xlsx_cell_from_runs(_xlsx_text_runs(shared_string))
         for shared_string in root.findall("main:si", XLSX_NS)
@@ -143,15 +205,19 @@ def _read_xlsx_shared_strings(archive) -> list[SpreadsheetCell]:
 
 def _xlsx_column_index(cell_reference, fallback):
     if not cell_reference:
+        if fallback >= MAX_COLUMNS:
+            raise _limit_error()
         return fallback
 
-    match = re.match(r"([A-Z]+)", cell_reference.upper())
-    if not match:
-        return fallback
+    match = re.fullmatch(r"([A-Z]{1,3})([1-9][0-9]{0,6})", cell_reference.upper())
+    if not match or int(match.group(2)) > MAX_ROWS:
+        raise _limit_error()
 
     index = 0
     for char in match.group(1):
         index = index * 26 + ord(char) - ord("A") + 1
+    if index > MAX_COLUMNS:
+        raise _limit_error()
     return index - 1
 
 
@@ -182,6 +248,7 @@ def _read_xlsx_cell(cell, shared_strings) -> SpreadsheetCell:
 
 def _read_xlsx_rows(src_path) -> list[list[SpreadsheetCell]]:
     with ZipFile(src_path) as archive:
+        _validate_archive(archive)
         sheet_path = "xl/worksheets/sheet1.xml"
         if sheet_path not in archive.namelist():
             raise ValidationError(
@@ -189,10 +256,13 @@ def _read_xlsx_rows(src_path) -> list[list[SpreadsheetCell]]:
             )
 
         shared_strings = _read_xlsx_shared_strings(archive)
-        root = ElementTree.fromstring(archive.read(sheet_path))
+        root = _read_xml(archive, sheet_path)
         rows = []
-
-        for row_node in root.findall(".//main:sheetData/main:row", XLSX_NS):
+        row_nodes = root.findall(".//main:sheetData/main:row", XLSX_NS)
+        if len(row_nodes) > MAX_ROWS:
+            raise _limit_error()
+        total_cells = 0
+        for row_node in row_nodes:
             cells = []
             for fallback_index, cell_node in enumerate(
                 row_node.findall("main:c", XLSX_NS)
@@ -201,6 +271,9 @@ def _read_xlsx_rows(src_path) -> list[list[SpreadsheetCell]]:
                 while len(cells) <= column_index:
                     cells.append(SpreadsheetCell(plain="", html=""))
                 cells[column_index] = _read_xlsx_cell(cell_node, shared_strings)
+            total_cells += len(cells)
+            if total_cells > MAX_CELLS:
+                raise _limit_error()
 
             if any(cell.plain for cell in cells):
                 rows.append(cells)

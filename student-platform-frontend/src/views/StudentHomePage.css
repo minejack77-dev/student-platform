@@ -219,6 +219,21 @@
   z-index: 1;
 }
 
+.today-task-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.today-task-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.today-task-copy { min-width: 0; }
+.today-task-copy p { margin: 6px 0 0; }
+@media (max-width: 700px) {
+  .today-task-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .today-task-item > .btn { grid-column: 1 / -1; min-height: 44px; }
+}
 .day-task-item {
   align-items: center;
   border-top: 1px solid rgba(18, 43, 70, 0.1);

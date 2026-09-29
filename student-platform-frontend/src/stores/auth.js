@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
-import { Auth } from "@/api.js";
+import { Auth, subscribeToPush, unsubscribeFromPush } from "@/api.js";
+import { clearPrivateStorage, bindPrivateStorageUser } from "@/utils/privateStorage";
 
 export const useAuthStore = defineStore("auth", () => {
   const user = ref(null);
@@ -13,10 +14,13 @@ export const useAuthStore = defineStore("auth", () => {
   const role = computed(() => user.value?.role ?? null);
 
   const clearUser = () => {
+    clearPrivateStorage();
     user.value = null;
   };
 
   const setUser = (payload) => {
+    bindPrivateStorageUser(payload?.id);
+    if (user.value && user.value.id !== payload?.id) clearPrivateStorage();
     user.value = payload;
   };
 
@@ -58,6 +62,7 @@ export const useAuthStore = defineStore("auth", () => {
   const login = async (credentials) => {
     await Auth.fetchCsrf();
     const payload = await Auth.login(credentials);
+    clearPrivateStorage();
     setUser(payload);
     initialized.value = true;
     if (payload?.role === "student") {
@@ -70,6 +75,7 @@ export const useAuthStore = defineStore("auth", () => {
     await Auth.fetchCsrf();
     try {
       await Auth.logout();
+      await unsubscribeFromPush().catch(() => {});
       clearUser();
       initialized.value = true;
       return true;

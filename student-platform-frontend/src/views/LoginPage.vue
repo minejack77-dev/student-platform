@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import { useAuthStore } from "@/stores/auth";
+import { apiError } from "@/utils/apiError";
 
 const router = useRouter();
 const route = useRoute();
@@ -17,6 +18,7 @@ const form = reactive({
 
 const isSubmitting = ref(false);
 const errorMessage = ref("");
+const showPassword = ref(false);
 
 const nextRoute = computed(() => {
   const redirect = route.query.redirect;
@@ -73,9 +75,7 @@ const submit = async () => {
       await redirectAuthenticatedUser();
       return;
     }
-    errorMessage.value =
-      error?.response?.data?.detail ||
-      t("login.errors.signIn");
+    errorMessage.value = apiError(error, "ux.loginError");
   } finally {
     isSubmitting.value = false;
   }
@@ -114,18 +114,20 @@ const submit = async () => {
             <input
               v-model="form.password"
               class="form-control"
-              type="password"
+              :type="showPassword ? 'text' : 'password'"
               autocomplete="current-password"
               :placeholder="t('login.passwordPlaceholder')"
             />
           </label>
 
-          <div v-if="errorMessage" class="alert alert-danger mb-0">{{ errorMessage }}</div>
+          <button type="button" class="btn btn-link" :aria-pressed="showPassword" @click="showPassword = !showPassword">{{ t(showPassword ? 'ux.hidePassword' : 'ux.showPassword') }}</button>
+          <div v-if="errorMessage" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
 
           <button class="btn btn-primary login-btn" :disabled="isSubmitting" type="submit">
             {{ isSubmitting ? t("login.signingIn") : t("login.signIn") }}
           </button>
         </form>
+        <details class="mt-3"><summary>{{ t('ux.helpLogin') }}</summary><p>{{ t('ux.helpLoginCopy') }}</p></details>
       </div>
     </div>
   </section>

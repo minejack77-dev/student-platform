@@ -1,9 +1,12 @@
 <script setup>
+import { apiError } from "@/utils/apiError";
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Group, Subject, Topic, Unit, Workbook } from "@/api.js";
 
 const props = defineProps(["id"]);
+const route = useRoute();
 const { t } = useI18n();
 
 const subject = ref({});
@@ -121,14 +124,7 @@ const getTopicPlacementLabel = (topic) =>
   [topic.workbook_title, topic.unit_title, topic.title].filter(Boolean).join(" / ");
 
 const getCreateTopicErrorMessage = (error) => {
-  const payload = error?.response?.data;
-  return (
-    payload?.unit?.[0] ||
-    payload?.workbook?.[0] ||
-    payload?.title?.[0] ||
-    payload?.detail ||
-    t("subjectDetail.errors.createLesson")
-  );
+  return apiError(error, "subjectDetail.errors.createLesson");
 };
 
 const ensureWorkbookForTopic = async () => {
@@ -226,7 +222,7 @@ const assignSubjectToGroup = async (groupId) => {
     assignSuccess.value = t("subjectDetail.messages.subjectAssigned");
     await loadGroups();
   } catch (error) {
-    assignError.value = error?.response?.data?.detail || t("subjectDetail.errors.assignSubject");
+    assignError.value = apiError(error, "subjectDetail.errors.assignSubject");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -253,8 +249,7 @@ const saveTopicForGroup = async (groupId) => {
     assignSuccess.value = t("subjectDetail.messages.assignmentUpdated");
     await loadGroups();
   } catch (error) {
-    assignError.value =
-      error?.response?.data?.detail || t("subjectDetail.errors.updateLesson");
+    assignError.value = apiError(error, "subjectDetail.errors.updateLesson");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -269,8 +264,7 @@ const clearSubjectFromGroup = async (groupId) => {
     assignSuccess.value = t("subjectDetail.messages.subjectRemoved");
     await loadGroups();
   } catch (error) {
-    assignError.value =
-      error?.response?.data?.detail || t("subjectDetail.errors.removeSubject");
+    assignError.value = apiError(error, "subjectDetail.errors.removeSubject");
   } finally {
     setGroupLoading(groupId, false);
   }
@@ -294,6 +288,7 @@ onMounted(async () => {
 
 <template>
   <div class="subject-page">
+    <router-link class="inline-action-link" v-if="route.query.group" :to="{name: 'group-overview', params:{id:route.query.group}}">{{ t("ux.schedule") }}</router-link>
     <section class="surface-card subject-hero">
       <div>
         <span class="pill">{{ t("subjectDetail.badge") }}</span>
@@ -317,86 +312,7 @@ onMounted(async () => {
     <div v-if="assignError" class="alert alert-danger">{{ assignError }}</div>
     <div v-if="assignSuccess" class="alert alert-success">{{ assignSuccess }}</div>
 
-    <section class="surface-card panel-card">
-      <div class="panel-head">
-        <h2 class="section-title">{{ t("subjectDetail.groupsInSubject") }}</h2>
-        <span class="pill">{{ t("common.groupsCount", { count: assignedGroups.length }) }}</span>
-      </div>
 
-      <div v-if="assignedGroups.length === 0" class="empty-box">
-        {{ t("subjectDetail.noAssignedGroups") }}
-      </div>
-
-      <div class="cards-grid">
-        <article
-          v-for="group in assignedGroups"
-          :key="group.id"
-          class="group-card"
-        >
-          <div class="group-card-head">
-            <h3 class="group-name">{{ group.name }}</h3>
-            <router-link
-              class="small-link"
-              :to="{ name: 'group-details', params: { id: group.id } }"
-            >
-              {{ t("common.openGroup") }}
-            </router-link>
-          </div>
-
-          <p class="group-description">{{ group.description || t("common.noDescription") }}</p>
-
-          <label class="form-label mb-1">{{ t("subjectDetail.lessonForGroup") }}</label>
-          <select
-            v-model="selectedTopicByGroup[group.id]"
-            class="form-select form-select-sm"
-          >
-            <option value="">{{ t("subjectDetail.noLessonSelected") }}</option>
-            <option v-for="topic in topics" :key="topic.id" :value="topic.id">
-              {{ getTopicPlacementLabel(topic) }}
-            </option>
-          </select>
-
-          <div class="group-actions">
-            <button
-              class="btn btn-primary btn-sm"
-              type="button"
-              :disabled="assignLoadingByGroup[group.id]"
-              @click="saveTopicForGroup(group.id)"
-            >
-              {{ assignLoadingByGroup[group.id] ? t("common.saving") : t("subjectDetail.saveLesson") }}
-            </button>
-            <button
-              class="btn btn-outline-danger btn-sm"
-              type="button"
-              :disabled="assignLoadingByGroup[group.id]"
-              @click="clearSubjectFromGroup(group.id)"
-            >
-              {{ t("subjectDetail.removeSubject") }}
-            </button>
-          </div>
-        </article>
-      </div>
-
-      <div class="assign-row">
-        <div class="assign-copy">
-          <h3 class="assign-title">{{ t("subjectDetail.assignTitle") }}</h3>
-          <p class="assign-hint">
-            {{ t("subjectDetail.assignHint") }}
-          </p>
-        </div>
-        <div class="assign-controls">
-          <select v-model="selectedGroupToAssign" class="form-select">
-            <option value="">{{ t("subjectDetail.chooseGroup") }}</option>
-            <option v-for="group in availableGroups" :key="group.id" :value="group.id">
-              {{ group.name }}
-            </option>
-          </select>
-          <button class="btn btn-outline-primary" type="button" @click="assignSelectedGroup">
-            {{ t("subjectDetail.assignSubject") }}
-          </button>
-        </div>
-      </div>
-    </section>
 
     <section class="surface-card panel-card">
       <div class="panel-head">
@@ -404,8 +320,8 @@ onMounted(async () => {
         <span class="pill">{{ t("common.totalCount", { count: topics.length }) }}</span>
       </div>
 
-      <div class="create-topic-box">
-        <h3 class="create-title">{{ t("subjectDetail.createLesson") }}</h3>
+      <details class="create-topic-box">
+        <summary>{{ t("subjectDetail.createLesson") }}</summary>
         <div class="topic-structure-grid">
           <div class="topic-structure-field">
             <label class="form-label mb-1">{{ t("common.textbook") }}</label>
@@ -487,7 +403,7 @@ onMounted(async () => {
         <button class="btn btn-primary btn-sm" type="button" :disabled="createTopicLoading" @click="createTopic">
           {{ createTopicLoading ? t("common.creating") : t("subjectDetail.createLesson") }}
         </button>
-      </div>
+      </details>
 
       <div v-if="topics.length === 0" class="empty-box">{{ t("subjectDetail.noLessonsYet") }}</div>
 
@@ -501,7 +417,7 @@ onMounted(async () => {
             <h3 class="group-name">{{ topic.title }}</h3>
             <router-link
               class="small-link"
-              :to="{ name: 'topic-detail', params: { id: topic.id } }"
+              :to="{ name: 'topic-detail', params: { id: topic.id }, query: { group: route.query.group } }"
             >
               {{ t("common.openLesson") }}
             </router-link>
@@ -509,6 +425,86 @@ onMounted(async () => {
           <div class="topic-path">{{ topic.workbook_title }} / {{ topic.unit_title }}</div>
           <p class="group-description">{{ topic.description || t("common.noDescription") }}</p>
         </article>
+      </div>
+    </section>
+    <section class="surface-card panel-card">
+      <div class="panel-head">
+        <h2 class="section-title">{{ t("subjectDetail.groupsInSubject") }}</h2>
+        <span class="pill">{{ t("common.groupsCount", { count: assignedGroups.length }) }}</span>
+      </div>
+
+      <div v-if="assignedGroups.length === 0" class="empty-box">
+        {{ t("subjectDetail.noAssignedGroups") }}
+      </div>
+
+      <div class="cards-grid">
+        <article
+          v-for="group in assignedGroups"
+          :key="group.id"
+          class="group-card"
+        >
+          <div class="group-card-head">
+            <h3 class="group-name">{{ group.name }}</h3>
+            <router-link
+              class="small-link"
+              :to="{ name: 'group-details', params: { id: group.id } }"
+            >
+              {{ t("common.openGroup") }}
+            </router-link>
+          </div>
+
+          <p class="group-description">{{ group.description || t("common.noDescription") }}</p>
+
+          <label class="form-label mb-1">{{ t("subjectDetail.lessonForGroup") }}</label>
+          <select
+            v-model="selectedTopicByGroup[group.id]"
+            class="form-select form-select-sm"
+          >
+            <option value="">{{ t("subjectDetail.noLessonSelected") }}</option>
+            <option v-for="topic in topics" :key="topic.id" :value="topic.id">
+              {{ getTopicPlacementLabel(topic) }}
+            </option>
+          </select>
+
+          <div class="group-actions">
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="assignLoadingByGroup[group.id]"
+              @click="saveTopicForGroup(group.id)"
+            >
+              {{ assignLoadingByGroup[group.id] ? t("common.saving") : t("subjectDetail.saveLesson") }}
+            </button>
+            <button
+              class="btn btn-outline-danger btn-sm"
+              type="button"
+              :disabled="assignLoadingByGroup[group.id]"
+              @click="clearSubjectFromGroup(group.id)"
+            >
+              {{ t("subjectDetail.removeSubject") }}
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <div class="assign-row">
+        <div class="assign-copy">
+          <h3 class="assign-title">{{ t("subjectDetail.assignTitle") }}</h3>
+          <p class="assign-hint">
+            {{ t("subjectDetail.assignHint") }}
+          </p>
+        </div>
+        <div class="assign-controls">
+          <select v-model="selectedGroupToAssign" class="form-select">
+            <option value="">{{ t("subjectDetail.chooseGroup") }}</option>
+            <option v-for="group in availableGroups" :key="group.id" :value="group.id">
+              {{ group.name }}
+            </option>
+          </select>
+          <button class="btn btn-outline-primary" type="button" @click="assignSelectedGroup">
+            {{ t("subjectDetail.assignSubject") }}
+          </button>
+        </div>
       </div>
     </section>
   </div>

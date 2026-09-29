@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import path, reverse
@@ -22,6 +23,41 @@ from .models import (
     Workbook,
 )
 from .services.question_import import import_questions_from_xls
+from .services.material_access import can_edit_material, OWNER_LOOKUPS
+from .permissions import can_manage_group
+
+
+class OwnedMaterialAdmin(admin.ModelAdmin):
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        if request.user.is_superuser:
+            return queryset
+        return queryset.filter(**{OWNER_LOOKUPS[self.model._meta.model_name]: request.user.pk})
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and (obj is None or can_edit_material(request.user, obj))
+
+    def has_delete_permission(self, request, obj=None):
+        return super().has_delete_permission(request, obj) and (obj is None or can_edit_material(request.user, obj))
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        related = db_field.remote_field.model
+        lookup = OWNER_LOOKUPS.get(related._meta.model_name)
+        if lookup and not request.user.is_superuser:
+            kwargs["queryset"] = related.objects.filter(**{lookup: request.user.pk})
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if isinstance(obj, Subject) and not change and not request.user.is_superuser:
+            obj.owner = request.user
+        if not can_edit_material(request.user, obj):
+            raise PermissionDenied
+        # A changed parent must not move an owned object under a foreign root.
+        for field in ("subject", "workbook", "unit", "topic", "task"):
+            parent = getattr(obj, field, None)
+            if parent is not None and not can_edit_material(request.user, parent):
+                raise PermissionDenied
+        return super().save_model(request, obj, form, change)
 
 
 def clean_admin_id(value):
@@ -131,14 +167,17 @@ class TopicAdminForm(forms.ModelForm):
 
 
 @admin.register(Subject)
-class SubjectAdmin(admin.ModelAdmin):
-    list_display = ("name", "is_active", "updated_at")
+class SubjectAdmin(OwnedMaterialAdmin):
+    list_display = ("name", "owner", "is_active", "updated_at")
     list_filter = ("is_active",)
     search_fields = ("name",)
 
+    def get_readonly_fields(self, request, obj=None):
+        return () if request.user.is_superuser else ("owner",)
+
 
 @admin.register(Workbook)
-class WorkbookAdmin(admin.ModelAdmin):
+class WorkbookAdmin(OwnedMaterialAdmin):
     list_display = ("title", "subject", "is_active", "updated_at")
     list_filter = ("is_active", "subject")
     search_fields = ("title", "subject__name")
@@ -146,7 +185,7 @@ class WorkbookAdmin(admin.ModelAdmin):
 
 
 @admin.register(Unit)
-class UnitAdmin(admin.ModelAdmin):
+class UnitAdmin(OwnedMaterialAdmin):
     list_display = ("title", "workbook", "subject", "is_active", "updated_at")
     list_filter = ("is_active", "workbook__subject", "workbook")
     search_fields = ("title", "workbook__title", "workbook__subject__name")
@@ -157,7 +196,7 @@ class UnitAdmin(admin.ModelAdmin):
 
 
 @admin.register(Topic)
-class TopicAdmin(admin.ModelAdmin):
+class TopicAdmin(OwnedMaterialAdmin):
     form = TopicAdminForm
     fields = (
         "subject",
@@ -206,10 +245,12 @@ class TopicAdmin(admin.ModelAdmin):
         return super().change_view(request, object_id, form_url, extra_context)
 
     def workbook_options(self, request):
+        if not self.has_view_permission(request) or not request.user.has_perm("learning.view_workbook"):
+            raise PermissionDenied
         subject_id = clean_admin_id(request.GET.get("subject"))
         queryset = Workbook.objects.none()
         if subject_id:
-            queryset = Workbook.objects.filter(
+            queryset = self.admin_site._registry[Workbook].get_queryset(request).filter(
                 subject_id=subject_id,
                 is_active=True,
             ).order_by("title")
@@ -223,10 +264,12 @@ class TopicAdmin(admin.ModelAdmin):
         )
 
     def unit_options(self, request):
+        if not self.has_view_permission(request) or not request.user.has_perm("learning.view_unit"):
+            raise PermissionDenied
         workbook_id = clean_admin_id(request.GET.get("workbook"))
         queryset = Unit.objects.none()
         if workbook_id:
-            queryset = Unit.objects.filter(
+            queryset = self.admin_site._registry[Unit].get_queryset(request).filter(
                 workbook_id=workbook_id,
                 is_active=True,
             ).order_by("title")
@@ -240,7 +283,11 @@ class TopicAdmin(admin.ModelAdmin):
         )
 
     def import_from_src_view(self, request, object_id):
-        topic = get_object_or_404(Topic, pk=object_id)
+        if not self.has_change_permission(request) or not request.user.has_perms(("learning.add_question", "learning.add_task")):
+            raise PermissionDenied
+        topic = get_object_or_404(self.get_queryset(request), pk=object_id)
+        if not self.has_change_permission(request, topic):
+            raise PermissionDenied
         change_url = reverse("admin:learning_topic_change", args=[topic.pk])
 
         if request.method != "POST":
@@ -273,7 +320,7 @@ class TopicAdmin(admin.ModelAdmin):
 
 
 @admin.register(Task)
-class TaskAdmin(admin.ModelAdmin):
+class TaskAdmin(OwnedMaterialAdmin):
     fields = (
         "topic",
         "title",
@@ -319,7 +366,11 @@ class TaskAdmin(admin.ModelAdmin):
         return super().change_view(request, object_id, form_url, extra_context)
 
     def import_from_src_view(self, request, object_id):
-        task = get_object_or_404(Task, pk=object_id)
+        if not self.has_change_permission(request) or not request.user.has_perm("learning.add_question"):
+            raise PermissionDenied
+        task = get_object_or_404(self.get_queryset(request), pk=object_id)
+        if not self.has_change_permission(request, task):
+            raise PermissionDenied
         change_url = reverse("admin:learning_task_change", args=[task.pk])
 
         if request.method != "POST":
@@ -366,6 +417,16 @@ class MatchingPairInline(admin.TabularInline):
 
 
 class QuestionImageInline(admin.TabularInline):
+    # All uploads go through the bounded decoder/quota service in the application.
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     model = QuestionImage
     extra = 0
     fields = ("order", "image", "original_name")
@@ -373,12 +434,23 @@ class QuestionImageInline(admin.TabularInline):
 
 
 @admin.register(Question)
-class QuestionAdmin(admin.ModelAdmin):
+class QuestionAdmin(OwnedMaterialAdmin):
     list_display = ("id", "task", "topic", "question_type", "is_active", "created_at")
     list_filter = ("question_type", "topic__subject", "topic", "task", "is_active")
     search_fields = ("text",)
     autocomplete_fields = ("topic", "task")
     inlines = (QuestionImageInline, ChoiceInline, MatchingPairInline)
+
+
+class RecordedAttemptAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class AnswerInline(admin.StackedInline):
@@ -395,7 +467,7 @@ class AttemptQuestionInline(admin.TabularInline):
 
 
 @admin.register(Attempt)
-class AttemptAdmin(admin.ModelAdmin):
+class AttemptAdmin(RecordedAttemptAdmin):
     list_display = ("id", "student", "topic", "task", "status", "started_at", "finished_at")
     list_filter = ("status", "topic__subject", "topic", "task")
     search_fields = ("student__user__username", "student__user__email")
@@ -404,7 +476,7 @@ class AttemptAdmin(admin.ModelAdmin):
 
 
 @admin.register(AttemptQuestion)
-class AttemptQuestionAdmin(admin.ModelAdmin):
+class AttemptQuestionAdmin(RecordedAttemptAdmin):
     list_display = ("id", "attempt", "order", "question")
     list_filter = ("attempt__topic__subject", "attempt__topic")
     autocomplete_fields = ("attempt", "question")
@@ -420,7 +492,7 @@ class AttemptQuestionAdmin(admin.ModelAdmin):
 
 
 @admin.register(Answer)
-class AnswerAdmin(admin.ModelAdmin):
+class AnswerAdmin(RecordedAttemptAdmin):
     list_display = ("id", "attempt_question", "is_correct", "answered_at")
     list_filter = (
         "is_correct",
@@ -447,6 +519,20 @@ class GroupTeachingAssignmentInline(admin.TabularInline):
 
 @admin.register(GroupTeachingAssignment)
 class GroupTeachingAssignmentAdmin(admin.ModelAdmin):
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset if request.user.is_superuser else queryset.filter(group__teacher__user=request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "group" and not request.user.is_superuser:
+            kwargs["queryset"] = Group.objects.filter(teacher__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if not can_manage_group(request.user, obj.group):
+            raise PermissionDenied
+        return super().save_model(request, obj, form, change)
+
     list_display = ("group", "teacher", "subject", "topic", "task", "updated_at")
     list_filter = ("subject", "topic", "task")
     search_fields = (
@@ -461,6 +547,20 @@ class GroupTeachingAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset if request.user.is_superuser else queryset.filter(teacher__user=request.user)
+
+    def get_readonly_fields(self, request, obj=None):
+        return () if request.user.is_superuser else ("teacher",)
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser and not change:
+            obj.teacher = request.user.teacher_profile
+        if not can_manage_group(request.user, obj):
+            raise PermissionDenied
+        return super().save_model(request, obj, form, change)
+
     list_display = ("name", "teacher", "is_active", "updated_at")
     list_filter = ("is_active",)
     search_fields = ("name",)

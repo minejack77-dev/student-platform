@@ -41,20 +41,14 @@ def env_list(name, default):
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-hj_(y!jv8(rcr6)htbvkp-jh+@3yich5(p*%ofxi17eo9wv&e1",
-)
+from config.security import security_settings
+globals().update(security_settings())
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool("DJANGO_DEBUG", True)
-
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", [])
 DEV_FRONTEND_PORTS = range(5173, 5181)
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", []) or [
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", []) or ([] if DJANGO_ENV == "production" else [
     *(f"http://127.0.0.1:{port}" for port in DEV_FRONTEND_PORTS),
     *(f"http://localhost:{port}" for port in DEV_FRONTEND_PORTS),
-]
+])
 
 
 # Application definition
@@ -76,13 +70,19 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = "accounts.User"
 
+# Keep upstream migration identities and add the missing user_agent state fix.
+MIGRATION_MODULES = {"webpush": "config.webpush_migrations"}
+
 MIDDLEWARE = [
+    "accounts.middleware.PrivateAPIResponseMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "accounts.throttling.AdminLoginThrottleMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "accounts.audit.SecurityAuditMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -108,9 +108,19 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "config.api_errors.api_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
+    "DEFAULT_THROTTLE_CLASSES": ["accounts.throttling.SecurityThrottle"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_PAGINATION_CLASS": "learning.pagination.PagePagination",
     "PAGE_SIZE": 20,
+}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"security_console": {"class": "logging.StreamHandler"}},
+    "loggers": {"security.audit": {"handlers": ["security_console"], "level": "INFO", "propagate": False}},
 }
 
 # Database

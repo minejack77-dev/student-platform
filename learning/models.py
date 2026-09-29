@@ -2,13 +2,19 @@ from pathlib import Path
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
+from django.conf import settings
 from django.core.validators import FileExtensionValidator
 from django.db import models
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
+from learning.services.uploads import validate_source_upload
 
 
 class Subject(models.Model):
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="owned_subjects", null=True, blank=True,
+    )
     name = models.CharField(max_length=200, unique=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
@@ -91,7 +97,7 @@ class Topic(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
-    src = models.FileField(blank=True, null=True)
+    src = models.FileField(blank=True, null=True, validators=[validate_source_upload])
 
     class Meta:
         ordering = ["unit__workbook__title", "unit__title", "title"]
@@ -159,7 +165,7 @@ class Task(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
-    src = models.FileField(blank=True, null=True)
+    src = models.FileField(blank=True, null=True, validators=[validate_source_upload])
     questions_per_attempt = models.PositiveSmallIntegerField(
         default=DEFAULT_QUESTIONS_PER_ATTEMPT
     )
@@ -268,6 +274,7 @@ def question_image_upload_to(instance, filename):
 
 
 class QuestionImage(models.Model):
+    size_bytes = models.PositiveIntegerField(default=0)
     question = models.ForeignKey(
         Question,
         on_delete=models.CASCADE,
@@ -292,10 +299,25 @@ class QuestionImage(models.Model):
         return self.original_name or self.image.name
 
 
+class ImageStorageLock(models.Model):
+    """Singleton serialized by upload transactions before evaluating global quotas."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+
 @receiver(post_delete, sender=QuestionImage)
 def delete_question_image_file(sender, instance, **kwargs):
     if instance.image:
-        instance.image.delete(save=False)
+        from django.db import transaction
+        name, storage = instance.image.name, instance.image.storage
+        transaction.on_commit(lambda: storage.delete(name))
+
+
+@receiver(pre_delete, sender=QuestionImage)
+def protect_attempt_images(sender, instance, **kwargs):
+    from django.db.models.deletion import ProtectedError
+    for snapshot in AttemptQuestion.objects.filter(question_id=instance.question_id).values_list("content_snapshot", flat=True).iterator():
+        if any(image["id"] == instance.pk for image in snapshot.get("images", [])):
+            raise ProtectedError("This image is used by a recorded attempt.", [instance])
 
 
 class Choice(models.Model):
@@ -329,6 +351,8 @@ class MatchingPair(models.Model):
 
 
 class Attempt(models.Model):
+    passing_threshold_snapshot = models.PositiveSmallIntegerField(null=True, editable=False)
+    question_count_snapshot = models.PositiveSmallIntegerField(null=True, editable=False)
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
@@ -385,11 +409,15 @@ class Attempt(models.Model):
         return self.is_success
 
     def passing_correct_answers(self):
+        if self.passing_threshold_snapshot is not None:
+            return self.passing_threshold_snapshot
         if self.task_id:
             return self.task.passing_correct_answers
         return self.PASSING_CORRECT_ANSWERS
 
     def questions_per_attempt(self):
+        if self.question_count_snapshot is not None:
+            return self.question_count_snapshot
         if self.task_id:
             return self.task.questions_per_attempt
         return self.QUESTIONS_PER_ATTEMPT
@@ -419,6 +447,9 @@ class Attempt(models.Model):
             self.task = self.schedule_entry.task
         elif self.topic_id and not self.task_id:
             self.task = Task.get_default_for_topic(self.topic)
+        if self._state.adding:
+            self.passing_threshold_snapshot = self.passing_correct_answers()
+            self.question_count_snapshot = self.questions_per_attempt()
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -429,6 +460,14 @@ class Attempt(models.Model):
 
 
 class AttemptQuestion(models.Model):
+    content_snapshot = models.JSONField(default=dict, editable=False)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.content_snapshot:
+            from learning.services.snapshots import capture_question
+            self.content_snapshot = capture_question(self.question)
+        return super().save(*args, **kwargs)
+
     attempt = models.ForeignKey(
         Attempt, on_delete=models.CASCADE, related_name="attempt_questions"
     )
@@ -438,6 +477,8 @@ class AttemptQuestion(models.Model):
     order = models.PositiveSmallIntegerField()  # 1..10
     matching_left_order = models.JSONField(default=list, blank=True)
     matching_right_order = models.JSONField(default=list, blank=True)
+    matching_left_tokens = models.JSONField(default=dict, blank=True)
+    matching_right_tokens = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [
@@ -455,6 +496,7 @@ class AttemptQuestion(models.Model):
 
 
 class Answer(models.Model):
+    selected_choice_ids_snapshot = models.JSONField(null=True, editable=False)
     attempt_question = models.OneToOneField(
         AttemptQuestion, on_delete=models.CASCADE, related_name="answer"
     )
@@ -479,10 +521,10 @@ class Answer(models.Model):
         return f"Answer for Attempt #{self.attempt_question.attempt_id} Q{self.attempt_question.order}"
 
     def check_answer(self):
-        if self.attempt_question.question.question_type == Question.QuestionType.MATCHING:
-            pair_ids = set(
-                self.attempt_question.question.matching_pairs.values_list("id", flat=True)
-            )
+        from learning.services.snapshots import question_snapshot
+        snapshot = question_snapshot(self.attempt_question)
+        if snapshot["question_type"] == Question.QuestionType.MATCHING:
+            pair_ids = {pair["id"] for pair in snapshot["matching_pairs"]}
             selected = {
                 int(left_id): int(right_id)
                 for left_id, right_id in (self.selected_matching_pairs or {}).items()
@@ -497,12 +539,8 @@ class Answer(models.Model):
             self.save(update_fields=["is_correct"])
             return self.is_correct
 
-        correct = set(
-            self.attempt_question.question.choices.filter(is_correct=True).values_list(
-                "id", flat=True
-            )
-        )
-        selected = set(self.selected_choices.values_list("id", flat=True))
+        correct = {choice["id"] for choice in snapshot["choices"] if choice["is_correct"]}
+        selected = set(self.selected_choice_ids_snapshot if self.selected_choice_ids_snapshot is not None else self.selected_choices.values_list("id", flat=True))
         self.is_correct = selected == correct
         self.save(update_fields=["is_correct"])
         return self.is_correct

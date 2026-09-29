@@ -1,13 +1,61 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import axios from "axios";
+import { useRoute } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
+import { apiError } from "@/utils/apiError";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
 import { useI18n } from "vue-i18n";
-import { Question, Task, Topic } from "@/api.js";
+import { Group, Question, Task, Topic } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
 import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 import QuestionEditorForm from "./QuestionEditorForm.vue";
 
 const props = defineProps(["id"]);
 const { t } = useI18n();
+const route = useRoute();
+const auth = useAuthStore();
+const activeTab = ref('questions');
+const newTaskOpen = ref(false);
+const assignmentGroups = ref([]);
+const assignmentGroup = ref('');
+const assignmentOpen = ref(false);
+const assignmentError = ref('');
+const openAssignment = async () => {
+  assignmentOpen.value = true;
+  assignmentError.value = '';
+  try {
+    const response = await Group.filter({teacher_subject: topic.value.subject});
+    assignmentGroups.value = response.results ?? response;
+  } catch (error) { assignmentError.value = apiError(error); }
+};
+const preview = ref(null);
+const undoToken = ref('');
+const undoConfirm = ref(false);
+const draftMessage = ref('');
+const discardConfirm = ref(false);
+const undoKey = () => `import-undo:${auth.user?.id}:${selectedTaskId.value}`;
+const draftKey = () => `question-draft:${auth.user?.id}:${props.id}:${selectedTaskId.value}`;
+const discardQuestionDraft = () => {
+  try { sessionStorage.removeItem(draftKey()); } catch {}
+  resetQuestionForm(); draftMessage.value = ''; discardConfirm.value = false;
+};
+const restoreDraft = () => {
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(draftKey()) || 'null');
+    if (draft) { questionForm.value = {...draft, pending_images: []}; openQuestionEditorId.value = draft.id || 'new'; draftMessage.value = t('ux.draftRestored') + ' ' + t('ux.draftFiles'); }
+  } catch { /* Storage may be unavailable. */ }
+};
+const undoImport = async () => {
+  undoConfirm.value = false;
+  try {
+    await axios.post(`/api/task/${selectedTaskId.value}/undo-import/`, {token: undoToken.value});
+    undoToken.value = '';
+    try { sessionStorage.removeItem(undoKey()); } catch {}
+    importSuccess.value = t('ux.undone');
+    await Promise.all([getTasks(), getQuestions()]);
+  } catch (error) { importError.value = apiError(error); }
+};
 
 const topic = ref({});
 const tasks = ref([]);
@@ -58,7 +106,7 @@ function createBlankQuestionForm() {
     pending_images: [],
     removed_image_ids: [],
     choices: [
-      { id: null, text: "", is_correct: true, order: 1 },
+      { id: null, text: "", is_correct: false, order: 1 },
       { id: null, text: "", is_correct: false, order: 2 },
     ],
     matching_pairs: [
@@ -74,40 +122,7 @@ const questionTypes = computed(() => [
   { value: "matching", label: t("topicDetail.matching") },
 ]);
 
-const getApiErrorMessage = (data) => {
-  if (!data) {
-    return "";
-  }
-  if (typeof data === "string") {
-    return data;
-  }
 
-  const fields = [
-    "detail",
-    "src",
-    "task",
-    "topic",
-    "question_type",
-    "text",
-    "instruction",
-    "images",
-    "choices",
-    "matching_pairs",
-    "questions_per_attempt",
-    "passing_correct_answers",
-    "non_field_errors",
-  ];
-  for (const field of fields) {
-    const value = data[field];
-    if (Array.isArray(value) && value.length > 0) {
-      return value[0];
-    }
-    if (typeof value === "string") {
-      return value;
-    }
-  }
-  return "";
-};
 
 const validateAttemptSettings = (form) => {
   const questionsPerAttempt = Number(form.questions_per_attempt);
@@ -125,6 +140,7 @@ const validateAttemptSettings = (form) => {
 };
 
 const resetImportForm = () => {
+  preview.value = null;
   questionFile.value = null;
   importForm.value = { question_type: "single_choice" };
   if (fileInputRef.value) {
@@ -133,6 +149,7 @@ const resetImportForm = () => {
 };
 
 const resetQuestionForm = () => {
+  openQuestionEditorId.value = null;
   revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
   questionFormError.value = "";
@@ -211,11 +228,7 @@ const createTask = async () => {
     await getTasks();
     await getQuestions();
   } catch (error) {
-    taskSaveError.value =
-      error?.response?.data?.title?.[0] ||
-      getApiErrorMessage(error?.response?.data) ||
-      error?.response?.data?.detail ||
-      t("topicDetail.errors.createTask");
+    taskSaveError.value = apiError(error, "topicDetail.errors.createTask");
   } finally {
     isTaskSaving.value = false;
   }
@@ -248,7 +261,7 @@ const updateCurrentTaskSettings = async () => {
     currentTaskSaveSuccess.value = t("topicDetail.taskSettingsSaved");
   } catch (error) {
     currentTaskSaveError.value =
-      getApiErrorMessage(error?.response?.data) || t("topicDetail.errors.saveSettings");
+      apiError(error, "topicDetail.errors.saveSettings");
   } finally {
     isCurrentTaskSaving.value = false;
   }
@@ -281,7 +294,7 @@ const removeChoice = (index) => {
     isSingleChoiceForm.value &&
     !questionForm.value.choices.some((choice) => choice.is_correct)
   ) {
-    questionForm.value.choices[0].is_correct = true;
+    questionFormError.value = t("ux.chooseCorrect");
   }
 };
 
@@ -327,12 +340,13 @@ const onQuestionTypeChange = () => {
     );
     questionForm.value.choices = questionForm.value.choices.map((choice, index) => ({
       ...choice,
-      is_correct: index === Math.max(firstCorrectIndex, 0),
+      is_correct: index === firstCorrectIndex,
     }));
   }
 };
 
 const startNewQuestion = () => {
+  openQuestionEditorId.value = null;
   revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
   questionFormError.value = "";
@@ -341,9 +355,11 @@ const startNewQuestion = () => {
   importError.value = "";
   importSuccess.value = "";
   openQuestionEditorId.value = "new";
+  restoreDraft();
 };
 
 const editQuestion = (question) => {
+  openQuestionEditorId.value = null;
   revokePendingImagePreviews();
   questionFormError.value = "";
   questionFormSuccess.value = "";
@@ -522,24 +538,27 @@ const saveQuestion = async () => {
     const successMessage = wasEditing
       ? t("topicDetail.questionUpdated")
       : t("topicDetail.questionCreated");
+    try { sessionStorage.removeItem(draftKey()); } catch {}
+    draftMessage.value = "";
     resetQuestionForm();
     questionFormSuccess.value = successMessage;
     await getQuestions();
   } catch (error) {
     questionFormError.value =
-      getApiErrorMessage(error?.response?.data) || t("topicDetail.errors.saveQuestion");
+      apiError(error, "topicDetail.errors.saveQuestion");
   } finally {
     isQuestionSaving.value = false;
   }
 };
 
 const onQuestionFileChange = (event) => {
+  preview.value = null;
   importError.value = "";
   importSuccess.value = "";
   questionFile.value = event.target.files?.[0] ?? null;
 };
 
-const importQuestions = async () => {
+const importQuestions = async (commit = false) => {
   importError.value = "";
   importSuccess.value = "";
   deleteError.value = "";
@@ -555,19 +574,23 @@ const importQuestions = async () => {
 
   const formData = new FormData();
   formData.append("src", questionFile.value);
+  formData.append("preview", commit ? "false" : "true");
   formData.append("question_type", importForm.value.question_type);
 
   isImporting.value = true;
   try {
     const response = await Task.importQuestions(selectedTaskId.value, formData);
-    importSuccess.value = t("topicDetail.messages.importedQuestions", {
-      count: response.imported_count,
-    });
+    if (!commit) { preview.value = response; return; }
+    preview.value = null;
+    if (response.undo_token) {
+      undoToken.value = response.undo_token;
+      try { sessionStorage.setItem(undoKey(), undoToken.value); } catch {}
+    }
+    importSuccess.value = t("ux.imported", {count: response.imported_count, duplicates: response.duplicate_count});
     resetImportForm();
     await Promise.all([getTasks(), getQuestions()]);
   } catch (error) {
-    importError.value =
-      getApiErrorMessage(error?.response?.data) || t("topicDetail.errors.importQuestions");
+    importError.value = apiError(error, "ux.invalidFile");
   } finally {
     isImporting.value = false;
   }
@@ -586,7 +609,7 @@ const deleteQuestion = async (questionId) => {
     }
     questions.value = questions.value.filter((item) => item.id !== questionId);
   } catch (error) {
-    deleteError.value = error?.response?.data?.detail || t("topicDetail.errors.deleteQuestion");
+    deleteError.value = apiError(error, "topicDetail.errors.deleteQuestion");
   } finally {
     deletingQuestionId.value = null;
   }
@@ -643,6 +666,9 @@ watch(selectedTaskId, async () => {
   resetQuestionForm();
   resetImportForm();
   await getQuestions();
+  try { undoToken.value = sessionStorage.getItem(undoKey()) || ""; } catch { undoToken.value = ""; }
+  preview.value = null;
+  restoreDraft();
 });
 
 watch(
@@ -662,10 +688,20 @@ watch(
   },
   { immediate: true },
 );
+watch(() => importForm.value.question_type, () => { preview.value = null; });
+watch(questionForm, (form) => {
+  if (!openQuestionEditorId.value) return;
+  try { sessionStorage.setItem(draftKey(), JSON.stringify({...form, pending_images: []})); draftMessage.value = t('ux.savedDraft') + (form.pending_images.length ? ' ' + t('ux.draftFiles') : ''); } catch { draftMessage.value = t('ux.unsavedDraft'); }
+}, {deep: true, flush: 'sync'});
 </script>
 
 <template>
   <div class="topic-page">
+    <nav class="page-breadcrumbs">
+      <router-link v-if="route.query.group" :to="{name:'group-overview', params:{id:route.query.group}}">{{ t('ux.schedule') }}</router-link>
+      <router-link v-if="topic.subject" :to="{name:'subject-detail', params:{id:topic.subject}, query:{group:route.query.group}}">{{ topic.subject_name || t('common.subject') }}</router-link>
+      <span>{{ topic.title }}</span>
+    </nav>
     <section class="surface-card topic-hero">
       <div>
         <span class="pill">{{ t("topicDetail.badge") }}</span>
@@ -691,7 +727,23 @@ watch(
 
     <div v-if="loadError" class="alert alert-danger mt-3">{{ loadError }}</div>
 
-    <section class="surface-card panel-card">
+    <section class="surface-card task-workspace-toolbar">
+    <label class="field-wrap">{{ t('ux.chooseTask') }}<select v-model="selectedTaskId" class="form-select"><option v-for="task in tasks" :key="task.id" :value="String(task.id)">{{ task.title }}</option></select></label>
+    <nav class="page-tabs workspace-tabs"><button v-for="tab in ['questions', 'settings', 'import']" :key="tab" class="btn" :class="{ active: activeTab === tab }" :aria-pressed="activeTab === tab" @click="activeTab = tab">{{ t(tab === 'questions' ? 'ux.editQuestions' : tab === 'settings' ? 'ux.taskSettings' : 'ux.importQuestions') }}</button></nav>
+    <div class="workspace-actions"><button class="btn btn-outline-primary" @click="activeTab = 'settings'; newTaskOpen = true">{{ t('ux.createTask') }}</button>
+    <router-link class="btn btn-primary" v-if="route.query.group && selectedTask" :to="{name: 'group-overview', params:{id:route.query.group}, query:{task:selectedTaskId, topic:props.id}}">{{ t('ux.assignTask') }}</router-link>
+    <button v-else-if="selectedTask" class="btn btn-primary" @click="openAssignment">{{ t('ux.assignTask') }}</button>
+    </div>
+    </section>
+    <p v-if="draftMessage" class="draft-notice" role="status">{{ draftMessage }} <button class="btn btn-link" @click="discardConfirm = true">{{ t('ux.discardDraft') }}</button></p>
+    <ConfirmDialog v-if="discardConfirm" :title="t('ux.discardDraft')" :description="t('ux.discardConfirm')" :confirm-label="t('ux.discardDraft')" @cancel="discardConfirm = false" @confirm="discardQuestionDraft" />
+    <div v-if="assignmentOpen" class="surface-card p-3">
+      <label class="field-wrap">{{ t('ux.chooseGroup') }}<select v-model="assignmentGroup" class="form-select"><option value="">—</option><option v-for="group in assignmentGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
+      <p v-if="assignmentError" role="alert">{{ assignmentError }}</p>
+      <p v-if="!assignmentGroups.length && !assignmentError">{{ t('ux.noAssignedGroups') }}</p>
+      <router-link class="btn btn-outline-primary mt-3" v-if="assignmentGroup" :to="{name:'group-overview',params:{id:assignmentGroup},query:{task:selectedTaskId,topic:props.id}}">{{ t('ux.schedule') }}</router-link>
+    </div>
+    <section v-show="activeTab === 'settings'" class="surface-card panel-card">
       <div class="panel-head">
         <h2 class="section-title">{{ t("topicDetail.tasksInLesson") }}</h2>
         <span class="pill">{{ t("common.totalCount", { count: tasksCount }) }}</span>
@@ -703,8 +755,8 @@ watch(
 
           <div class="task-settings-grid">
             <div>
-              <label class="form-label">{{ t("common.task") }}</label>
-              <select v-model="selectedTaskId" class="form-select">
+              <label class="form-label" for="topic-field-1">{{ t("common.task") }}</label>
+              <select id="topic-field-1" v-model="selectedTaskId" class="form-select">
                 <option value="">{{ t("topicDetail.noTaskSelected") }}</option>
                 <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
                   {{ taskItem.title }}
@@ -713,8 +765,8 @@ watch(
             </div>
 
             <div>
-              <label class="form-label">{{ t("common.questions") }}</label>
-              <input
+              <label class="form-label" for="topic-field-2">{{ t("common.questions") }}</label>
+              <input id="topic-field-2"
                 v-model.number="currentTaskForm.questions_per_attempt"
                 class="form-control"
                 :disabled="!selectedTask"
@@ -725,8 +777,8 @@ watch(
             </div>
 
             <div>
-              <label class="form-label">{{ t("topicDetail.passFrom") }}</label>
-              <input
+              <label class="form-label" for="topic-field-3">{{ t("topicDetail.passFrom") }}</label>
+              <input id="topic-field-3"
                 v-model.number="currentTaskForm.passing_correct_answers"
                 class="form-control"
                 :disabled="!selectedTask"
@@ -754,13 +806,13 @@ watch(
           <div v-if="currentTaskSaveSuccess" class="alert alert-success mt-3">{{ currentTaskSaveSuccess }}</div>
         </div>
 
-        <div class="task-subsection">
-          <h3 class="task-subsection-title">{{ t("topicDetail.newTask") }}</h3>
+        <details :open="newTaskOpen" class="task-subsection" @toggle="newTaskOpen = $event.target.open">
+          <summary>{{ t("topicDetail.newTask") }}</summary>
 
           <div class="new-task-grid">
             <div>
-              <label class="form-label">{{ t("common.title") }}</label>
-              <input
+              <label class="form-label" for="topic-field-4">{{ t("common.title") }}</label>
+              <input id="topic-field-4"
                 v-model="taskForm.title"
                 class="form-control"
                 type="text"
@@ -769,8 +821,8 @@ watch(
             </div>
 
             <div>
-              <label class="form-label">{{ t("common.description") }}</label>
-              <input
+              <label class="form-label" for="topic-field-5">{{ t("common.description") }}</label>
+              <input id="topic-field-5"
                 v-model="taskForm.description"
                 class="form-control"
                 type="text"
@@ -779,8 +831,8 @@ watch(
             </div>
 
             <div>
-              <label class="form-label">{{ t("common.questions") }}</label>
-              <input
+              <label class="form-label" for="topic-field-6">{{ t("common.questions") }}</label>
+              <input id="topic-field-6"
                 v-model.number="taskForm.questions_per_attempt"
                 class="form-control"
                 min="1"
@@ -790,8 +842,8 @@ watch(
             </div>
 
             <div>
-              <label class="form-label">{{ t("topicDetail.passFrom") }}</label>
-              <input
+              <label class="form-label" for="topic-field-7">{{ t("topicDetail.passFrom") }}</label>
+              <input id="topic-field-7"
                 v-model.number="taskForm.passing_correct_answers"
                 class="form-control"
                 min="1"
@@ -813,20 +865,22 @@ watch(
 
           <div v-if="taskSaveError" class="alert alert-danger mt-3">{{ taskSaveError }}</div>
           <div v-if="taskSaveSuccess" class="alert alert-success mt-3">{{ taskSaveSuccess }}</div>
-        </div>
+        </details>
       </div>
     </section>
 
-    <section class="surface-card panel-card">
+    <section v-show="activeTab === 'import'" class="surface-card panel-card">
       <div class="panel-head">
         <h2 class="section-title">{{ t("topicDetail.importQuestions") }}</h2>
         <span class="pill">.xls / .xlsx</span>
       </div>
 
+      <p class="helper-copy">{{ t('ux.importHelp') }}</p>
+      <a class="btn btn-outline-primary template-download" :href="`/templates/${importForm.question_type}.xlsx`" download>{{ t('ux.template') }}</a>
       <div class="import-grid">
         <div>
-          <label class="form-label">{{ t("topicDetail.questionType") }}</label>
-          <select v-model="importForm.question_type" class="form-select">
+          <label class="form-label" for="topic-field-8">{{ t("topicDetail.questionType") }}</label>
+          <select id="topic-field-8" v-model="importForm.question_type" class="form-select">
             <option v-for="type in questionTypes" :key="type.value" :value="type.value">
               {{ type.label }}
             </option>
@@ -852,20 +906,27 @@ watch(
           class="btn btn-primary import-btn"
           type="button"
           :disabled="isImporting || !selectedTaskId"
-          @click="importQuestions"
+          @click="importQuestions(false)"
         >
-          {{ isImporting ? t("topicDetail.importing") : t("topicDetail.importButton") }}
+          {{ isImporting ? t("topicDetail.importing") : t("ux.previewImport") }}
         </button>
       </div>
 
       <div v-if="selectedTask" class="field-hint mt-3">
         {{ t("topicDetail.importTarget", { title: selectedTask.title }) }}
       </div>
+      <div v-if="preview" class="alert alert-info">
+        <p>{{ t('ux.importPreview', {count: preview.imported_count, duplicates: preview.duplicate_count}) }}</p>
+        <ul><li v-for="(text, index) in preview.questions" :key="index" v-html="sanitizeInlineRichText(text)"></li></ul>
+        <button class="btn btn-primary" :disabled="isImporting" @click="importQuestions(true)">{{ t('ux.confirmImport') }}</button>
+      </div>
+      <button v-if="undoToken" class="btn btn-outline-danger" @click="undoConfirm = true">{{ t('ux.undoImport') }}</button>
+      <ConfirmDialog v-if="undoConfirm" :title="t('ux.undoImport')" :description="t('ux.undoConfirm')" :confirm-label="t('ux.undoImport')" @confirm="undoImport" @cancel="undoConfirm = false" />
       <div v-if="importError" class="alert alert-danger mt-3">{{ importError }}</div>
       <div v-if="importSuccess" class="alert alert-success mt-3">{{ importSuccess }}</div>
     </section>
 
-    <section class="surface-card panel-card">
+    <section v-show="activeTab === 'questions'" class="surface-card panel-card">
       <div class="panel-head">
         <div>
           <h2 class="section-title">{{ t("topicDetail.questionsInTask") }}</h2>

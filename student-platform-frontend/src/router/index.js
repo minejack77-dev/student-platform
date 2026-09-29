@@ -24,7 +24,7 @@ const routes = [
   },
   {
     path: "/group/:id",
-    redirect: (to) => ({ name: "group-overview", params: { id: to.params.id } }),
+    redirect: (to) => ({ name: "group-overview", params: { id: to.params.id }, query: to.query }),
   },
   {
     name: "group-overview",
@@ -59,8 +59,9 @@ const routes = [
     path: "/attempt/:id",
     props: true,
     component: () => import("@/views/AttemptDetail.vue"),
-    meta: { requiresAuth: true, roles: ["student"] },
+    meta: { requiresAuth: true, roles: ["student", "teacher"] },
   },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFound.vue') },
 ];
 
 const router = createRouter({

@@ -1,3 +1,4 @@
+from learning.services.snapshots import capture_question, question_snapshot
 import random
 
 from django.db import transaction
@@ -24,15 +25,38 @@ from learning.models import (
     Workbook,
 )
 from learning.sorting import sort_students_naturally
+from learning.permissions import can_manage_group
+from learning.services.material_access import can_edit_material
+from learning.services.rich_text import RichTextField
+from learning.services.attempts import require_attempt_write_access, require_schedule_access, submit_attempt
+from learning.services.matching import ensure_matching_tokens, decode_matching, encode_matching
 
 
-class SubjectSerializer(serializers.ModelSerializer):
+class OwnedMaterialSerializer(serializers.ModelSerializer):
+    def to_internal_value(self, data):
+        attrs = super().to_internal_value(data)
+        request = self.context.get("request")
+        if request and request.method not in ("GET", "HEAD", "OPTIONS"):
+            for field in ("subject", "workbook", "unit", "topic", "task"):
+                parent = attrs.get(field)
+                if parent is not None and not can_edit_material(request.user, parent):
+                    raise serializers.ValidationError({field: "You can only change materials in your own collection."})
+        return attrs
+
+
+class SubjectSerializer(OwnedMaterialSerializer):
+    def validate(self, attrs):
+        if "owner" in self.initial_data:
+            raise serializers.ValidationError({"owner": "Ownership is managed by an administrator in Django Admin."})
+        return attrs
+
     class Meta:
         model = Subject
         fields = "__all__"
+        read_only_fields = ("owner",)
 
 
-class WorkbookSerializer(serializers.ModelSerializer):
+class WorkbookSerializer(OwnedMaterialSerializer):
     subject = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.filter(is_active=True),
     )
@@ -52,7 +76,7 @@ class WorkbookSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "subject_name", "updated_at")
 
 
-class UnitSerializer(serializers.ModelSerializer):
+class UnitSerializer(OwnedMaterialSerializer):
     workbook = serializers.PrimaryKeyRelatedField(
         queryset=Workbook.objects.filter(is_active=True),
     )
@@ -174,7 +198,7 @@ class GroupTopicScheduleWriteSerializer(serializers.Serializer):
         return attrs
 
 
-class TopicSerializer(serializers.ModelSerializer):
+class TopicSerializer(OwnedMaterialSerializer):
     subject = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.filter(is_active=True),
         required=False,
@@ -266,7 +290,11 @@ class TopicSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class TaskSerializer(serializers.ModelSerializer):
+class TaskSerializer(OwnedMaterialSerializer):
+    active_question_count = serializers.SerializerMethodField()
+
+    def get_active_question_count(self, obj):
+        return obj.questions.filter(is_active=True).count()
     topic = serializers.PrimaryKeyRelatedField(
         queryset=Topic.objects.filter(is_active=True),
     )
@@ -286,6 +314,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "description",
             "questions_per_attempt",
             "passing_correct_answers",
+            "active_question_count",
             "is_active",
             "updated_at",
         )
@@ -329,6 +358,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
 
 class ChoiceSerializer(serializers.ModelSerializer):
+    text = RichTextField()
     class Meta:
         model = Choice
         fields = ("id", "text", "is_correct", "order")
@@ -336,6 +366,8 @@ class ChoiceSerializer(serializers.ModelSerializer):
 
 
 class MatchingPairSerializer(serializers.ModelSerializer):
+    left_content = RichTextField()
+    right_content = RichTextField()
     class Meta:
         model = MatchingPair
         fields = ("id", "left_content", "right_content", "order")
@@ -349,7 +381,9 @@ class QuestionImageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class QuestionSerializer(serializers.ModelSerializer):
+class QuestionSerializer(OwnedMaterialSerializer):
+    text = RichTextField()
+    instruction = RichTextField(required=False, allow_blank=True)
     choices = ChoiceSerializer(many=True, required=False)
     matching_pairs = MatchingPairSerializer(many=True, required=False)
     images = QuestionImageSerializer(many=True, read_only=True)
@@ -483,6 +517,7 @@ class QuestionSerializer(serializers.ModelSerializer):
                 order=pair.get("order") or idx,
             )
 
+    @transaction.atomic
     def create(self, validated_data):
         choices_data = validated_data.pop("choices", [])
         matching_pairs_data = validated_data.pop("matching_pairs", [])
@@ -493,7 +528,9 @@ class QuestionSerializer(serializers.ModelSerializer):
             self._replace_choices(question, choices_data)
         return question
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        instance = Question.objects.select_for_update().get(pk=instance.pk)
         choices_data = validated_data.pop("choices", None)
         matching_pairs_data = validated_data.pop("matching_pairs", None)
         for key, value in validated_data.items():
@@ -512,12 +549,21 @@ class QuestionSerializer(serializers.ModelSerializer):
 
 
 class AnswerSerializer(serializers.ModelSerializer):
-    selected_choices = serializers.PrimaryKeyRelatedField(
-        queryset=Choice.objects.all(),
-        many=True,
-        required=False,
-    )
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["selected_choices"] = instance.selected_choice_ids_snapshot if instance.selected_choice_ids_snapshot is not None else list(instance.selected_choices.values_list("pk", flat=True))
+        if question_snapshot(instance.attempt_question)["question_type"] == Question.QuestionType.MATCHING:
+            data["selected_matching_pairs"] = encode_matching(instance.attempt_question, instance.selected_matching_pairs or {})
+        return data
+    # Repeating an autosave after a lost response must update the same answer.
+    attempt_question = serializers.PrimaryKeyRelatedField(queryset=AttemptQuestion.objects.all())
+    selected_choices = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=128, required=False, write_only=True)
     selected_matching_pairs = serializers.JSONField(required=False)
+
+    def _lock_open_attempt(self, attempt_question):
+        # Serialize autosaves with final submission, including requests from other tabs.
+        attempt = Attempt.objects.select_for_update().get(pk=attempt_question.attempt_id)
+        require_attempt_write_access(attempt)
 
     class Meta:
         model = Answer
@@ -581,16 +627,14 @@ class AnswerSerializer(serializers.ModelSerializer):
 
         selected_choices = attrs.get("selected_choices")
         selected_matching_pairs = attrs.get("selected_matching_pairs")
-        question = attempt_question.question
-        if question.question_type == Question.QuestionType.MATCHING:
+        snapshot = question_snapshot(attempt_question)
+        if snapshot["question_type"] == Question.QuestionType.MATCHING:
             if selected_choices:
                 raise serializers.ValidationError(
                     {"selected_choices": "Choice answers are not allowed for matching questions."}
                 )
             if selected_matching_pairs is not None:
-                attrs["selected_matching_pairs"] = self._validate_matching_answer(
-                    question, selected_matching_pairs
-                )
+                attrs["selected_matching_pairs"] = decode_matching(attempt_question, selected_matching_pairs)
             return attrs
 
         if selected_matching_pairs:
@@ -598,17 +642,15 @@ class AnswerSerializer(serializers.ModelSerializer):
                 {"selected_matching_pairs": "Matching answers are only allowed for matching questions."}
             )
         if selected_choices is not None:
-            valid_choice_ids = set(
-                attempt_question.question.choices.values_list("id", flat=True)
-            )
-            selected_choice_ids = {choice.id for choice in selected_choices}
+            valid_choice_ids = {choice["id"] for choice in snapshot["choices"]}
+            selected_choice_ids = set(selected_choices)
             if not selected_choice_ids.issubset(valid_choice_ids):
                 raise serializers.ValidationError(
                     {"selected_choices": "Choices must belong to the question."}
                 )
 
             if (
-                attempt_question.question.question_type
+                snapshot["question_type"]
                 == Question.QuestionType.SINGLE_CHOICE
                 and len(selected_choice_ids) > 1
             ):
@@ -617,44 +659,12 @@ class AnswerSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
-    def _validate_matching_answer(self, question, selected_matching_pairs):
-        if selected_matching_pairs in (None, ""):
-            return {}
-        if not isinstance(selected_matching_pairs, dict):
-            raise serializers.ValidationError(
-                "Matching answer must be an object of left pair id to right pair id."
-            )
-
-        valid_pair_ids = set(question.matching_pairs.values_list("id", flat=True))
-        normalized = {}
-        right_ids = []
-        for raw_left_id, raw_right_id in selected_matching_pairs.items():
-            try:
-                left_id = int(raw_left_id)
-                right_id = int(raw_right_id)
-            except (TypeError, ValueError):
-                raise serializers.ValidationError(
-                    "Matching pair ids must be numeric."
-                )
-
-            if left_id not in valid_pair_ids or right_id not in valid_pair_ids:
-                raise serializers.ValidationError(
-                    "Matching pairs must belong to the question."
-                )
-            normalized[str(left_id)] = right_id
-            right_ids.append(right_id)
-
-        if len(right_ids) != len(set(right_ids)):
-            raise serializers.ValidationError(
-                "Each right-side value can only be used once."
-            )
-        return normalized
-
     @transaction.atomic
     def create(self, validated_data):
         selected_choices = validated_data.pop("selected_choices", [])
         selected_matching_pairs = validated_data.pop("selected_matching_pairs", {})
         attempt_question = validated_data.pop("attempt_question")
+        self._lock_open_attempt(attempt_question)
 
         answer, _ = Answer.objects.get_or_create(
             attempt_question=attempt_question,
@@ -662,25 +672,38 @@ class AnswerSerializer(serializers.ModelSerializer):
         for key, value in validated_data.items():
             setattr(answer, key, value)
         answer.selected_matching_pairs = selected_matching_pairs
+        answer.selected_choice_ids_snapshot = selected_choices
         answer.save()
-        answer.selected_choices.set(selected_choices)
+        answer.selected_choices.set(Choice.objects.filter(pk__in=selected_choices))
         return answer
 
     @transaction.atomic
     def update(self, instance, validated_data):
         selected_choices = validated_data.pop("selected_choices", None)
         selected_matching_pairs = validated_data.pop("selected_matching_pairs", None)
+        self._lock_open_attempt(instance.attempt_question)
         for key, value in validated_data.items():
             setattr(instance, key, value)
         if selected_matching_pairs is not None:
             instance.selected_matching_pairs = selected_matching_pairs
+        if selected_choices is not None:
+            instance.selected_choice_ids_snapshot = selected_choices
         instance.save()
         if selected_choices is not None:
-            instance.selected_choices.set(selected_choices)
+            instance.selected_choices.set(Choice.objects.filter(pk__in=selected_choices))
         return instance
 
 
 class AttemptSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        if self.instance is not None:
+            if set(self.initial_data) != {"status"} or attrs.get("status") != Attempt.Status.COMPLETED:
+                raise serializers.ValidationError({"detail": "Attempt metadata is immutable. Only completion is supported."})
+        elif "status" in self.initial_data and attrs.get("status") != Attempt.Status.IN_PROGRESS:
+            raise serializers.ValidationError({"status": "A new attempt must be in progress."})
+        return attrs
+    student_username = serializers.CharField(source="student.user.username", read_only=True)
+    schedule_group_id = serializers.IntegerField(source="schedule_entry.group_id", read_only=True)
     schedule_entry = serializers.PrimaryKeyRelatedField(
         queryset=GroupTopicSchedule.objects.select_related(
             "group",
@@ -724,6 +747,8 @@ class AttemptSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "student",
+            "student_username",
+            "schedule_group_id",
             "schedule_entry",
             "schedule_entry_id",
             "schedule_date",
@@ -781,9 +806,11 @@ class AttemptSerializer(serializers.ModelSerializer):
         return "success" if success else "fail"
 
     def get_can_interact_today(self, obj):
-        if obj.status != Attempt.Status.IN_PROGRESS:
+        try:
+            require_attempt_write_access(obj)
+        except serializers.ValidationError:
             return False
-        return obj.is_accessible_on(timezone.localdate())
+        return True
 
     def get_passing_correct_answers(self, obj):
         return obj.passing_correct_answers()
@@ -859,6 +886,8 @@ class AttemptSerializer(serializers.ModelSerializer):
                 {"detail": "You already have an attempt for this scheduled test."}
             )
 
+        require_schedule_access(schedule_entry, student.pk)
+
         active_questions_qs = Question.objects.filter(task=task, is_active=True)
         questions_per_attempt = task.questions_per_attempt
         if active_questions_qs.count() < questions_per_attempt:
@@ -872,7 +901,7 @@ class AttemptSerializer(serializers.ModelSerializer):
             )
 
         questions = list(
-            active_questions_qs.order_by("?")[:questions_per_attempt]
+            active_questions_qs.select_for_update().order_by("?")[:questions_per_attempt]
         )
         attempt = Attempt.objects.create(
             student=student,
@@ -897,6 +926,7 @@ class AttemptSerializer(serializers.ModelSerializer):
                 AttemptQuestion(
                     attempt=attempt,
                     question=question,
+                    content_snapshot=capture_question(question),
                     order=index,
                     matching_left_order=matching_left_order,
                     matching_right_order=matching_right_order,
@@ -907,36 +937,10 @@ class AttemptSerializer(serializers.ModelSerializer):
         return attempt
 
     def update(self, instance, validated_data):
-        status = validated_data.get("status", None)
-        if (
-            instance.status == Attempt.Status.COMPLETED
-            and status
-            and status != Attempt.Status.COMPLETED
-        ):
-            raise serializers.ValidationError(
-                {"status": "Completed attempt status cannot be changed."}
-            )
-        if (
-            instance.status == Attempt.Status.IN_PROGRESS
-            and status == Attempt.Status.COMPLETED
-            and not instance.is_accessible_on(timezone.localdate())
-        ):
-            raise serializers.ValidationError(
-                {
-                    "detail": (
-                        "This test can only be completed on its scheduled date."
-                    )
-                }
-            )
-        if (
-            status == Attempt.Status.COMPLETED
-            and instance.finished_at is None
-        ):
-            validated_data["finished_at"] = timezone.now()
-        instance = super().update(instance, validated_data)
-        if status == Attempt.Status.COMPLETED:
-            instance.refresh_from_db(fields=("status", "finished_at", "is_success"))
-        return instance
+        return submit_attempt(
+            attempt_id=instance.pk, context=self.context,
+            use_saved_answers=True, confirm_unanswered=True,
+        )
 
 
 class ChoiceInlineSerializer(serializers.ModelSerializer):
@@ -968,7 +972,7 @@ class QuestionInlineSerializer(serializers.ModelSerializer):
 
 
 class AttemptQuestionSerializer(serializers.ModelSerializer):
-    question = QuestionInlineSerializer(read_only=True)
+    question = serializers.SerializerMethodField()
     answer = AnswerSerializer(read_only=True)
     correct_choice_ids = serializers.SerializerMethodField()
     matching_left_items = serializers.SerializerMethodField()
@@ -989,50 +993,75 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
             "correct_matching_pairs",
         )
 
+    def get_question(self, obj):
+        snapshot = question_snapshot(obj)
+        data = {key: snapshot[key] for key in ("id", "topic", "task", "instruction", "text", "question_type", "is_active", "created_at")}
+        data["choices"] = [{key: choice[key] for key in ("id", "text", "order")} for choice in snapshot["choices"]]
+        # Recorded image rows are protected from deletion while attempts reference them.
+        data["images"] = QuestionImageSerializer(obj.question.images.filter(pk__in=[item["id"] for item in snapshot["images"]]), many=True, context=self.context).data
+        return data
+
     def get_correct_choice_ids(self, obj):
         if obj.attempt.status != Attempt.Status.COMPLETED:
             return []
-        return [choice.id for choice in obj.question.choices.all() if choice.is_correct]
+        return [choice["id"] for choice in question_snapshot(obj)["choices"] if choice["is_correct"]]
 
     def _ordered_matching_items(self, obj, order_field, content_field):
-        pairs_by_id = {pair.id: pair for pair in obj.question.matching_pairs.all()}
+        ensure_matching_tokens(obj)
+        mapping = obj.matching_left_tokens if order_field == "matching_left_order" else obj.matching_right_tokens
+        tokens = {pk: token for token, pk in mapping.items()}
+        pairs_by_id = {pair["id"]: pair for pair in question_snapshot(obj)["matching_pairs"]}
         ordered_ids = [
             int(pair_id)
             for pair_id in getattr(obj, order_field, [])
             if str(pair_id).isdigit() and int(pair_id) in pairs_by_id
         ]
         if not ordered_ids:
-            ordered_ids = [pair.id for pair in obj.question.matching_pairs.all()]
+            ordered_ids = list(pairs_by_id)
         return [
             {
-                "id": pair_id,
-                "content": getattr(pairs_by_id[pair_id], content_field),
+                "id": tokens[pair_id],
+                "content": pairs_by_id[pair_id][content_field],
                 "order": index,
             }
-            for index, pair_id in enumerate(ordered_ids, start=1)
+            for index, pair_id in enumerate(ordered_ids, start=1) if pair_id in tokens
         ]
 
     def get_matching_left_items(self, obj):
-        if obj.question.question_type != Question.QuestionType.MATCHING:
+        if question_snapshot(obj)["question_type"] != Question.QuestionType.MATCHING:
             return []
         return self._ordered_matching_items(obj, "matching_left_order", "left_content")
 
     def get_matching_right_items(self, obj):
-        if obj.question.question_type != Question.QuestionType.MATCHING:
+        if question_snapshot(obj)["question_type"] != Question.QuestionType.MATCHING:
             return []
         return self._ordered_matching_items(obj, "matching_right_order", "right_content")
 
     def get_correct_matching_pairs(self, obj):
         if (
-            obj.question.question_type != Question.QuestionType.MATCHING
+            question_snapshot(obj)["question_type"] != Question.QuestionType.MATCHING
             or obj.attempt.status != Attempt.Status.COMPLETED
         ):
             return {}
-        return {str(pair.id): pair.id for pair in obj.question.matching_pairs.all()}
+        return encode_matching(obj, {str(pair["id"]): pair["id"] for pair in question_snapshot(obj)["matching_pairs"]})
 
 
 class GroupSerializer(serializers.ModelSerializer):
     teacher_assignment = serializers.SerializerMethodField()
+    can_manage_students = serializers.SerializerMethodField()
+
+    def get_can_manage_students(self, obj):
+        user = getattr(self.context.get("request"), "user", None)
+        return can_manage_group(user, obj)
+
+    def validate(self, attrs):
+        user = getattr(self.context.get("request"), "user", None)
+        if "teacher" in self.initial_data and not (user and user.is_superuser):
+            raise serializers.ValidationError({"teacher": "Only an administrator can transfer group ownership."})
+        teacher = attrs.get("teacher")
+        if teacher and (teacher.user.role != "teacher" or not teacher.user.is_active):
+            raise serializers.ValidationError({"teacher": "Select an active teacher."})
+        return attrs
 
     class Meta:
         model = Group
@@ -1042,6 +1071,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "description",
             "teacher",
             "teacher_assignment",
+            "can_manage_students",
             "is_active",
             "updated_at",
         )

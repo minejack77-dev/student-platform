@@ -27,6 +27,7 @@ from django.views.generic import RedirectView
 from django.http import FileResponse, Http404
 from django.conf import settings
 from django.conf.urls.static import static
+from learning.media import PrivateMediaView
 
 def serve_sw(request):
     sw_path = settings.BASE_DIR / "student-platform-frontend" / "dist" / "static" / "sw.js"
@@ -42,6 +43,19 @@ def serve_manifest(request):
     if not path.exists():
         raise Http404("manifest.webmanifest not found")
     return FileResponse(open(path, "rb"), content_type="application/manifest+json")
+
+
+def serve_import_template(request, name):
+    if name not in {"single_choice.xlsx", "multiple_choice.xlsx", "matching.xlsx"}:
+        raise Http404
+    template = settings.BASE_DIR / "student-platform-frontend" / "public" / "templates" / name
+    try:
+        return FileResponse(
+            template.open("rb"), as_attachment=True, filename=name,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except FileNotFoundError:
+        raise Http404
 
 
 router = DefaultRouter()
@@ -64,8 +78,7 @@ router.register(
 router.register(r"answer", learning_views.AnswerViewSet, basename="answer")
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/", include(router.urls))]
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += [path(settings.MEDIA_URL.strip("/") + "/<path:path>", PrivateMediaView.as_view(), name="private-media")]
 
 urlpatterns += [
     path("i18n/", include("django.conf.urls.i18n")),
@@ -79,8 +92,10 @@ urlpatterns += [
     path("api/push/vapid-public-key/", accounts_views.VapidPublicKeyView.as_view(), name="vapid-public-key"),
     path("api/push/test/", accounts_views.PushTestView.as_view(), name="push_test"),
     path("api/push/subscribe/", accounts_views.PushSubscribeView.as_view(), name="push-subscribe"),
+    path("api/push/unsubscribe/", accounts_views.PushUnsubscribeView.as_view(), name="push-unsubscribe"),
     path("", TemplateView.as_view(template_name="index.html"), name="index"),
     path("manifest.webmanifest", serve_manifest, name="manifest"),
+    path("templates/<str:name>", serve_import_template, name="import-template"),
     path(
         "<path:route>", TemplateView.as_view(template_name="index.html"), name="index"
     ),

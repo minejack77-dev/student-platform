@@ -3,12 +3,14 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import axios from "axios";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { apiError } from "@/utils/apiError";
 
 import { Attempt, Group, Student, subscribeToPush } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const WEEK_LENGTH = 7;
-const RECENT_RESULTS_LIMIT = 3;
+
 const DAY_NAME_FORMAT = { weekday: "short" };
 const DAY_NUMBER_FORMAT = { day: "numeric" };
 const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
@@ -50,33 +52,43 @@ const shiftDateByDays = (value, days) => {
 const router = useRouter();
 
 const statsItems = ref([]);
-const statsLoading = ref(false);
+const statsLoading = ref(true);
+const statsError = ref("");
+const historySearch = ref("");
+const pendingTask = ref(null);
+const serverToday = ref(formatISODate(new Date()));
+const serverZone = ref("");
+const todayTasks = computed(() => statsItems.value.filter(item => item.date === serverToday.value));
 
 const loadStats = async () => {
   statsLoading.value = true;
+  statsError.value = "";
   try {
     const response = await Student.getAllAssignments();
     statsItems.value = response.results ?? [];
-  } catch {
-    statsItems.value = [];
+    serverToday.value = response.current_date || serverToday.value;
+    serverZone.value = response.time_zone || "";
+  } catch (error) {
+    statsError.value = apiError(error);
   } finally {
     statsLoading.value = false;
   }
 };
 
-const today = formatISODate(new Date());
+
 
 const getItemState = (item) => {
   if (item.attempt_status === "completed") {
     return item.result_outcome === "success" ? "success" : "fail";
   }
   if (item.attempt_status === "in_progress") {
-    return item.date === today ? "in_progress" : "expired";
+    return item.date === serverToday.value ? "in_progress" : "expired";
   }
-  if (!item.date || item.date < today) {
+  if ((item.active_question_count ?? 0) < (item.required_question_count ?? 1)) return "not_ready";
+  if (!item.date || item.date < serverToday.value) {
     return "missed";
   }
-  if (item.date > today) {
+  if (item.date > serverToday.value) {
     return "upcoming";
   }
   return "available";
@@ -86,9 +98,9 @@ const completedItems = computed(() =>
   statsItems.value.filter((item) => item.attempt_status === "completed"),
 );
 const missedItems = computed(() =>
-  statsItems.value.filter((item) => getItemState(item) === "missed"),
+  statsItems.value.filter((item) => ['missed', 'expired'].includes(getItemState(item))),
 );
-const completedCount = computed(() => completedItems.value.length + missedItems.value.length);
+const completedCount = computed(() => completedItems.value.length);
 const passedCount = computed(
   () => completedItems.value.filter((item) => item.result_outcome === "success").length,
 );
@@ -103,7 +115,7 @@ const recentResultItems = computed(() =>
       }
       return (right.attempt_id ?? 0) - (left.attempt_id ?? 0);
     })
-    .slice(0, RECENT_RESULTS_LIMIT),
+    .filter(item => [item.task_title, item.topic_title, item.subject_name, item.group_name, item.date].some(value => String(value || "").toLowerCase().includes(historySearch.value.trim().toLowerCase()))),
 );
 
 const rankingData = ref(null);
@@ -145,6 +157,7 @@ const enrichCalendarResponse = (response) => {
     ...day,
     items: (day.items ?? []).map((item, index) => ({
       ...item,
+      date: day.date,
       task_key: `${day.date}-${item.group_id}-${item.task_id || item.topic_id}-${item.teacher_id}-${index}`,
     })),
   }));
@@ -161,9 +174,7 @@ const loadSchedule = async () => {
     });
     calendarDays.value = enrichCalendarResponse(response);
   } catch (error) {
-    loadError.value =
-      error?.response?.data?.detail || t("studentHome.loadError");
-    calendarDays.value = [];
+    loadError.value = apiError(error);
   } finally {
     isLoading.value = false;
   }
@@ -183,11 +194,13 @@ const jumpToCurrentWeek = async () => {
   await loadSchedule();
 };
 
-const startTask = async (task) => {
+const startTask = async (task, confirmed = false) => {
+  if (!task.attempt_id && !confirmed) { pendingTask.value = task; return; }
+  pendingTask.value = null;
   actionError.value = "";
-  startingTaskKey.value = task.task_key;
+  startingTaskKey.value = task.task_key || String(task.schedule_entry_id);
   try {
-    if (task.attempt_id && task.attempt_status === "in_progress") {
+    if (task.attempt_id && ["in_progress", "completed"].includes(task.attempt_status)) {
       await router.push({
         name: "attempt-detail",
         params: { id: task.attempt_id },
@@ -204,8 +217,7 @@ const startTask = async (task) => {
       params: { id: createdAttempt.id },
     });
   } catch (error) {
-    actionError.value =
-      getApiErrorMessage(error?.response?.data) || t("studentHome.startTaskError");
+    actionError.value = apiError(error);
   } finally {
     startingTaskKey.value = "";
   }
@@ -221,36 +233,10 @@ const openAttemptResult = async (attemptId) => {
   });
 };
 
-const getApiErrorMessage = (data) => {
-  if (!data) {
-    return "";
-  }
-  if (typeof data === "string") {
-    return data;
-  }
 
-  const fields = [
-    "detail",
-    "task",
-    "schedule_entry",
-    "topic",
-    "subject",
-    "non_field_errors",
-  ];
-  for (const field of fields) {
-    const value = data[field];
-    if (Array.isArray(value) && value.length > 0) {
-      return value[0];
-    }
-    if (typeof value === "string") {
-      return value;
-    }
-  }
-  return "";
-};
 
 const compareToToday = (value) => {
-  const current = formatISODate(new Date());
+  const current = serverToday.value;
   if (value === current) {
     return 0;
   }
@@ -335,6 +321,7 @@ const getTaskStateCopy = (task, date) => {
 };
 
 const getTaskButtonLabel = (task, date) => {
+  if (task.attempt_status === "completed") return t("ux.result");
   const state = getTaskState(task, date);
   if (state === "in_progress") {
     return t("studentHome.taskButton.continue");
@@ -347,7 +334,7 @@ const getTaskButtonLabel = (task, date) => {
 
 const canStartOrContinueTask = (task, date) => {
   const state = getTaskState(task, date);
-  return state === "available" || state === "in_progress";
+  return ["available", "in_progress", "success", "fail"].includes(state);
 };
 
 const filteredCalendarDays = computed(() => {
@@ -363,7 +350,7 @@ const filteredCalendarDays = computed(() => {
         .map((value) => (value || "").toLowerCase())
         .some((value) => value.includes(query)),
     ),
-  }));
+  })).filter(day => day.items.length > 0);
 });
 
 const filteredTaskCount = computed(() =>
@@ -464,7 +451,22 @@ onMounted(async () => {
       </div>
     </section>
 
-    <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
+    <ConfirmDialog v-if="pendingTask" :title="pendingTask.task_title || t('ux.startTitle')"
+      :description="t('ux.rules', { count: pendingTask.required_question_count, passing: pendingTask.passing_score }) + ' ' + t('ux.deadline', { date: pendingTask.date, zone: serverZone })"
+      :confirm-label="t('ux.startConfirm')" @confirm="startTask(pendingTask, true)" @cancel="pendingTask = null" />
+    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadSchedule">{{ t('ux.retry') }}</button></div>
+    <section class="surface-card section-card today-tasks">
+      <h2 class="section-title">{{ t('ux.today') }}</h2>
+      <p v-if="statsLoading" role="status">{{ t('ux.loading') }}</p>
+      <div v-else-if="statsError" class="alert alert-danger" role="alert">{{ statsError }} <button class="btn btn-outline-primary" @click="loadStats">{{ t('ux.retry') }}</button></div>
+      <template v-else>
+        <p v-if="!todayTasks.length">{{ t('ux.noToday') }}</p>
+        <article v-for="task in todayTasks" :key="task.schedule_entry_id" class="today-task-item">
+          <div class="today-task-copy"><h3 class="day-task-title">{{ task.task_title }}</h3><p class="day-task-meta">{{ task.subject_name }}</p></div><span class="entity-chip" :class="`chip-${getTaskState(task, task.date)}`">{{ getTaskStateLabel(task, task.date) }}</span>
+          <button class="btn btn-primary" :disabled="!!startingTaskKey || !canStartOrContinueTask(task, task.date)" @click="startTask(task)">{{ getTaskButtonLabel(task, task.date) }}</button>
+        </article>
+      </template>
+    </section>
     <div v-if="actionError" class="alert alert-danger">{{ actionError }}</div>
 
     <section class="surface-card section-card">
@@ -472,7 +474,7 @@ onMounted(async () => {
         <div>
           <div class="column-head schedule-head">
             <h2 class="section-title">{{ t("studentHome.weeklyCalendar") }}</h2>
-            <span class="pill">{{ t("common.visibleTasks", { count: filteredTaskCount }) }}</span>
+            <span v-if="!isLoading && !loadError" class="pill">{{ t("common.visibleTasks", { count: filteredTaskCount }) }}</span>
           </div>
         </div>
 
@@ -502,8 +504,9 @@ onMounted(async () => {
       </div>
 
       <div v-if="isLoading" class="empty-box schedule-empty mt-3">{{ t("studentHome.loadingSchedule") }}</div>
-      <div v-else-if="calendarDays.length === 0" class="empty-box schedule-empty mt-3">{{ t("studentHome.noSchedule") }}</div>
-      <div v-else class="schedule-strip">
+      <div v-else-if="!loadError && calendarDays.length === 0" class="empty-box schedule-empty mt-3">{{ t("studentHome.noSchedule") }}</div>
+      <div v-else-if="!loadError && searchQuery.trim() && !filteredTaskCount" class="empty-box">{{ t("ux.noMatches") }} <button class="btn btn-link" @click="searchQuery = ''">{{ t("ux.clearSearch") }}</button></div>
+      <div v-else-if="!loadError" class="schedule-strip">
         <article
           v-for="day in filteredCalendarDays"
           :key="day.date"
@@ -569,13 +572,15 @@ onMounted(async () => {
     <section class="surface-card section-card">
       <div class="column-head recent-results-head">
         <div>
-          <h2 class="section-title">{{ t("studentHome.recentResults") }}</h2>
-          <p class="section-subtitle">{{ t("studentHome.recentSubtitle") }}</p>
+          <h2 class="section-title">{{ t("ux.history") }}</h2>
+          <p class="section-subtitle">{{ t("ux.historyDescription") }}</p>
         </div>
-        <span class="pill">{{ t("common.shownCount", { count: recentResultItems.length }) }}</span>
+        <span v-if="!statsLoading && !statsError" class="pill">{{ t("common.shownCount", { count: recentResultItems.length }) }}</span>
       </div>
 
-      <div v-if="statsLoading" class="empty-box mt-3">{{ t("studentHome.loadingRecentResults") }}</div>
+      <input v-model="historySearch" class="form-control" :aria-label="t('ux.searchHistory')" :placeholder="t('ux.searchHistory')" />
+      <div v-if="statsError" class="alert alert-danger">{{ statsError }}</div>
+      <div v-else-if="statsLoading" class="empty-box mt-3">{{ t("studentHome.loadingRecentResults") }}</div>
       <div v-else-if="recentResultItems.length === 0" class="empty-box mt-3">
         {{ t("studentHome.noCompletedTests") }}
       </div>
@@ -609,16 +614,17 @@ onMounted(async () => {
     <section class="surface-card section-card stats-section">
       <h2 class="section-title">{{ t("studentHome.statistics") }}</h2>
       <div v-if="statsLoading" class="empty-box mt-2">{{ t("studentHome.loadingStatistics") }}</div>
-      <template v-else>
+      <template v-else-if="!statsError">
         <div class="stats-grid">
           <div class="stats-row">
-            <span class="stats-label">{{ t("studentHome.completedTasksTrimester") }}</span>
+            <span class="stats-label">{{ t("ux.completed") }}</span>
             <span class="stats-value">{{ completedCount }}</span>
           </div>
           <div class="stats-row">
             <span class="stats-label">{{ t("studentHome.passed") }}</span>
             <span class="stats-value">{{ passedCount }}</span>
           </div>
+          <div class="stats-row"><span class="stats-label">{{ t("ux.missed") }}</span><span class="stats-value">{{ missedItems.length }}</span></div>
           <div class="stats-row">
             <span class="stats-label">{{ t("studentHome.rating") }}</span>
             <span v-if="rankingLoading" class="stats-value stats-future">{{ t("studentHome.loadingShort") }}</span>

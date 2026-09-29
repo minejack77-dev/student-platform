@@ -3,6 +3,7 @@ import { createI18n } from "vue-i18n";
 
 import en from "./messages/en";
 import ru from "./messages/ru";
+import { ruUx, enUx } from "./messages/ux";
 
 const LOCALE_STORAGE_KEY = "student-platform-locale";
 const DEFAULT_LOCALE = "en";
@@ -36,8 +37,8 @@ export const i18n = createI18n({
   locale: getInitialLocale(),
   fallbackLocale: DEFAULT_LOCALE,
   messages: {
-    en,
-    ru,
+    en: { ...en, ux: enUx },
+    ru: { ...ru, ux: ruUx },
   },
 });
 

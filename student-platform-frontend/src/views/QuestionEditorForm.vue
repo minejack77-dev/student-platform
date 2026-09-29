@@ -109,9 +109,10 @@ const removeImage = (image) => {
     </div>
 
     <div>
-      <label class="form-label">{{ t("common.question") }}</label>
+      <label class="form-label" :for="`question-text-${form.id || 'new'}`">{{ t("common.question") }}</label>
       <textarea
         v-model="form.text"
+        :id="`question-text-${form.id || 'new'}`"
         class="form-control"
         rows="3"
         :placeholder="t('topicDetail.questionTextPlaceholder')"
@@ -119,9 +120,10 @@ const removeImage = (image) => {
     </div>
 
     <div>
-      <label class="form-label">{{ t("topicDetail.instruction") }}</label>
+      <label class="form-label" :for="`question-instruction-${form.id || 'new'}`">{{ t("topicDetail.instruction") }}</label>
       <textarea
         v-model="form.instruction"
+        :id="`question-instruction-${form.id || 'new'}`"
         class="form-control"
         rows="2"
         :placeholder="t('common.optional')"
@@ -167,21 +169,23 @@ const removeImage = (image) => {
         </button>
       </div>
 
+      <p>{{ t("ux.chooseCorrect") }}</p>
       <div class="choice-editor-list">
         <div
           v-for="(choice, index) in form.choices"
           :key="index"
           class="choice-editor-row"
         >
-          <input
+          <label class="correct-choice-label">{{ t("ux.correctAnswer") }}<input
             :type="isSingleChoice ? 'radio' : 'checkbox'"
             :name="`correct-choice-${form.id || 'new'}`"
             :checked="choice.is_correct"
             class="form-check-input"
             @change="emit('set-choice-correct', index, $event.target.checked)"
-          />
+          /></label>
           <textarea
             v-model="choice.text"
+            :aria-label="t('ux.option', {number: index + 1})"
             class="form-control"
             rows="1"
             :placeholder="t('topicDetail.optionPlaceholder', { number: index + 1 })"
@@ -218,12 +222,14 @@ const removeImage = (image) => {
         >
           <textarea
             v-model="pair.left_content"
+            :aria-label="t('ux.left', {number: index + 1})"
             class="form-control"
             rows="2"
             :placeholder="t('topicDetail.leftPlaceholder', { number: index + 1 })"
           />
           <textarea
             v-model="pair.right_content"
+            :aria-label="t('ux.right', {number: index + 1})"
             class="form-control"
             rows="2"
             :placeholder="t('topicDetail.rightPlaceholder', { number: index + 1 })"

@@ -143,12 +143,20 @@ studentApi.getScheduledAssignments = async (params) => {
   return response.data;
 };
 studentApi.getAllAssignments = async () => {
-  const response = await axios.get("/api/student/me-assignments/", { params: { all: true } });
-  return response.data;
+  const response = await axios.get("/api/student/me-assignments/", { params: { all: true, page_size: 200 } });
+  const data = response.data;
+  let next = data.links?.next;
+  while (next) {
+    const page = (await axios.get(next)).data;
+    data.results.push(...page.results);
+    next = page.links?.next;
+  }
+  return data;
 };
 export let Student = studentApi;
 export let Users = apiConstructor("/api/user/");
 export let Attempt = apiConstructor("/api/attempt/");
+Attempt.submit = async (id, payload) => (await axios.post(`/api/attempt/${id}/submit/`, payload)).data;
 export let AttemptQuestion = apiConstructor("/api/attempt_question/");
 export let Answer = apiConstructor("/api/answer/");
 
@@ -177,6 +185,7 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 export async function subscribeToPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   const registration = await navigator.serviceWorker.ready
 
   const vapidPublicKey = await getVapidPublicKey()
@@ -186,7 +195,24 @@ export async function subscribeToPush() {
     applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
   })
 
-  await axios.post('/api/push/subscribe/', subscription.toJSON())
+  try {
+    await axios.post('/api/push/subscribe/', subscription.toJSON())
+  } catch (error) {
+    if (error?.response?.status !== 409) throw error;
+    await subscription.unsubscribe();
+    const replacement = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    });
+    await axios.post('/api/push/subscribe/', replacement.toJSON());
+  }
+}
+
+export async function unsubscribeFromPush() {
+  if (!('serviceWorker' in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager?.getSubscription();
+  if (subscription) await subscription.unsubscribe();
 }
 
 export async function sendTestPush() {

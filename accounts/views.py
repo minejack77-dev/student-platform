@@ -3,9 +3,9 @@ from datetime import timedelta
 from django.contrib.auth import authenticate, login, logout
 from django.db.models import Count, Q
 from django.utils import timezone
-from django.utils.dateparse import parse_date
+from learning.services.dates import parse_date
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 from django_filters import FilterSet, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
@@ -16,6 +16,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Student, Teacher, User
+from accounts.permissions import IsAccountAdministrator
+from accounts.push import PushSubscriptionSerializer, register_subscription, revoke_session_subscription
 from accounts.serializers import (
     AuthLoginSerializer,
     AuthUserSerializer,
@@ -36,6 +38,7 @@ class CsrfCookieView(APIView):
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
+@method_decorator(csrf_protect, name="dispatch")
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -67,6 +70,7 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        revoke_session_subscription(request)
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -92,6 +96,7 @@ class UserSetFilter(FilterSet):
 
 
 class UserViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAccountAdministrator]
     queryset = User.objects.select_related("student_profile", "teacher_profile").all()
     serializer_class = UserSerializer
     filter_backends = (DjangoFilterBackend, OrderingFilter)
@@ -109,6 +114,7 @@ class TeacherSetFilter(FilterSet):
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAccountAdministrator]
     queryset = (
         Teacher.objects.select_related("user")
         .prefetch_related("topics", "teaching_groups")
@@ -129,6 +135,7 @@ class StudentSetFilter(FilterSet):
 
 
 class StudentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAccountAdministrator]
     queryset = (
         Student.objects.select_related("user").prefetch_related("groups").distinct()
     )
@@ -136,9 +143,9 @@ class StudentViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, OrderingFilter)
     filterset_class = StudentSetFilter
 
-    @action(detail=False, methods=["post"], url_path="test-push")
+    @action(detail=False, methods=["post"], url_path="test-push", permission_classes=[IsAuthenticated])
     def test_push(self, request):
-        from webpush import send_user_notification
+        from learning.tasks import send_user_push_task
 
         try:
             student = request.user.student_profile
@@ -148,10 +155,10 @@ class StudentViewSet(viewsets.ModelViewSet):
             "head": "Test notification",
             "body": "Push notifications are working!",
         }
-        send_user_notification(user=student.user, payload=payload, ttl=60)
-        return Response({"detail": "Notification sent."})
+        send_user_push_task.delay(student.user_id, payload, 60)
+        return Response({"detail": "Notification queued."}, status=status.HTTP_202_ACCEPTED)
 
-    @action(detail=False, methods=["get"], url_path="me-assignments")
+    @action(detail=False, methods=["get"], url_path="me-assignments", permission_classes=[IsAuthenticated])
     def me_assignments(self, request):
         user = request.user
         try:
@@ -171,6 +178,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     "group",
                     "teacher__user",
                     "topic",
+                    "task",
                     "topic__subject",
                 )
                 .filter(
@@ -183,6 +191,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 .distinct()
             )
             # Попытки студента
+            schedule_entries = self.paginate_queryset(schedule_entries)
             attempts = (
                 Attempt.objects.select_related("schedule_entry")
                 .filter(student=student, schedule_entry__in=schedule_entries)
@@ -215,6 +224,11 @@ class StudentViewSet(viewsets.ModelViewSet):
                         "subject_name": entry.topic.subject.name,
                         "topic_id": entry.topic_id,
                         "topic_title": entry.topic.title,
+                        "task_id": entry.task_id,
+                        "task_title": entry.task.title if entry.task else entry.topic.title,
+                        "active_question_count": entry.task.questions.filter(is_active=True).count() if entry.task else 0,
+                        "required_question_count": entry.task.questions_per_attempt if entry.task else Attempt.QUESTIONS_PER_ATTEMPT,
+                        "passing_score": entry.task.passing_correct_answers if entry.task else 0,
                         "attempt_id": attempt.id if attempt else None,
                         "attempt_status": attempt.status if attempt else None,
                         "correct_count": correct_count,
@@ -228,9 +242,9 @@ class StudentViewSet(viewsets.ModelViewSet):
                         ),
                     }
                 )
-            return Response(
-                {"student": student.id, "results": items}, status=status.HTTP_200_OK
-            )
+            response = self.get_paginated_response(items)
+            response.data.update(student=student.id, current_date=timezone.localdate(), time_zone=timezone.get_current_timezone_name())
+            return response
 
         start_date_param = request.query_params.get("start_date")
         days_param = request.query_params.get("days", "7")
@@ -312,6 +326,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     "topic_title": entry.topic.title,
                     "task_id": entry.task_id,
                     "task_title": entry.task.title if entry.task else entry.topic.title,
+                    "passing_score": entry.task.passing_correct_answers if entry.task else 0,
                     "active_question_count": entry.active_question_count,
                     "required_question_count": (
                         entry.task.questions_per_attempt
@@ -348,6 +363,8 @@ class StudentViewSet(viewsets.ModelViewSet):
                 "start_date": start_date,
                 "days": days,
                 "results": payload,
+                "current_date": timezone.localdate(),
+                "time_zone": timezone.get_current_timezone_name(),
             },
             status=status.HTTP_200_OK,
         )
@@ -357,24 +374,19 @@ class PushSubscribeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        from webpush.models import PushInformation, SubscriptionInfo
-
-        data = request.data
-        subscription, _ = SubscriptionInfo.objects.update_or_create(
-            endpoint=data["endpoint"],
-            defaults={
-                "browser": "chrome",
-                "p256dh": data["keys"]["p256dh"],
-                "auth": data["keys"]["auth"],
-            },
-        )
-        push_info, _ = PushInformation.objects.get_or_create(
-            user=request.user,
-            subscription=subscription,
-        )
-
-        PushSubscription.objects.get_or_create(push_information=push_info)
+        serializer = PushSubscriptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        digest = register_subscription(request.user, serializer.validated_data)
+        request.session["push_endpoint_hash"] = digest
         return Response({"ok": True})
+
+
+class PushUnsubscribeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        revoke_session_subscription(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class VapidPublicKeyView(APIView):
@@ -392,31 +404,6 @@ class PushTestView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        from pywebpush import webpush, WebPushException
-        from webpush.models import PushInformation
-        from django.conf import settings
-        import json
-
-        subscriptions = PushInformation.objects.filter(
-            user=request.user
-        ).select_related("subscription")
-        for sub in subscriptions:
-            try:
-                webpush(
-                    subscription_info={
-                        "endpoint": sub.subscription.endpoint,
-                        "keys": {
-                            "p256dh": sub.subscription.p256dh,
-                            "auth": sub.subscription.auth,
-                        },
-                    },
-                    data=json.dumps({"title": "Тест", "body": "Уведомление работает!"}),
-                    vapid_private_key=settings.WEBPUSH_SETTINGS["VAPID_PRIVATE_KEY"],
-                    vapid_claims={
-                        "sub": "mailto:" + settings.WEBPUSH_SETTINGS["VAPID_EMAIL"]
-                    },
-                )
-            except WebPushException:
-                sub.delete()
-
-        return Response({"ok": True})
+        from learning.tasks import send_user_push_task
+        send_user_push_task.delay(request.user.pk, {"title": "Test", "body": "Push notifications are working."}, 60)
+        return Response({"ok": True}, status=status.HTTP_202_ACCEPTED)

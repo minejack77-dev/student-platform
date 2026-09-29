@@ -17,7 +17,7 @@ from learning.models import (
 
 class AccountsApiTests(APITestCase):
     def setUp(self):
-        self.auth_user = User.objects.create_user(
+        self.auth_user = User.objects.create_superuser(
             username="api_admin",
             password="StrongPass123",
             role=User.Role.TEACHER,
@@ -65,6 +65,7 @@ class AccountsApiTests(APITestCase):
 
         self.assertEqual(response.data["teacher_id"], teacher.id)
         self.assertIsNone(response.data["student_id"])
+        self.assertFalse(user.user_permissions.exists())
 
     def test_user_role_cannot_be_changed_after_creation(self):
         user = User.objects.create_user(
@@ -106,7 +107,7 @@ class AccountsApiTests(APITestCase):
         self.assertTrue(all(item["items"] == [] for item in me_assignments_response.data["results"]))
         self.assertEqual(teacher.user_id, user.id)
 
-    def test_student_can_be_assigned_to_multiple_groups(self):
+    def test_student_groups_cannot_be_changed_via_profile(self):
         student_user = User.objects.create_user(
             username="student_groups",
             password="StrongPass123",
@@ -122,14 +123,11 @@ class AccountsApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         student.refresh_from_db()
-        self.assertSetEqual(
-            set(student.groups.values_list("id", flat=True)),
-            {group_a.id, group_b.id},
-        )
+        self.assertFalse(student.groups.exists())
 
-    def test_teacher_can_be_assigned_groups_and_topics(self):
+    def test_teacher_groups_and_topics_cannot_be_changed_via_profile(self):
         teacher_user = User.objects.create_user(
             username="teacher_groups_topics",
             password="StrongPass123",
@@ -152,17 +150,14 @@ class AccountsApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         teacher.refresh_from_db()
         group_a.refresh_from_db()
         group_b.refresh_from_db()
 
-        self.assertSetEqual(
-            set(teacher.topics.values_list("id", flat=True)),
-            {topic_a.id, topic_b.id},
-        )
-        self.assertEqual(group_a.teacher_id, teacher.id)
-        self.assertEqual(group_b.teacher_id, teacher.id)
+        self.assertFalse(teacher.topics.exists())
+        self.assertIsNone(group_a.teacher_id)
+        self.assertIsNone(group_b.teacher_id)
 
     def test_student_me_assignments_returns_date_based_schedule(self):
         student_user = User.objects.create_user(

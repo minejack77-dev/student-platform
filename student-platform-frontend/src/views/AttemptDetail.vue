@@ -2,6 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { apiError } from "@/utils/apiError";
 import { Answer, Attempt, AttemptQuestion } from "@/api.js";
 import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
@@ -9,6 +12,22 @@ import { sanitizeInlineRichText } from "@/utils/richText.js";
 const props = defineProps(["id"]);
 const router = useRouter();
 const { t } = useI18n();
+const auth = useAuthStore();
+const teacherView = computed(() => auth.role === 'teacher');
+const showSubmitConfirm = ref(false);
+const draftKey = () => `attempt-draft:${auth.user?.id}:${props.id}`;
+const readDraft = () => { try { return JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); } catch { return {}; } };
+const persistAnswerDraft = (question) => {
+  if (teacherView.value) return;
+  try {
+    const draft = readDraft();
+    draft[question.id] = { choices: selectedChoicesFor(question.id), matching: matchingSelectionFor(question.id) };
+    sessionStorage.setItem(draftKey(), JSON.stringify(draft));
+  } catch { /* Storage may be unavailable; the visible save error remains. */ }
+};
+const clearAnswerDraft = (id) => {
+  try { const draft = readDraft(); delete draft[id]; sessionStorage.setItem(draftKey(), JSON.stringify(draft)); } catch { /* optional storage */ }
+};
 
 const attempt = ref(null);
 const questionList = ref([]);
@@ -36,6 +55,14 @@ const isLastQuestion = computed(
   () => activeQuestionIndex.value >= totalQuestions.value - 1,
 );
 const attemptCompleted = computed(() => attempt.value?.status === "completed");
+const reviewMode = computed(() => attemptCompleted.value || teacherView.value);
+const hasFailedSaves = computed(() => Object.values(saveStateByQuestion.value).some(state => state === 'error' || state === 'draft'));
+const isAnswered = (question) => isMatchingQuestion(question)
+  ? Object.keys(matchingSelectionFor(question.id)).length === question.matching_left_items.length
+  : selectedChoicesFor(question.id).length > 0;
+const answeredCount = computed(() => questionList.value.filter(isAnswered).length);
+const questionStatus = (question) => ['error', 'draft'].includes(saveStateByQuestion.value[question.id])
+  ? t('ux.saveFailed') : isAnswered(question) ? t('ux.answered') : t('ux.unanswered');
 const hasPendingSaves = computed(() => Object.values(savingByQuestion.value).some(Boolean));
 const attemptInteractionLocked = computed(
   () => attempt.value?.can_interact_today === false && !attemptCompleted.value,
@@ -81,6 +108,7 @@ const activeQuestionSaveLabel = computed(() => {
   if (activeQuestionSaveState.value === "error") {
     return t("attemptDetail.saveFailed");
   }
+  if (activeQuestionSaveState.value === 'draft') return t('ux.unsavedDraft');
   return t("attemptDetail.noChangesYet");
 });
 
@@ -90,6 +118,7 @@ const isMatchingQuestion = (attemptQuestion) =>
   attemptQuestion?.question?.question_type === "matching";
 
 const initializeLocalState = () => {
+  const draft = !teacherView.value && !attemptCompleted.value ? readDraft() : {};
   const nextSelections = {};
   const nextMatchingSelections = {};
   const nextActiveMatchingLeft = {};
@@ -101,7 +130,22 @@ const initializeLocalState = () => {
     nextMatchingSelections[attemptQuestion.id] =
       attemptQuestion.answer?.selected_matching_pairs ?? {};
     nextActiveMatchingLeft[attemptQuestion.id] = null;
-    nextSaveStates[attemptQuestion.id] = "";
+    nextSaveStates[attemptQuestion.id] = attemptQuestion.answer ? "saved" : "";
+    if (draft[attemptQuestion.id]) {
+      nextSelections[attemptQuestion.id] = draft[attemptQuestion.id].choices ?? [];
+      const matchingDraft = draft[attemptQuestion.id].matching ?? {};
+      const leftTokens = new Set((attemptQuestion.matching_left_items ?? []).map(item => item.id));
+      const rightTokens = new Set((attemptQuestion.matching_right_items ?? []).map(item => item.id));
+      if (isMatchingQuestion(attemptQuestion) && Object.entries(matchingDraft).some(([left, right]) => !leftTokens.has(left) || !rightTokens.has(right))) {
+        // Old numeric drafts cannot be translated without disclosing answer keys.
+        // Keep the saved server answer and explicitly ask the student to redo it.
+        saveError.value = t('ux.matchingDraftExpired');
+        clearAnswerDraft(attemptQuestion.id);
+      } else {
+        nextMatchingSelections[attemptQuestion.id] = matchingDraft;
+        nextSaveStates[attemptQuestion.id] = 'draft';
+      }
+    }
     nextSavingState[attemptQuestion.id] = false;
   }
 
@@ -134,7 +178,7 @@ const loadAttemptData = async () => {
     }
     scheduleMatchingLinkUpdate();
   } catch (error) {
-    loadError.value = error?.response?.data?.detail || t("attemptDetail.errors.load");
+    loadError.value = apiError(error, 'attemptDetail.errors.load');
   } finally {
     isLoading.value = false;
   }
@@ -188,11 +232,11 @@ const isMatchingLeftPaired = (attemptQuestionId, pairId) =>
 
 const isMatchingRightPaired = (attemptQuestionId, pairId) =>
   Object.values(matchingSelectionFor(attemptQuestionId)).some(
-    (value) => Number(value) === Number(pairId),
+    (value) => String(value) === String(pairId),
   );
 
 const findMatchingItem = (items, itemId) =>
-  items.find((item) => Number(item.id) === Number(itemId));
+  items.find((item) => String(item.id) === String(itemId));
 
 const setMatchingItemRef = (side, id, element) => {
   const key = `${side}-${id}`;
@@ -287,12 +331,13 @@ const reviewStatusLabel = (attemptQuestion) => {
 };
 
 const saveAnswer = async (attemptQuestion) => {
-  if (!attemptQuestion || attemptCompleted.value || attemptInteractionLocked.value) {
+  if (!attemptQuestion || teacherView.value || attemptCompleted.value || attemptInteractionLocked.value) {
     return;
   }
   saveError.value = "";
 
   const attemptQuestionId = attemptQuestion.id;
+  persistAnswerDraft(attemptQuestion);
   savingByQuestion.value = {
     ...savingByQuestion.value,
     [attemptQuestionId]: true,
@@ -317,6 +362,7 @@ const saveAnswer = async (attemptQuestion) => {
     }
 
     const savedAnswer = await Answer.save(payload);
+    clearAnswerDraft(attemptQuestionId);
     attemptQuestion.answer = savedAnswer;
     if (isMatchingQuestion(attemptQuestion)) {
       matchingSelectionsByQuestion.value = {
@@ -339,12 +385,7 @@ const saveAnswer = async (attemptQuestion) => {
       ...saveStateByQuestion.value,
       [attemptQuestionId]: "error",
     };
-    saveError.value =
-      error?.response?.data?.selected_choices?.[0] ||
-      error?.response?.data?.selected_matching_pairs?.[0] ||
-      error?.response?.data?.attempt_question?.[0] ||
-      error?.response?.data?.detail ||
-      t("attemptDetail.errors.autosave");
+    saveError.value = apiError(error, 'attemptDetail.errors.autosave');
   } finally {
     savingByQuestion.value = {
       ...savingByQuestion.value,
@@ -377,7 +418,7 @@ const handleMatchingRightClick = async (attemptQuestion, pairId) => {
 
   const nextSelection = { ...matchingSelectionFor(attemptQuestion.id) };
   for (const existingLeftId of Object.keys(nextSelection)) {
-    if (Number(nextSelection[existingLeftId]) === Number(pairId)) {
+    if (String(nextSelection[existingLeftId]) === String(pairId)) {
       delete nextSelection[existingLeftId];
     }
   }
@@ -437,7 +478,8 @@ const completeAttempt = async () => {
   if (
     !attempt.value ||
     attemptCompleted.value ||
-    !isLastQuestion.value ||
+    teacherView.value ||
+    hasFailedSaves.value ||
     attemptInteractionLocked.value ||
     isCompleting.value ||
     hasPendingSaves.value
@@ -446,22 +488,35 @@ const completeAttempt = async () => {
   }
 
   completeError.value = "";
+  showSubmitConfirm.value = false;
   isCompleting.value = true;
   try {
-    await Attempt.save({
-      id: attempt.value.id,
-      status: "completed",
+    await Attempt.submit(attempt.value.id, {
+      answers: questionList.value.map(q => isMatchingQuestion(q)
+        ? { attempt_question: q.id, selected_matching_pairs: matchingSelectionFor(q.id) }
+        : { attempt_question: q.id, selected_choices: selectedChoicesFor(q.id) }),
+      confirm_unanswered: answeredCount.value < totalQuestions.value,
     });
+    try { sessionStorage.removeItem(draftKey()); } catch { /* optional storage */ }
+    saveError.value = '';
     await loadAttemptData();
   } catch (error) {
-    completeError.value = error?.response?.data?.detail || t("attemptDetail.errors.complete");
+    completeError.value = apiError(error, 'attemptDetail.errors.complete');
   } finally {
     isCompleting.value = false;
   }
 };
 
 const goHome = async () => {
-  await router.push({ name: "student-home" });
+  await router.push(teacherView.value
+    ? { name: 'group-overview', params: { id: attempt.value.schedule_group_id }, query: { tab: 'results' } }
+    : { name: 'student-home' });
+};
+
+const retryAnswers = async () => {
+  for (const question of questionList.value) {
+    if (['error', 'draft'].includes(saveStateByQuestion.value[question.id])) await saveAnswer(question);
+  }
 };
 
 watch(
@@ -495,8 +550,9 @@ onBeforeUnmount(() => {
     <section class="surface-card attempt-hero">
       <div>
         <span class="pill">{{ t("attemptDetail.badge") }}</span>
-        <h1 class="attempt-title">{{ attempt?.subject_name || t("common.subject") }}</h1>
-        <p class="attempt-topic">{{ attempt?.topic_title || t("common.lesson") }}</p>
+        <h1 class="attempt-title">{{ attempt?.task_title || attempt?.topic_title || t("common.lesson") }}</h1>
+        <p class="attempt-topic">{{ attempt?.subject_name }} / {{ attempt?.topic_title }}</p>
+        <p v-if="teacherView">{{ t('ux.teacherReview', { student: attempt?.student_username }) }} · {{ attempt?.schedule_group_name }} · {{ attempt?.schedule_date }}</p>
       </div>
 
       <div class="hero-metrics">
@@ -513,8 +569,11 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
-    <div v-if="saveError" class="alert alert-danger">{{ saveError }}</div>
+    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadAttemptData">{{ t('ux.retry') }}</button></div>
+    <div v-if="hasFailedSaves && !reviewMode" class="alert alert-danger" role="alert">
+      {{ saveError || t('ux.savingBlocked') }}
+      <button class="btn btn-outline-primary" :disabled="hasPendingSaves" @click="retryAnswers">{{ t('ux.saveRetry') }}</button>
+    </div>
     <div v-if="completeError" class="alert alert-danger">{{ completeError }}</div>
     <div v-if="attemptInteractionLocked" class="alert alert-warning">
       {{ t("attemptDetail.scheduledWindowClosed") }}
@@ -525,18 +584,26 @@ onBeforeUnmount(() => {
     </section>
 
     <section
-      v-else-if="totalQuestions === 0 && !attemptCompleted"
+      v-else-if="!loadError && totalQuestions === 0 && !reviewMode"
       class="surface-card attempt-state"
     >
       {{ t("attemptDetail.noQuestionsAssigned") }}
     </section>
 
-    <section v-else-if="!attemptCompleted" class="surface-card question-panel">
+    <section v-else-if="!loadError && !reviewMode" class="surface-card question-panel">
+      <nav class="question-navigation" :aria-label="t('ux.questionsNav')">
+        <button v-for="(question, index) in questionList" :key="question.id" class="btn btn-outline-primary"
+          :class="{ active: index === activeQuestionIndex, 'border-danger': ['error', 'draft'].includes(saveStateByQuestion[question.id]) }"
+          :aria-current="index === activeQuestionIndex ? 'step' : undefined"
+          :aria-label="`${index + 1}: ${questionStatus(question)}`" @click="activeQuestionIndex = index">
+          {{ index + 1 }} · {{ questionStatus(question) }}
+        </button>
+      </nav>
       <div class="panel-head">
         <div class="pill">
           {{ t("attemptDetail.saveIndicator.questionCounter", { current: activeQuestionIndex + 1, total: totalQuestions }) }}
         </div>
-        <div class="save-indicator" :class="activeQuestionSaveState">
+        <div class="save-indicator" :class="activeQuestionSaveState" role="status" aria-live="polite">
           {{ activeQuestionSaveLabel }}
         </div>
       </div>
@@ -553,6 +620,11 @@ onBeforeUnmount(() => {
         :images="activeQuestion.question.images"
       />
 
+      <div v-if="isMatchingQuestion(activeQuestion)" class="matching-help">
+        <p>{{ t('ux.matchingHelp') }}</p>
+        <p role="status">{{ t('ux.matchingProgress', { count: Object.keys(matchingSelectionFor(activeQuestion.id)).length, total: activeQuestion.matching_left_items.length }) }}</p>
+        <button class="btn btn-outline-primary btn-sm" :disabled="hasPendingSaves || attemptInteractionLocked" @click="matchingSelectionsByQuestion[activeQuestion.id] = {}; saveAnswer(activeQuestion)">{{ t('ux.clearPairs') }}</button>
+      </div>
       <div v-if="isMatchingQuestion(activeQuestion)" ref="matchingBoardRef" class="matching-board">
         <svg class="matching-lines" aria-hidden="true">
           <line
@@ -576,7 +648,7 @@ onBeforeUnmount(() => {
               paired: isMatchingLeftPaired(activeQuestion.id, item.id),
             }"
             type="button"
-            :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
+            :disabled="attemptInteractionLocked || savingByQuestion[activeQuestion.id] || isCompleting"
             @click="handleMatchingLeftClick(activeQuestion, item.id)"
           >
             <span v-html="renderRichText(item.content)" />
@@ -591,7 +663,7 @@ onBeforeUnmount(() => {
             class="matching-item matching-right"
             :class="{ paired: isMatchingRightPaired(activeQuestion.id, item.id) }"
             type="button"
-            :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
+            :disabled="attemptInteractionLocked || savingByQuestion[activeQuestion.id] || isCompleting"
             @click="handleMatchingRightClick(activeQuestion, item.id)"
           >
             <span v-html="renderRichText(item.content)" />
@@ -610,7 +682,7 @@ onBeforeUnmount(() => {
             :type="isSingleChoice(activeQuestion) ? 'radio' : 'checkbox'"
             :name="`question-${activeQuestion.id}`"
             :checked="isChoiceSelected(activeQuestion.id, choice.id)"
-            :disabled="attemptCompleted || savingByQuestion[activeQuestion.id]"
+            :disabled="attemptInteractionLocked || savingByQuestion[activeQuestion.id] || isCompleting"
             @change="handleChoiceChange(activeQuestion, choice.id, $event.target.checked)"
           />
           <span v-html="renderRichText(choice.text)" />
@@ -639,22 +711,25 @@ onBeforeUnmount(() => {
         <button
           class="btn btn-primary"
           type="button"
-          :disabled="!isLastQuestion || hasPendingSaves || isCompleting || attemptInteractionLocked"
-          @click="completeAttempt"
+          :disabled="hasFailedSaves || hasPendingSaves || isCompleting || attemptInteractionLocked"
+          @click="showSubmitConfirm = true"
         >
           {{ isCompleting ? t("attemptDetail.finishing") : t("attemptDetail.finishAttempt") }}
         </button>
       </div>
     </section>
 
-    <section v-if="attemptCompleted" class="surface-card result-panel">
+    <ConfirmDialog v-if="showSubmitConfirm" :title="t('ux.finishTitle')"
+      :message="t('ux.finishSummary', { answered: answeredCount, total: totalQuestions, missing: totalQuestions - answeredCount })"
+      :confirm-label="t('ux.submit')" :cancel-label="t('ux.cancel')" @confirm="completeAttempt" @cancel="showSubmitConfirm = false" />
+    <section v-if="reviewMode && !loadError" class="surface-card result-panel">
       <div class="result-head">
         <h2 class="section-title">{{ t("attemptDetail.result") }}</h2>
         <button class="btn btn-primary" type="button" @click="goHome">
-          {{ t("attemptDetail.backHome") }}
+          {{ teacherView ? t('ux.backResults') : t("attemptDetail.backHome") }}
         </button>
       </div>
-      <div class="attempt-result-badge" :class="attemptOutcome">
+      <div v-if="attemptCompleted" class="attempt-result-badge" :class="attemptOutcome">
         {{ attemptOutcome === "success" ? t("attemptDetail.success") : t("attemptDetail.fail") }}
         | {{ t("attemptDetail.correctSummary", { count: correctCount, total: totalQuestions }) }}
         | {{ t("attemptDetail.passFromLabel", { count: passingScore }) }}
@@ -724,12 +799,12 @@ onBeforeUnmount(() => {
                 class="review-matching-row"
                 :class="{
                   correct:
-                    Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) ===
-                    Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
+                    String(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) ===
+                    String(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
                   wrong:
                     submittedMatchingSelectionFor(attemptQuestion)[leftItem.id] &&
-                    Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
-                      Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
+                    String(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
+                      String(correctMatchingSelectionFor(attemptQuestion)[leftItem.id]),
                 }"
               >
                 <div class="review-matching-side" v-html="renderRichText(leftItem.content)" />
@@ -749,8 +824,8 @@ onBeforeUnmount(() => {
                   <span v-else class="review-empty">{{ t("attemptDetail.noAnswerSelected") }}</span>
                   <div
                     v-if="
-                      Number(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
-                      Number(correctMatchingSelectionFor(attemptQuestion)[leftItem.id])
+                      String(submittedMatchingSelectionFor(attemptQuestion)[leftItem.id]) !==
+                      String(correctMatchingSelectionFor(attemptQuestion)[leftItem.id])
                     "
                     class="review-correct-match"
                   >

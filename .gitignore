@@ -10,6 +10,10 @@ venv/
 
 # Django
 db.sqlite3
+*.sqlite3
+*.sqlite3-*
+celerybeat-schedule*
+*.pem
 media/
 staticfiles/
 .runlogs/
@@ -28,3 +32,17 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local audit workspaces and release artifacts
+/07.09/
+/15.09/
+/release/
+/11B 4.xlsx
+/Test_11A.xlsx
+/SECURITY_AUDIT.md
+/SECURITY_AUDIT_V2.md
+/SECURITY_FIX_PLAN.md
+/docs/RELEASE_2026-09-29.md
+/docs/UX_FIXES.md
+/docs/security-review-2026-09-18.md
+/docs/security-stage-01.md

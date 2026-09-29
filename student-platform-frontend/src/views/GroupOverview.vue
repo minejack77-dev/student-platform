@@ -1,10 +1,15 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
+import { apiError } from "@/utils/apiError";
 import { Group, Task, Topic } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const props = defineProps(["id"]);
+const route = useRoute();
+const resultsTab = computed(() => route.query.tab === "results");
+const editedDate = ref("");
 
 const WEEK_LENGTH = 7;
 const DAY_NAME_FORMAT = { weekday: "short" };
@@ -148,10 +153,7 @@ const loadRanking = async () => {
     if (error?.response?.status === 403) {
       rankingError.value = t("groupOverview.rankingErrors.unlock");
     } else {
-      rankingError.value =
-        error?.response?.data?.date ||
-        error?.response?.data?.detail ||
-        t("groupOverview.rankingErrors.load");
+      rankingError.value = apiError(error, "groupOverview.rankingErrors.load");
     }
     rankingByStudentId.value = {};
   } finally {
@@ -246,8 +248,7 @@ const loadTopicCalendar = async () => {
     calendarDays.value = normalizeCalendarResponse(response);
     await primeCalendarTaskOptions();
   } catch (error) {
-    calendarError.value =
-      error?.response?.data?.detail || t("groupOverview.calendarErrors.load");
+    calendarError.value = apiError(error, "groupOverview.calendarErrors.load");
     calendarDays.value = [];
   } finally {
     calendarLoading.value = false;
@@ -292,16 +293,13 @@ const saveCalendarTask = async (day, item) => {
       date: day.date,
       task: Number(item.taskDraft),
     });
-    await loadTopicCalendar();
+    await Promise.all([loadTopicCalendar(), loadRanking()]);
     calendarMessage.value = t("groupOverview.calendarMessages.saved", {
       title: response.task_title || response.topic_title || t("common.task"),
       date: formatWithLocale(parseISODate(day.date), FULL_DATE_FORMAT),
     });
   } catch (error) {
-    calendarError.value =
-      error?.response?.data?.task?.[0] ||
-      error?.response?.data?.detail ||
-      t("groupOverview.calendarErrors.save");
+    calendarError.value = apiError(error);
   } finally {
     calendarSavingKey.value = "";
   }
@@ -318,13 +316,12 @@ const clearCalendarTask = async (day, item) => {
   calendarSavingKey.value = item.clientKey;
   try {
     await Group.clearTopicCalendarItem(props.id, { schedule_entry: item.id });
-    await loadTopicCalendar();
+    await Promise.all([loadTopicCalendar(), loadRanking()]);
     calendarMessage.value = t("groupOverview.calendarMessages.removed", {
       date: formatWithLocale(parseISODate(day.date), FULL_DATE_FORMAT),
     });
   } catch (error) {
-    calendarError.value =
-      error?.response?.data?.detail || t("groupOverview.calendarErrors.clear");
+    calendarError.value = apiError(error, "groupOverview.calendarErrors.clear");
   } finally {
     calendarSavingKey.value = "";
   }
@@ -379,6 +376,19 @@ const loadOverviewPage = async () => {
   await Promise.all([loadGroup(), loadRanking()]);
   await loadTeacherAssignment();
   await loadTopicCalendar();
+  if (route.query.task && route.query.topic) {
+    const day = calendarDays.value.find(day => isToday(day.date));
+    if (day && !day.items.some(item => String(item.task) === String(route.query.task))) {
+      await loadTasksByTopic(route.query.topic);
+      if (getTasksForTopic(route.query.topic).some(task => String(task.id) === String(route.query.task))) {
+        let draft = day.items.find(item => !item.id);
+        if (!draft) { draft = createDraftCalendarTask(day.date); day.items.push(draft); }
+        draft.topicDraft = String(route.query.topic);
+        draft.taskDraft = String(route.query.task);
+        editedDate.value = day.date;
+      }
+    }
+  }
 };
 
 const studentCount = computed(() => group.value.students.length);
@@ -505,7 +515,12 @@ onMounted(async () => {
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
-    <section class="surface-card schedule-panel">
+    <nav class="page-tabs" aria-label="Group">
+      <router-link :to="{ name: 'group-overview', params: { id: props.id } }" :aria-current="!resultsTab ? 'page' : undefined">{{ t('ux.schedule') }}</router-link>
+      <router-link :to="{ name: 'group-overview', params: { id: props.id }, query: { tab: 'results' } }" :aria-current="resultsTab ? 'page' : undefined">{{ t('ux.results') }}</router-link>
+      <router-link v-if="savedAssignmentSubject" :to="{ name: 'subject-detail', params: { id: savedAssignmentSubject }, query: { group: props.id } }">{{ t('ux.material') }}</router-link>
+    </nav>
+    <section v-if="!resultsTab" class="surface-card schedule-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("groupOverview.schedule") }}</h2>
@@ -567,8 +582,9 @@ onMounted(async () => {
         <article
           v-for="day in calendarDays"
           :key="day.date"
-          class="schedule-day-card"
+          class="schedule-day-card schedule-editor-day"
           :class="{
+            'is-editing': editedDate === day.date,
             'is-today': isToday(day.date),
             'is-weekend': isWeekend(day.date),
             'is-assigned': day.items.some((item) => item.task),
@@ -582,7 +598,11 @@ onMounted(async () => {
             <div class="schedule-day-number">{{ formatDayNumber(day.date) }}</div>
           </div>
 
-          <div class="schedule-task-list">
+          <div v-if="editedDate !== day.date" class="schedule-summary-list">
+            <p v-for="item in day.items" :key="item.clientKey">{{ item.task_title || t('ux.noAssignment') }}</p>
+          </div>
+          <button class="btn btn-outline-primary btn-sm schedule-edit-toggle" type="button" :aria-expanded="editedDate === day.date" @click="editedDate = editedDate === day.date ? '' : day.date">{{ t(editedDate === day.date ? 'ux.closeEdit' : 'ux.editDay') }}</button>
+          <div v-if="editedDate === day.date" class="schedule-task-list">
             <article
               v-for="item in day.items"
               :key="item.clientKey"
@@ -621,8 +641,9 @@ onMounted(async () => {
                     v-for="taskItem in getTasksForTopic(item.topicDraft)"
                     :key="taskItem.id"
                     :value="String(taskItem.id)"
+                    :disabled="taskItem.active_question_count < taskItem.questions_per_attempt"
                   >
-                    {{ taskItem.title }}
+                    {{ t("ux.taskReady", { title: taskItem.title, active: taskItem.active_question_count, required: taskItem.questions_per_attempt }) }}
                   </option>
                 </select>
               </div>
@@ -653,14 +674,15 @@ onMounted(async () => {
             </article>
           </div>
 
-          <button class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
+          <button v-if="editedDate === day.date" class="btn btn-outline-primary btn-sm add-task-btn" type="button" @click="addCalendarTask(day)">
             {{ t("groupOverview.addAnotherTask") }}
           </button>
         </article>
       </div>
     </section>
 
-    <section class="surface-card members-panel">
+    <section v-if="resultsTab" class="surface-card members-panel">
+      <router-link class="btn btn-outline-primary section-navigation" :to="{ name: 'group-details', params: { id: props.id }, query: { tab: 'results' } }">{{ t("groupDetails.detailedStatistics") }}</router-link>
       <div class="panel-header">
         <div class="members-title-row">
           <h2 class="section-title">{{ t("groupOverview.results") }}</h2>
@@ -761,13 +783,14 @@ onMounted(async () => {
                 <span class="member-result-task">
                   {{ result.task_title || result.topic_title || t("common.task") }}
                 </span>
-                <span
-                  v-if="result.result"
+                <router-link
+                  v-if="result.attempt_id"
+                  :to="{ name: 'attempt-detail', params: { id: result.attempt_id } }"
                   class="entity-chip"
                   :class="result.result === 'success' ? 'chip-success' : 'chip-fail'"
                 >
                   {{ result.correct_count }} / {{ result.total_questions }}
-                </span>
+                </router-link>
                 <span v-else class="member-result-placeholder">{{ t("common.noResultYet") }}</span>
               </div>
             </div>
@@ -780,3 +803,41 @@ onMounted(async () => {
 </template>
 
 <style scoped src="./GroupDetail.css"></style>
+<style scoped>
+.schedule-editor-day {
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  grid-template-areas: "date content toggle";
+  grid-template-rows: auto;
+  align-items: start;
+}
+.schedule-editor-day.is-editing {
+  grid-template-areas: "date content content" ". add toggle";
+}
+.schedule-editor-day > .schedule-day-top { grid-area: date; }
+.schedule-edit-toggle {
+  grid-area: toggle;
+  align-self: center;
+  justify-self: end;
+  min-height: 44px;
+  position: relative;
+  z-index: 1;
+}
+.schedule-editor-day > .schedule-summary-list,
+.schedule-editor-day > .schedule-task-list { grid-area: content; }
+.schedule-editor-day > .add-task-btn { grid-area: add; justify-self: start; }
+@media (min-width: 701px) and (max-width: 1200px) {
+  .schedule-editor-day .schedule-task-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .schedule-editor-day .schedule-topic-state { grid-column: 1; }
+  .schedule-editor-day .schedule-day-actions { grid-column: 2; }
+}
+@media (max-width: 920px) {
+  .schedule-editor-day {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "date date" "content content" ". toggle";
+    grid-template-rows: auto;
+  }
+  .schedule-editor-day.is-editing {
+    grid-template-areas: "date date" "content content" "add toggle";
+  }
+}
+</style>

@@ -1,3 +1,5 @@
+from io import BytesIO
+from PIL import Image
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,7 +15,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from accounts.models import Student, Teacher, User
+from accounts.models import Student, Teacher, User, teacher_learning_permissions
 from learning.models import (
     Answer,
     Attempt,
@@ -48,7 +50,16 @@ class LearningApiTests(APITestCase):
             role=User.Role.TEACHER,
         )
         self.teacher = Teacher.objects.create(user=self.auth_user)
+        self.auth_user.user_permissions.add(*teacher_learning_permissions())
         self.client.force_authenticate(self.auth_user)
+
+    def _create_subject(self, **kwargs):
+        kwargs.setdefault("owner", self.auth_user)
+        return Subject.objects.create(**kwargs)
+
+    def _create_group(self, **kwargs):
+        kwargs.setdefault("teacher", self.teacher)
+        return Group.objects.create(**kwargs)
 
     def _create_question_with_two_choices(self, topic, text):
         question = Question.objects.create(
@@ -72,7 +83,7 @@ class LearningApiTests(APITestCase):
         return student
 
     def _create_schedule_entry(self, student, topic, scheduled_for=None, group_name="Schedule Group"):
-        group = Group.objects.create(name=group_name, is_active=True)
+        group = self._create_group(name=group_name, is_active=True)
         group.students.add(student)
         return GroupTopicSchedule.objects.create(
             group=group,
@@ -125,7 +136,7 @@ class LearningApiTests(APITestCase):
         return attempt
 
     def test_create_question_with_choices(self):
-        subject = Subject.objects.create(name="Mathematics")
+        subject = self._create_subject(name="Mathematics")
         topic = Topic.objects.create(subject=subject, title="Math")
         old_timestamp = timezone.now() - timedelta(days=1)
         Topic.objects.filter(id=topic.id).update(updated_at=old_timestamp)
@@ -158,9 +169,14 @@ class LearningApiTests(APITestCase):
         self.assertGreater(topic.updated_at, second_old_timestamp)
 
     def test_question_images_can_be_uploaded_listed_and_deleted(self):
-        subject = Subject.objects.create(name="Geometry with images")
+        subject = self._create_subject(name="Geometry with images")
         topic = Topic.objects.create(subject=subject, title="Triangles")
         question = self._create_question_with_two_choices(topic, "Choose the triangle")
+
+        def real_image(format):
+            stream = BytesIO()
+            Image.new("RGB", (2, 2), "white").save(stream, format=format)
+            return stream.getvalue()
 
         with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
             response = self.client.post(
@@ -169,12 +185,12 @@ class LearningApiTests(APITestCase):
                     "images": [
                         SimpleUploadedFile(
                             "triangle.png",
-                            b"\x89PNG\r\n\x1a\nimage-content",
+                            real_image("PNG"),
                             content_type="image/png",
                         ),
                         SimpleUploadedFile(
                             "diagram.webp",
-                            b"RIFF\x00\x00\x00\x00WEBPimage-content",
+                            real_image("WEBP"),
                             content_type="image/webp",
                         ),
                     ]
@@ -215,12 +231,17 @@ class LearningApiTests(APITestCase):
             delete_response = self.client.delete(
                 f"/api/question/{question.id}/images/{image.id}/"
             )
+            self.assertEqual(delete_response.status_code, status.HTTP_409_CONFLICT)
+            self.assertTrue(image_path.exists())
+            attempt_question.delete()
+            with self.captureOnCommitCallbacks(execute=True):
+                delete_response = self.client.delete(f"/api/question/{question.id}/images/{image.id}/")
             self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertFalse(image_path.exists())
             self.assertEqual(question.images.count(), 1)
 
     def test_question_image_upload_rejects_non_image_files(self):
-        subject = Subject.objects.create(name="Safe image uploads")
+        subject = self._create_subject(name="Safe image uploads")
         topic = Topic.objects.create(subject=subject, title="Files")
         question = self._create_question_with_two_choices(topic, "Upload an image")
 
@@ -238,7 +259,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(question.images.count(), 0)
 
     def test_matching_question_can_be_created_answered_and_reviewed(self):
-        subject = Subject.objects.create(name="English Matching")
+        subject = self._create_subject(name="English Matching")
         topic = Topic.objects.create(subject=subject, title="Vocabulary", is_active=True)
         payload = {
             "topic": topic.id,
@@ -269,7 +290,7 @@ class LearningApiTests(APITestCase):
         task.passing_correct_answers = 1
         task.save()
         student = self._authenticate_student("student_matching")
-        group = Group.objects.create(name="Matching Group", is_active=True)
+        group = self._create_group(name="Matching Group", is_active=True)
         group.students.add(student)
         schedule_entry = GroupTopicSchedule.objects.create(
             group=group,
@@ -295,23 +316,17 @@ class LearningApiTests(APITestCase):
         self.assertEqual(review_response.status_code, status.HTTP_200_OK)
         attempt_payload = review_response.data["results"][0]
         self.assertEqual(attempt_payload["correct_matching_pairs"], {})
-        self.assertEqual(
-            {item["id"] for item in attempt_payload["matching_left_items"]},
-            {pair.id for pair in pairs},
-        )
-        self.assertEqual(
-            {item["id"] for item in attempt_payload["matching_right_items"]},
-            {pair.id for pair in pairs},
-        )
+        from learning.services.matching import encode_matching
+        correct_selection = encode_matching(attempt_question, {str(pair.pk): pair.pk for pair in pairs})
+        self.assertTrue(set(correct_selection).isdisjoint(correct_selection.values()))
+        self.assertEqual({item["id"] for item in attempt_payload["matching_left_items"]}, set(correct_selection))
+        self.assertEqual({item["id"] for item in attempt_payload["matching_right_items"]}, set(correct_selection.values()))
 
         answer_response = self.client.post(
             "/api/answer/",
             {
                 "attempt_question": attempt_question.id,
-                "selected_matching_pairs": {
-                    str(pairs[0].id): pairs[0].id,
-                    str(pairs[1].id): pairs[1].id,
-                },
+                "selected_matching_pairs": correct_selection,
             },
             format="json",
         )
@@ -333,11 +348,11 @@ class LearningApiTests(APITestCase):
         )
         self.assertEqual(
             completed_review.data["results"][0]["correct_matching_pairs"],
-            {str(pairs[0].id): pairs[0].id, str(pairs[1].id): pairs[1].id},
+            correct_selection,
         )
 
     def test_group_find_and_add_student_by_user_id(self):
-        group = Group.objects.create(name="Group A", teacher=self.teacher)
+        group = self._create_group(name="Group A", teacher=self.teacher)
         old_timestamp = timezone.now() - timedelta(days=1)
         Group.objects.filter(id=group.id).update(updated_at=old_timestamp)
         student_user = User.objects.create_user(
@@ -378,7 +393,7 @@ class LearningApiTests(APITestCase):
         self.assertGreater(group.updated_at, second_old_timestamp)
 
     def test_group_search_students_by_username_and_user_id(self):
-        group = Group.objects.create(name="Group Search", teacher=self.teacher)
+        group = self._create_group(name="Group Search", teacher=self.teacher)
 
         user_a = User.objects.create_user(
             username="alex_student",
@@ -412,7 +427,7 @@ class LearningApiTests(APITestCase):
         self.assertIn("maria", [item["username"] for item in id_response.data])
 
     def test_group_detail_returns_students_in_natural_username_order(self):
-        group = Group.objects.create(name="Group Ordering", teacher=self.teacher)
+        group = self._create_group(name="Group Ordering", teacher=self.teacher)
         usernames = ["Student_10", "Student_2", "Student_1"]
         students = []
 
@@ -435,7 +450,7 @@ class LearningApiTests(APITestCase):
         )
 
     def test_only_group_owner_teacher_can_manage_group_students(self):
-        group = Group.objects.create(name="Locked Group", teacher=self.teacher)
+        group = self._create_group(name="Locked Group", teacher=self.teacher)
         student_user = User.objects.create_user(
             username="group_member_student",
             password="StrongPass123",
@@ -449,27 +464,28 @@ class LearningApiTests(APITestCase):
             role=User.Role.TEACHER,
         )
         Teacher.objects.create(user=other_teacher_user)
+        other_teacher_user.user_permissions.add(*teacher_learning_permissions())
         self.client.force_authenticate(other_teacher_user)
 
         find_response = self.client.get(
             f"/api/group/{group.id}/find-student/",
             {"user_id": student_user.id},
         )
-        self.assertEqual(find_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(find_response.status_code, status.HTTP_404_NOT_FOUND)
 
         add_response = self.client.post(
             f"/api/group/{group.id}/add-student/",
             {"user_id": student_user.id},
             format="json",
         )
-        self.assertEqual(add_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(add_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(group.students.filter(id=student.id).exists())
 
         search_response = self.client.get(
             f"/api/group/{group.id}/search-students/",
             {"q": "group_member"},
         )
-        self.assertEqual(search_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(search_response.status_code, status.HTTP_404_NOT_FOUND)
 
         group.students.add(student)
         remove_response = self.client.post(
@@ -477,14 +493,14 @@ class LearningApiTests(APITestCase):
             {"user_id": student_user.id},
             format="json",
         )
-        self.assertEqual(remove_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(remove_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(group.students.filter(id=student.id).exists())
 
     def test_student_cannot_access_teacher_crud_but_can_view_own_group_ranking(self):
-        subject = Subject.objects.create(name="Permissions Subject")
+        subject = self._create_subject(name="Permissions Subject")
         topic = Topic.objects.create(subject=subject, title="Permissions Topic")
         task = Task.objects.create(topic=topic, title="Protected Task")
-        group = Group.objects.create(name="Permissions Group")
+        group = self._create_group(name="Permissions Group")
 
         student = self._authenticate_student("student_permissions")
         group.students.add(student)
@@ -528,7 +544,7 @@ class LearningApiTests(APITestCase):
         today = timezone.localdate()
         yesterday = today - timedelta(days=1)
 
-        subject = Subject.objects.create(name="Ranking Subject")
+        subject = self._create_subject(name="Ranking Subject")
         topic = Topic.objects.create(subject=subject, title="Ranking Topic", is_active=True)
         task = Task.objects.create(
             topic=topic,
@@ -542,7 +558,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=2,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Ranking Group", is_active=True)
+        group = self._create_group(name="Ranking Group", is_active=True)
         student_user = User.objects.create_user(
             username="ranking_student",
             password="StrongPass123",
@@ -609,6 +625,7 @@ class LearningApiTests(APITestCase):
             row["today_results"],
             [
                 {
+                    "attempt_id": Attempt.objects.get(schedule_entry=today_entry).id,
                     "schedule_entry_id": today_entry.id,
                     "task_id": task.id,
                     "task_title": "Ranking Task A",
@@ -618,6 +635,7 @@ class LearningApiTests(APITestCase):
                     "result": "success",
                 },
                 {
+                    "attempt_id": Attempt.objects.get(schedule_entry=second_today_entry).id,
                     "schedule_entry_id": second_today_entry.id,
                     "task_id": second_task.id,
                     "task_title": "Ranking Task B",
@@ -633,7 +651,7 @@ class LearningApiTests(APITestCase):
         today = timezone.localdate()
         yesterday = today - timedelta(days=1)
 
-        subject = Subject.objects.create(name="Selected Date Subject")
+        subject = self._create_subject(name="Selected Date Subject")
         topic = Topic.objects.create(subject=subject, title="Selected Date Topic", is_active=True)
         task = Task.objects.create(
             topic=topic,
@@ -647,7 +665,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=2,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Selected Date Group", is_active=True)
+        group = self._create_group(name="Selected Date Group", is_active=True)
         student_user = User.objects.create_user(
             username="selected_date_student",
             password="StrongPass123",
@@ -696,6 +714,7 @@ class LearningApiTests(APITestCase):
             row["today_results"],
             [
                 {
+                    "attempt_id": Attempt.objects.get(schedule_entry=yesterday_entry).id,
                     "schedule_entry_id": yesterday_entry.id,
                     "task_id": task.id,
                     "task_title": "Past Task",
@@ -711,7 +730,7 @@ class LearningApiTests(APITestCase):
         selected_date = date(2026, 5, 9)
         previous_date = selected_date - timedelta(days=1)
 
-        subject = Subject.objects.create(name="Ranking Trend Subject")
+        subject = self._create_subject(name="Ranking Trend Subject")
         topic = Topic.objects.create(subject=subject, title="Ranking Trend Topic", is_active=True)
         first_task = Task.objects.create(
             topic=topic,
@@ -725,7 +744,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=3,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Ranking Trend Group", is_active=True)
+        group = self._create_group(name="Ranking Trend Group", is_active=True)
 
         first_user = User.objects.create_user(
             username="Student_1",
@@ -806,8 +825,8 @@ class LearningApiTests(APITestCase):
         self.assertIsNone(rows_by_username["Student_3"]["rank_trend"])
 
     def test_group_ranking_rejects_invalid_date(self):
-        group = Group.objects.create(name="Invalid Date Group", is_active=True)
-        subject = Subject.objects.create(name="Invalid Date Subject")
+        group = self._create_group(name="Invalid Date Group", is_active=True)
+        subject = self._create_subject(name="Invalid Date Subject")
         topic = Topic.objects.create(subject=subject, title="Invalid Date Topic", is_active=True)
         task = Task.objects.create(
             topic=topic,
@@ -834,7 +853,7 @@ class LearningApiTests(APITestCase):
     def test_group_detailed_statistics_returns_scaled_matrix(self):
         end_date = date(2026, 5, 9)
 
-        subject = Subject.objects.create(name="Detailed Statistics Subject")
+        subject = self._create_subject(name="Detailed Statistics Subject")
         topic = Topic.objects.create(subject=subject, title="Detailed Statistics Topic", is_active=True)
         green_task = Task.objects.create(
             topic=topic,
@@ -872,7 +891,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=2,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Detailed Statistics Group", is_active=True)
+        group = self._create_group(name="Detailed Statistics Group", is_active=True)
         student_user = User.objects.create_user(
             username="anna_statistics",
             password="StrongPass123",
@@ -1005,7 +1024,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(anna_cells["2026-05-05"]["state"], "all_correct")
         self.assertEqual(anna_cells["2026-05-06"]["state"], "partial")
         self.assertEqual(anna_cells["2026-05-07"]["state"], "none_correct")
-        self.assertEqual(anna_cells["2026-05-08"]["state"], "missed")
+        self.assertEqual(anna_cells["2026-05-08"]["state"], "pending")
         self.assertEqual(anna_cells["2026-05-09"]["state"], "no_test")
         self.assertEqual(
             anna_cells["2026-05-06"]["tests"],
@@ -1042,7 +1061,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(boris_cells["2026-05-09"]["state"], "no_test")
 
     def test_group_detailed_statistics_week_uses_calendar_week_boundaries(self):
-        subject = Subject.objects.create(name="Calendar Week Subject")
+        subject = self._create_subject(name="Calendar Week Subject")
         topic = Topic.objects.create(subject=subject, title="Calendar Week Topic", is_active=True)
         task = Task.objects.create(
             topic=topic,
@@ -1050,7 +1069,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=1,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Calendar Week Group", is_active=True)
+        group = self._create_group(name="Calendar Week Group", is_active=True)
         GroupTeachingAssignment.objects.create(
             group=group,
             teacher=self.teacher,
@@ -1081,7 +1100,7 @@ class LearningApiTests(APITestCase):
         )
 
     def test_group_detailed_statistics_orders_students_naturally_by_username(self):
-        group = Group.objects.create(name="Detailed Statistics Ordering", teacher=self.teacher)
+        group = self._create_group(name="Detailed Statistics Ordering", teacher=self.teacher)
         usernames = ["Student_10", "Student_2", "Student_1"]
         students = []
 
@@ -1107,7 +1126,7 @@ class LearningApiTests(APITestCase):
         )
 
     def test_group_detailed_statistics_includes_range_end_rank_and_trend(self):
-        subject = Subject.objects.create(name="Detailed Statistics Rank Subject")
+        subject = self._create_subject(name="Detailed Statistics Rank Subject")
         topic = Topic.objects.create(
             subject=subject,
             title="Detailed Statistics Rank Topic",
@@ -1125,7 +1144,7 @@ class LearningApiTests(APITestCase):
             questions_per_attempt=3,
             passing_correct_answers=1,
         )
-        group = Group.objects.create(name="Detailed Statistics Rank Group", teacher=self.teacher)
+        group = self._create_group(name="Detailed Statistics Rank Group", teacher=self.teacher)
 
         first_user = User.objects.create_user(
             username="Student_1",
@@ -1206,7 +1225,7 @@ class LearningApiTests(APITestCase):
         self.assertIsNone(rows_by_username["Student_3"]["rank_trend"])
 
     def test_group_detailed_statistics_rejects_invalid_filters(self):
-        group = Group.objects.create(name="Detailed Statistics Filter Group", is_active=True)
+        group = self._create_group(name="Detailed Statistics Filter Group", is_active=True)
 
         invalid_scale_response = self.client.get(
             f"/api/group/{group.id}/detailed-statistics/",
@@ -1229,8 +1248,8 @@ class LearningApiTests(APITestCase):
         )
 
     def test_topics_with_same_title_allowed_for_different_subjects(self):
-        algebra = Subject.objects.create(name="Algebra")
-        geometry = Subject.objects.create(name="Geometry")
+        algebra = self._create_subject(name="Algebra")
+        geometry = self._create_subject(name="Geometry")
 
         Topic.objects.create(subject=algebra, title="Introduction")
         Topic.objects.create(subject=geometry, title="Introduction")
@@ -1239,7 +1258,7 @@ class LearningApiTests(APITestCase):
             Topic.objects.create(subject=algebra, title="Introduction")
 
     def test_workbook_unit_topic_hierarchy_api(self):
-        subject = Subject.objects.create(name="English")
+        subject = self._create_subject(name="English")
 
         workbook_response = self.client.post(
             "/api/workbook/",
@@ -1289,7 +1308,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(topic.unit_id, unit_id)
 
     def test_topic_create_with_subject_only_uses_default_unit(self):
-        subject = Subject.objects.create(name="History")
+        subject = self._create_subject(name="History")
 
         response = self.client.post(
             "/api/topic/",
@@ -1313,7 +1332,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(Unit.objects.filter(workbook=topic.unit.workbook).count(), 1)
 
     def test_topic_create_requires_unit_when_subject_already_has_workbook_hierarchy(self):
-        subject = Subject.objects.create(name="Geography")
+        subject = self._create_subject(name="Geography")
         workbook = Workbook.objects.create(subject=subject, title="Atlas")
         unit = Unit.objects.create(workbook=workbook, title="Europe")
 
@@ -1346,8 +1365,8 @@ class LearningApiTests(APITestCase):
         self.assertEqual(valid_response.data["unit"], unit.id)
 
     def test_topic_rejects_subject_unit_mismatch(self):
-        math = Subject.objects.create(name="Math hierarchy")
-        physics = Subject.objects.create(name="Physics hierarchy")
+        math = self._create_subject(name="Math hierarchy")
+        physics = self._create_subject(name="Physics hierarchy")
         workbook = Workbook.objects.create(subject=math, title="Math Workbook")
         unit = Unit.objects.create(workbook=workbook, title="Algebra Unit")
 
@@ -1365,8 +1384,8 @@ class LearningApiTests(APITestCase):
         self.assertIn("unit", response.data)
 
     def test_group_teacher_assignment_validation(self):
-        math = Subject.objects.create(name="Math")
-        physics = Subject.objects.create(name="Physics")
+        math = self._create_subject(name="Math")
+        physics = self._create_subject(name="Physics")
         math_workbook = Workbook.objects.create(subject=math, title="Math Workbook")
         geometry_workbook = Workbook.objects.create(subject=math, title="Geometry Workbook")
         physics_workbook = Workbook.objects.create(subject=physics, title="Physics Workbook")
@@ -1389,7 +1408,7 @@ class LearningApiTests(APITestCase):
             unit=physics_unit,
             title="Kinematics",
         )
-        group = Group.objects.create(name="Group Subject Topic")
+        group = self._create_group(name="Group Subject Topic")
 
         topic_only_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
@@ -1444,10 +1463,11 @@ class LearningApiTests(APITestCase):
             role=User.Role.TEACHER,
         )
         Teacher.objects.create(user=teacher_user_2)
+        teacher_user_2.user_permissions.add(*teacher_learning_permissions())
 
-        group = Group.objects.create(name="Shared Group")
-        algebra = Subject.objects.create(name="Algebra")
-        chemistry = Subject.objects.create(name="Chemistry")
+        group = self._create_group(name="Shared Group")
+        algebra = self._create_subject(name="Algebra")
+        chemistry = self._create_subject(name="Chemistry")
         algebra_topic = Topic.objects.create(subject=algebra, title="Fractions")
         chemistry_topic = Topic.objects.create(subject=chemistry, title="Acids")
 
@@ -1458,13 +1478,20 @@ class LearningApiTests(APITestCase):
         )
         self.assertEqual(response_teacher_1.status_code, status.HTTP_201_CREATED)
 
+        # The owner explicitly invites the second teacher before they can edit.
+        invited = self.client.patch(
+            f"/api/group/{group.id}/teacher-assignment/",
+            {"teacher": teacher_user_2.teacher_profile.id, "subject": chemistry.id},
+            format="json",
+        )
+        self.assertEqual(invited.status_code, status.HTTP_201_CREATED)
         self.client.force_authenticate(teacher_user_2)
         response_teacher_2 = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
             {"subject": chemistry.id, "topic": chemistry_topic.id},
             format="json",
         )
-        self.assertEqual(response_teacher_2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response_teacher_2.status_code, status.HTTP_200_OK)
 
         read_teacher_2 = self.client.get(f"/api/group/{group.id}/teacher-assignment/")
         self.assertEqual(read_teacher_2.status_code, status.HTTP_200_OK)
@@ -1478,14 +1505,18 @@ class LearningApiTests(APITestCase):
         self.assertEqual(read_teacher_1.data["topic"], algebra_topic.id)
 
     def test_group_topic_calendar_save_and_list_entries(self):
-        group = Group.objects.create(name="Schedule Group")
-        subject = Subject.objects.create(name="Literature")
+        group = self._create_group(name="Schedule Group")
+        subject = self._create_subject(name="Literature")
         workbook = Workbook.objects.create(subject=subject, title="Literature Workbook")
         unit_a = Unit.objects.create(workbook=workbook, title="Unit A")
         unit_b = Unit.objects.create(workbook=workbook, title="Unit B")
         topic_a = Topic.objects.create(subject=subject, unit=unit_a, title="Poetry")
         topic_b = Topic.objects.create(subject=subject, unit=unit_b, title="Drama")
         task_b = Task.get_default_for_topic(topic_b)
+        task_b.questions_per_attempt = 1
+        task_b.passing_correct_answers = 1
+        task_b.save()
+        self._create_question_with_two_choices(topic_b, "Ready question")
 
         assignment_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
@@ -1518,8 +1549,8 @@ class LearningApiTests(APITestCase):
         self.assertIsNone(list_response.data["results"][1]["topic"])
 
     def test_group_topic_calendar_requires_saved_subject(self):
-        group = Group.objects.create(name="Unbound Schedule Group")
-        subject = Subject.objects.create(name="History")
+        group = self._create_group(name="Unbound Schedule Group")
+        subject = self._create_subject(name="History")
         topic = Topic.objects.create(subject=subject, title="Ancient Rome")
 
         response = self.client.patch(
@@ -1532,20 +1563,25 @@ class LearningApiTests(APITestCase):
         self.assertIn("detail", response.data)
 
     def test_group_topic_calendar_is_cleared_when_assignment_subject_changes(self):
-        group = Group.objects.create(name="Schedule Reset Group")
-        algebra = Subject.objects.create(name="Algebra Schedule")
-        geometry = Subject.objects.create(name="Geometry Schedule")
+        group = self._create_group(name="Schedule Reset Group")
+        algebra = self._create_subject(name="Algebra Schedule")
+        geometry = self._create_subject(name="Geometry Schedule")
         algebra_topic = Topic.objects.create(subject=algebra, title="Fractions")
         geometry_topic = Topic.objects.create(subject=geometry, title="Triangles")
 
+        task = Task.get_default_for_topic(algebra_topic)
+        task.questions_per_attempt = 1
+        task.passing_correct_answers = 1
+        task.save()
+        self._create_question_with_two_choices(algebra_topic, "Ready question")
         self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
-            {"subject": algebra.id, "topic": algebra_topic.id},
+            {"subject": algebra.id, "workbook": algebra_topic.unit.workbook_id, "topic": algebra_topic.id},
             format="json",
         )
         self.client.patch(
             f"/api/group/{group.id}/topic-calendar/",
-            {"date": "2026-05-11", "topic": algebra_topic.id},
+            {"date": "2026-05-11", "task": task.id},
             format="json",
         )
 
@@ -1556,7 +1592,7 @@ class LearningApiTests(APITestCase):
 
         update_response = self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
-            {"subject": geometry.id, "topic": geometry_topic.id},
+            {"subject": geometry.id, "workbook": geometry_topic.unit.workbook_id, "topic": geometry_topic.id},
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
@@ -1565,8 +1601,8 @@ class LearningApiTests(APITestCase):
         )
 
     def test_group_topic_calendar_rejects_task_from_other_workbook(self):
-        group = Group.objects.create(name="Workbook Locked Group")
-        subject = Subject.objects.create(name="English Workbook")
+        group = self._create_group(name="Workbook Locked Group")
+        subject = self._create_subject(name="English Workbook")
         workbook_a = Workbook.objects.create(subject=subject, title="Workbook A")
         workbook_b = Workbook.objects.create(subject=subject, title="Workbook B")
         unit_a = Unit.objects.create(workbook=workbook_a, title="Unit A")
@@ -1591,12 +1627,12 @@ class LearningApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data["task"],
-            "Task must belong to your saved workbook for this group.",
+            "Task must belong to your saved textbook for this group.",
         )
 
     def test_group_topic_calendar_is_cleared_when_assignment_workbook_changes(self):
-        group = Group.objects.create(name="Workbook Reset Group")
-        subject = Subject.objects.create(name="English Schedule")
+        group = self._create_group(name="Workbook Reset Group")
+        subject = self._create_subject(name="English Schedule")
         workbook_a = Workbook.objects.create(subject=subject, title="Workbook A")
         workbook_b = Workbook.objects.create(subject=subject, title="Workbook B")
         unit_a = Unit.objects.create(workbook=workbook_a, title="Unit A")
@@ -1604,6 +1640,10 @@ class LearningApiTests(APITestCase):
         topic_a = Topic.objects.create(subject=subject, unit=unit_a, title="Grammar")
         topic_b = Topic.objects.create(subject=subject, unit=unit_b, title="Reading")
         task_a = Task.get_default_for_topic(topic_a)
+        task_a.questions_per_attempt = 1
+        task_a.passing_correct_answers = 1
+        task_a.save()
+        self._create_question_with_two_choices(topic_a, "Ready question")
 
         self.client.patch(
             f"/api/group/{group.id}/teacher-assignment/",
@@ -1632,11 +1672,11 @@ class LearningApiTests(APITestCase):
         )
 
     def test_group_topic_calendar_delete_attempt_check_is_scoped_to_group_entry(self):
-        subject = Subject.objects.create(name="Scoped Attempts")
+        subject = self._create_subject(name="Scoped Attempts")
         topic = Topic.objects.create(subject=subject, title="Shared Topic")
         task = Task.get_default_for_topic(topic)
-        group_with_attempt = Group.objects.create(name="Group With Attempt")
-        group_without_attempt = Group.objects.create(name="Group Without Attempt")
+        group_with_attempt = self._create_group(name="Group With Attempt")
+        group_without_attempt = self._create_group(name="Group Without Attempt")
         student_user = User.objects.create_user(
             username="student_scoped_attempt",
             password="StrongPass123",
@@ -1688,7 +1728,7 @@ class LearningApiTests(APITestCase):
         )
 
     def test_task_import_questions_api_uses_uploaded_file(self):
-        subject = Subject.objects.create(name="Task Import API")
+        subject = self._create_subject(name="Task Import API")
         topic = Topic.objects.create(subject=subject, title="Task Import Topic")
         task = Task.objects.create(topic=topic, title="Task Import Pool")
         uploaded_file = SimpleUploadedFile(
@@ -1699,7 +1739,7 @@ class LearningApiTests(APITestCase):
 
         with TemporaryDirectory() as temp_dir:
             with self.settings(MEDIA_ROOT=temp_dir):
-                with patch("learning.views.import_questions_from_xls", return_value=[]) as import_mock:
+                with patch("learning.services.safe_import.import_questions_from_xls", return_value=[]) as import_mock:
                     response = self.client.post(
                         f"/api/task/{task.id}/import-questions/",
                         {"src": uploaded_file, "is_active": "false"},
@@ -1709,15 +1749,16 @@ class LearningApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task.refresh_from_db()
         self.assertEqual(response.data["imported_count"], 0)
-        self.assertTrue(task.src.name.endswith(".xlsx"))
+        self.assertFalse(task.src.name)
         import_mock.assert_called_once()
         _, kwargs = import_mock.call_args
         self.assertEqual(kwargs["task"].id, task.id)
-        self.assertEqual(kwargs["src"].name, task.src.name)
+        self.assertEqual(kwargs["src"].suffix, ".xlsx")
+        self.assertFalse(kwargs["src"].exists())
         self.assertFalse(kwargs["is_active"])
 
     def test_create_task_accepts_attempt_settings(self):
-        subject = Subject.objects.create(name="Task Settings API")
+        subject = self._create_subject(name="Task Settings API")
         topic = Topic.objects.create(subject=subject, title="Task Settings Topic")
 
         response = self.client.post(
@@ -1740,7 +1781,7 @@ class LearningApiTests(APITestCase):
         self.assertEqual(task.passing_correct_answers, 3)
 
     def test_create_task_rejects_passing_threshold_above_question_count(self):
-        subject = Subject.objects.create(name="Task Settings Validation")
+        subject = self._create_subject(name="Task Settings Validation")
         topic = Topic.objects.create(subject=subject, title="Task Settings Validation Topic")
 
         response = self.client.post(
@@ -1759,7 +1800,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_create_attempt_generates_10_random_questions(self):
         student = self._authenticate_student("student_attempt_1")
-        subject = Subject.objects.create(name="Biology")
+        subject = self._create_subject(name="Biology")
         topic = Topic.objects.create(subject=subject, title="Cells", is_active=True)
         schedule_entry = self._create_schedule_entry(
             student,
@@ -1788,7 +1829,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_create_attempt_uses_task_question_count(self):
         student = self._authenticate_student("student_attempt_custom_count")
-        subject = Subject.objects.create(name="Custom Count Subject")
+        subject = self._create_subject(name="Custom Count Subject")
         topic = Topic.objects.create(
             subject=subject,
             title="Custom Count Topic",
@@ -1801,7 +1842,7 @@ class LearningApiTests(APITestCase):
             passing_correct_answers=3,
         )
         schedule_entry = GroupTopicSchedule.objects.create(
-            group=Group.objects.create(name="Custom Count Group", is_active=True),
+            group=self._create_group(name="Custom Count Group", is_active=True),
             teacher=self.teacher,
             task=task,
             scheduled_for=timezone.localdate(),
@@ -1832,7 +1873,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_create_attempt_uses_scheduled_task_question_pool(self):
         student = self._authenticate_student("student_attempt_task_pool")
-        subject = Subject.objects.create(name="Task Pool Subject")
+        subject = self._create_subject(name="Task Pool Subject")
         topic = Topic.objects.create(
             subject=subject,
             title="Task Pool Topic",
@@ -1845,7 +1886,7 @@ class LearningApiTests(APITestCase):
             group_name="Default Pool Group",
         )
         schedule_entry = GroupTopicSchedule.objects.create(
-            group=Group.objects.create(name="Task Pool Group", is_active=True),
+            group=self._create_group(name="Task Pool Group", is_active=True),
             teacher=self.teacher,
             task=scheduled_task,
             scheduled_for=timezone.localdate(),
@@ -1869,7 +1910,7 @@ class LearningApiTests(APITestCase):
 
     def test_finish_attempt_calculates_correct_and_wrong_answers(self):
         student = self._authenticate_student("student_attempt_2")
-        subject = Subject.objects.create(name="Physics")
+        subject = self._create_subject(name="Physics")
         topic = Topic.objects.create(subject=subject, title="Mechanics", is_active=True)
         schedule_entry = self._create_schedule_entry(
             student,
@@ -1939,7 +1980,7 @@ class LearningApiTests(APITestCase):
 
     def test_attempt_question_hides_correct_choice_ids_while_attempt_in_progress(self):
         student = self._authenticate_student("student_attempt_review_hidden")
-        subject = Subject.objects.create(name="Review Subject")
+        subject = self._create_subject(name="Review Subject")
         topic = Topic.objects.create(subject=subject, title="Review Topic", is_active=True)
         schedule_entry = self._create_schedule_entry(
             student,
@@ -1949,6 +1990,8 @@ class LearningApiTests(APITestCase):
 
         for index in range(2):
             self._create_question_with_two_choices(topic, f"Review hidden Q{index + 1}")
+
+        Task.objects.filter(topic=topic).update(questions_per_attempt=2, passing_correct_answers=1)
 
         start_response = self.client.post(
             "/api/attempt/",
@@ -1969,7 +2012,7 @@ class LearningApiTests(APITestCase):
 
     def test_attempt_question_reveals_correct_choice_ids_after_completion(self):
         student = self._authenticate_student("student_attempt_review_visible")
-        subject = Subject.objects.create(name="Review Visible Subject")
+        subject = self._create_subject(name="Review Visible Subject")
         topic = Topic.objects.create(
             subject=subject,
             title="Review Visible Topic",
@@ -1982,6 +2025,8 @@ class LearningApiTests(APITestCase):
         )
 
         self._create_question_with_two_choices(topic, "Review visible question")
+
+        Task.objects.filter(topic=topic).update(questions_per_attempt=1, passing_correct_answers=1)
 
         start_response = self.client.post(
             "/api/attempt/",
@@ -2028,7 +2073,7 @@ class LearningApiTests(APITestCase):
 
     def test_finish_attempt_uses_task_passing_threshold(self):
         student = self._authenticate_student("student_attempt_custom_pass")
-        subject = Subject.objects.create(name="Custom Pass Subject")
+        subject = self._create_subject(name="Custom Pass Subject")
         topic = Topic.objects.create(
             subject=subject,
             title="Custom Pass Topic",
@@ -2041,7 +2086,7 @@ class LearningApiTests(APITestCase):
             passing_correct_answers=3,
         )
         schedule_entry = GroupTopicSchedule.objects.create(
-            group=Group.objects.create(name="Custom Pass Group", is_active=True),
+            group=self._create_group(name="Custom Pass Group", is_active=True),
             teacher=self.teacher,
             task=task,
             scheduled_for=timezone.localdate(),
@@ -2093,7 +2138,7 @@ class LearningApiTests(APITestCase):
         self.assertTrue(attempt.is_success)
 
     def test_student_cannot_submit_answer_for_foreign_attempt(self):
-        subject = Subject.objects.create(name="Chemistry")
+        subject = self._create_subject(name="Chemistry")
         topic = Topic.objects.create(subject=subject, title="Atoms", is_active=True)
         for index in range(10):
             self._create_question_with_two_choices(topic, f"Chem Q{index + 1}")
@@ -2135,7 +2180,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_cannot_start_second_attempt_for_same_schedule(self):
         student = self._authenticate_student("student_attempt_once")
-        subject = Subject.objects.create(name="Geography")
+        subject = self._create_subject(name="Geography")
         topic = Topic.objects.create(subject=subject, title="Maps", is_active=True)
         schedule_entry = self._create_schedule_entry(
             student,
@@ -2163,7 +2208,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_cannot_start_future_or_past_schedule_attempt(self):
         student = self._authenticate_student("student_attempt_date_limits")
-        subject = Subject.objects.create(name="History Limits")
+        subject = self._create_subject(name="History Limits")
         topic = Topic.objects.create(subject=subject, title="World War II", is_active=True)
 
         for index in range(10):
@@ -2200,7 +2245,7 @@ class LearningApiTests(APITestCase):
 
     def test_student_cannot_finish_attempt_after_scheduled_day(self):
         student = self._authenticate_student("student_attempt_expired")
-        subject = Subject.objects.create(name="Economics")
+        subject = self._create_subject(name="Economics")
         topic = Topic.objects.create(subject=subject, title="Inflation", is_active=True)
         schedule_entry = self._create_schedule_entry(
             student,
@@ -2528,7 +2573,7 @@ class TopicAdminImportTests(APITestCase):
         import_mock.assert_not_called()
         self.assertContains(
             response,
-            "Attach a .xls or .xlsx file to the topic before running import.",
+            "Attach a .xls or .xlsx file to the lesson before running import.",
         )
 
     def test_task_import_button_uses_attached_file(self):
