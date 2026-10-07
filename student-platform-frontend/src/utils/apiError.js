@@ -5,6 +5,9 @@ export function apiError(error, fallback = 'ux.serverError') {
   if (!error?.response) return t('ux.networkError');
   const data = error.response.data || {};
   const details = JSON.stringify(data);
+  if (/A test with this title already exists/.test(details)) return t('materialsFlow.duplicateTitle');
+  if (/Choose today or a future date/.test(details)) return t('materialsFlow.futureDate');
+  if (/default folder is inactive|default topic is inactive|Choose an active topic/.test(details)) return t('materialsFlow.inactiveTopic');
   const keys = { task_not_ready: 'taskNotReady', attempt_closed: 'attemptClosed',
     incomplete_submission: 'incompleteSubmission', invalid_file: 'invalidFile',
     protected_import: 'protectedImport', confirm_unanswered: 'incompleteSubmission' };

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { getWorkspaceSection } from "@/composables/useWorkspaceNavigation";
 import { useI18n } from "vue-i18n";
 import axios from "axios";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
@@ -50,6 +51,8 @@ const shiftDateByDays = (value, days) => {
 };
 
 const router = useRouter();
+const route = useRoute();
+const section = computed(() => getWorkspaceSection('student', route.query.view));
 
 const statsItems = ref([]);
 const statsLoading = ref(true);
@@ -443,19 +446,19 @@ onMounted(async () => {
 
 <template>
   <div class="student-page">
-    <section class="surface-card hero-panel">
-      <div class="hero-copy">
-        <span class="pill">{{ t("studentHome.badge") }}</span>
-        <h1 class="hero-title">{{ t("studentHome.title") }}</h1>
-        <p class="hero-subtitle">{{ t("studentHome.subtitle") }}</p>
+    <header class="workspace-heading">
+      <div>
+        <h1>{{ t(`workstation.nav.${section}`) }}</h1>
+        <p>{{ t(`workstation.description.${section === 'results' ? 'studentResults' : section}`) }}</p>
       </div>
-    </section>
+      <router-link v-if="section === 'assignments'" class="btn btn-outline-primary" :to="{ name: 'student-home', query: { view: 'schedule' } }">{{ t('workstation.nav.schedule') }}</router-link>
+    </header>
 
     <ConfirmDialog v-if="pendingTask" :title="pendingTask.task_title || t('ux.startTitle')"
       :description="t('ux.rules', { count: pendingTask.required_question_count, passing: pendingTask.passing_score }) + ' ' + t('ux.deadline', { date: pendingTask.date, zone: serverZone })"
       :confirm-label="t('ux.startConfirm')" @confirm="startTask(pendingTask, true)" @cancel="pendingTask = null" />
-    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadSchedule">{{ t('ux.retry') }}</button></div>
-    <section class="surface-card section-card today-tasks">
+    <div v-if="loadError && section === 'schedule'" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadSchedule">{{ t('ux.retry') }}</button></div>
+    <section v-show="section === 'assignments'" class="surface-card section-card today-tasks">
       <h2 class="section-title">{{ t('ux.today') }}</h2>
       <p v-if="statsLoading" role="status">{{ t('ux.loading') }}</p>
       <div v-else-if="statsError" class="alert alert-danger" role="alert">{{ statsError }} <button class="btn btn-outline-primary" @click="loadStats">{{ t('ux.retry') }}</button></div>
@@ -467,9 +470,9 @@ onMounted(async () => {
         </article>
       </template>
     </section>
-    <div v-if="actionError" class="alert alert-danger">{{ actionError }}</div>
+    <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
 
-    <section class="surface-card section-card">
+    <section v-show="section === 'schedule'" class="surface-card section-card">
       <div class="schedule-header">
         <div>
           <div class="column-head schedule-head">
@@ -499,6 +502,7 @@ onMounted(async () => {
             class="form-control"
             type="text"
             :placeholder="t('studentHome.searchPlaceholder')"
+            :aria-label="t('studentHome.searchPlaceholder')"
           />
         </div>
       </div>
@@ -569,7 +573,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="surface-card section-card">
+    <section v-show="section === 'results'" class="surface-card section-card">
       <div class="column-head recent-results-head">
         <div>
           <h2 class="section-title">{{ t("ux.history") }}</h2>
@@ -579,10 +583,11 @@ onMounted(async () => {
       </div>
 
       <input v-model="historySearch" class="form-control" :aria-label="t('ux.searchHistory')" :placeholder="t('ux.searchHistory')" />
-      <div v-if="statsError" class="alert alert-danger">{{ statsError }}</div>
+      <div v-if="statsError" class="alert alert-danger" role="alert">{{ statsError }} <button class="btn btn-outline-primary" @click="loadStats">{{ t('ux.retry') }}</button></div>
       <div v-else-if="statsLoading" class="empty-box mt-3">{{ t("studentHome.loadingRecentResults") }}</div>
       <div v-else-if="recentResultItems.length === 0" class="empty-box mt-3">
-        {{ t("studentHome.noCompletedTests") }}
+        {{ historySearch.trim() ? t('ux.noMatches') : t("studentHome.noCompletedTests") }}
+        <button v-if="historySearch.trim()" class="btn btn-link" type="button" @click="historySearch = ''">{{ t('ux.clearSearch') }}</button>
       </div>
       <div v-else class="recent-results-list">
         <article
@@ -611,7 +616,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="surface-card section-card stats-section">
+    <section v-show="section === 'results'" class="surface-card section-card stats-section">
       <h2 class="section-title">{{ t("studentHome.statistics") }}</h2>
       <div v-if="statsLoading" class="empty-box mt-2">{{ t("studentHome.loadingStatistics") }}</div>
       <template v-else-if="!statsError">
@@ -637,7 +642,7 @@ onMounted(async () => {
       </template>
     </section>
 
-    <section class="surface-card section-card">
+    <section v-show="section === 'notifications'" class="surface-card section-card">
       <h2 class="section-title">{{ t("common.notifications") }}</h2>
       <p class="section-subtitle">{{ t("studentHome.notificationsSubtitle") }}</p>
 

@@ -4,6 +4,9 @@ import { createI18n } from "vue-i18n";
 import en from "./messages/en";
 import ru from "./messages/ru";
 import { ruUx, enUx } from "./messages/ux";
+import { ruWorkstation, enWorkstation } from "./messages/workstation";
+
+import { ruMaterialsFlow, enMaterialsFlow } from "./messages/materialsFlow";
 
 const LOCALE_STORAGE_KEY = "student-platform-locale";
 const DEFAULT_LOCALE = "en";
@@ -37,8 +40,8 @@ export const i18n = createI18n({
   locale: getInitialLocale(),
   fallbackLocale: DEFAULT_LOCALE,
   messages: {
-    en: { ...en, ux: enUx },
-    ru: { ...ru, ux: ruUx },
+    en: { ...en, materialsFlow: enMaterialsFlow, ux: enUx, workstation: enWorkstation },
+    ru: { ...ru, materialsFlow: ruMaterialsFlow, ux: ruUx, workstation: ruWorkstation },
   },
 });
 

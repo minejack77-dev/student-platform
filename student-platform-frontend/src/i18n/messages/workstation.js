@@ -1,0 +1,63 @@
+export const ruWorkstation = {
+  materials: {
+    search: 'Найти тему или учебник', removeSubject: 'Снять назначение предмета у группы {name}?',
+    removeQuestion: 'Удалить вопрос?', removeQuestionHint: 'Вопрос будет удалён из этого задания. Это действие нельзя отменить.',
+    questionsError: 'Не удалось загрузить вопросы. Повторите попытку.',
+    leaveTitle: 'Есть несохранённые изменения', leaveHint: 'Изменения формы и новые файлы будут потеряны. Сохранённый текстовый черновик вопроса останется в этом браузере.', leave: 'Продолжить без сохранения',
+  },
+  group: {
+    summary: 'Сводка', members: 'Состав', settings: 'Настройки', navigation: 'Разделы группы', breadcrumbs: 'Путь к группе',
+    weekAssignments: 'Заданий за выбранную неделю', subject: 'Предмет и учебник', assign: 'Назначить тест',
+    search: 'Найти студента в группе', sort: 'Сортировать студентов', name: 'По имени', rank: 'По рейтингу',
+    resultDate: 'Дата результатов', resultsHint: 'Результаты заданий на выбранную дату. Рейтинг рассчитывается сервером.',
+    removeTitle: 'Удалить из группы?', removeDescription: 'Студент {name} будет удалён из состава этой группы.',
+    scheduleHint: 'Откройте редактирование дня, чтобы назначить или заменить задание.',
+  },
+  navigation: "Основная навигация",
+  workspace: "Рабочая станция",
+  skip: "Перейти к содержимому",
+  nav: { groups: "Группы", materials: "Материалы", results: "Результаты", assignments: "Мои тесты", schedule: "Расписание", notifications: "Уведомления" },
+  description: {
+    groups: "Учебные группы, назначения и состав.",
+    materials: "Предметы, темы и задания для ваших групп.",
+    results: "Выберите группу, чтобы посмотреть результаты студентов.",
+    assignments: "Ваши задания на сегодня. Будущие работы — в расписании.",
+    schedule: "План занятий и задания по дням недели.",
+    studentResults: "Завершённые попытки и ваша статистика.",
+    notifications: "Настройте уведомления о новых заданиях.",
+  },
+  found: "Найдено: {count}",
+  openResults: "Результаты группы",
+};
+
+export const enWorkstation = {
+  materials: {
+    search: 'Find a topic or textbook', removeSubject: 'Remove this subject assignment from {name}?',
+    removeQuestion: 'Delete question?', removeQuestionHint: 'This question will be deleted from the task. This cannot be undone.',
+    questionsError: 'Could not load questions. Please try again.',
+    leaveTitle: 'You have unsaved changes', leaveHint: 'Form changes and new files will be lost. Any saved text draft of the question will remain in this browser.', leave: 'Continue without saving',
+  },
+  group: {
+    summary: 'Overview', members: 'Members', settings: 'Settings', navigation: 'Group sections', breadcrumbs: 'Breadcrumbs',
+    weekAssignments: 'Assignments in the selected week', subject: 'Subject and textbook', assign: 'Assign a test',
+    search: 'Find a student in this group', sort: 'Sort students', name: 'By name', rank: 'By rank',
+    resultDate: 'Results date', resultsHint: 'Assignment results for the selected date. Rankings are calculated by the server.',
+    removeTitle: 'Remove from group?', removeDescription: '{name} will be removed from this group.',
+    scheduleHint: 'Choose a day and select Edit to assign or replace a task.',
+  },
+  navigation: "Main navigation",
+  workspace: "Workspace",
+  skip: "Skip to content",
+  nav: { groups: "Groups", materials: "Materials", results: "Results", assignments: "My tests", schedule: "Schedule", notifications: "Notifications" },
+  description: {
+    groups: "Learning groups, assignments and members.",
+    materials: "Subjects, topics and tasks for your groups.",
+    results: "Choose a group to view student results.",
+    assignments: "Your tasks for today. Find upcoming work in the schedule.",
+    schedule: "Weekly lessons and scheduled tasks.",
+    studentResults: "Completed attempts and your statistics.",
+    notifications: "Set up notifications for new assignments.",
+  },
+  found: "Found: {count}",
+  openResults: "Group results",
+};

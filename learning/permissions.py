@@ -82,6 +82,8 @@ class OwnedMaterialPermissions(TeacherModelPermissions):
         if not has_teacher_profile(request.user):
             return False
         action_permissions = {
+            "quick_create": ("learning.add_task", "learning.add_topic", "learning.add_unit", "learning.add_workbook"),
+            "assign": ("learning.view_task", "learning.change_group"),
             "import_questions": ("learning.change_task", "learning.add_question"),
             "undo_import": ("learning.change_task", "learning.delete_question"),
             "upload_images": ("learning.change_question",),

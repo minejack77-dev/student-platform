@@ -1,13 +1,24 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import GroupWorkspaceHeader from "@/components/GroupWorkspaceHeader.vue";
+import { computed, onActivated, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { apiError } from "@/utils/apiError";
 import { Group, Task, Topic } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
 const props = defineProps(["id"]);
 const route = useRoute();
+const router = useRouter();
+const summaryTab = computed(() => route.query.tab === 'summary');
+const resultSearch = computed({
+  get: () => typeof route.query.q === 'string' ? route.query.q : '',
+  set: (q) => router.replace({ query: { ...route.query, q: q || undefined } }),
+});
+const resultSort = computed({
+  get: () => route.query.sort === 'rank' ? 'rank' : 'name',
+  set: (sort) => router.replace({ query: { ...route.query, sort } }),
+});
 const resultsTab = computed(() => route.query.tab === "results");
 const editedDate = ref("");
 
@@ -17,10 +28,9 @@ const DAY_NUMBER_FORMAT = { day: "numeric" };
 const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
 const MONTH_RANGE_FORMAT = { month: "long", year: "numeric" };
 const FULL_DATE_FORMAT = { weekday: "long", month: "long", day: "numeric" };
-const SHORT_DATE_FORMAT = { day: "2-digit", month: "2-digit", year: "numeric" };
 
 const { t } = useI18n();
-const { formatWithLocale } = useLocaleFormatting();
+const { formatWithLocale, createCollator } = useLocaleFormatting();
 
 const formatISODate = (date) => {
   const year = date.getFullYear();
@@ -103,12 +113,20 @@ const normalizeCalendarResponse = (response) => {
 
 const group = ref({ students: [], teacher_assignment: null });
 const loadError = ref("");
+const groupLoading = ref(true);
+const initializing = ref(true);
+const assignmentLoadError = ref('');
 
 const rankingByStudentId = ref({});
-const rankingDate = ref(formatISODate(new Date()));
-const rankingDateInput = ref(null);
+const queryDate = () => {
+  const value = route.query.date;
+  const date = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseISODate(value) : null;
+  return date && formatISODate(date) === value ? value : formatISODate(new Date());
+};
+const rankingDate = ref(queryDate());
 const rankingLoading = ref(false);
 const rankingError = ref("");
+let rankingRequest = 0;
 
 const savedAssignmentSubject = ref("");
 const savedAssignmentSubjectName = ref("");
@@ -125,6 +143,7 @@ const calendarMessage = ref("");
 const calendarSavingKey = ref("");
 
 const loadGroup = async () => {
+  groupLoading.value = true;
   loadError.value = "";
   try {
     const response = await Group.get(props.id);
@@ -134,15 +153,17 @@ const loadGroup = async () => {
     };
   } catch {
     loadError.value = t("groupOverview.loadGroupError");
-  }
+  } finally { groupLoading.value = false; }
 };
 
 const loadRanking = async () => {
+  const request = ++rankingRequest;
   rankingLoading.value = true;
   rankingError.value = "";
   rankingByStudentId.value = {};
   try {
     const response = await Group.getRanking(props.id, { date: rankingDate.value });
+    if (request !== rankingRequest) return;
     const map = {};
     for (const row of response.ranking ?? []) {
       map[row.student_id] = row;
@@ -150,6 +171,7 @@ const loadRanking = async () => {
     rankingByStudentId.value = map;
     rankingDate.value = response.results_date || rankingDate.value;
   } catch (error) {
+    if (request !== rankingRequest) return;
     if (error?.response?.status === 403) {
       rankingError.value = t("groupOverview.rankingErrors.unlock");
     } else {
@@ -157,7 +179,7 @@ const loadRanking = async () => {
     }
     rankingByStudentId.value = {};
   } finally {
-    rankingLoading.value = false;
+    if (request === rankingRequest) rankingLoading.value = false;
   }
 };
 
@@ -220,6 +242,7 @@ const onTopicChange = async (item) => {
 };
 
 const loadTeacherAssignment = async () => {
+  assignmentLoadError.value = '';
   try {
     const assignment = await Group.getTeacherAssignment(props.id);
     savedAssignmentSubject.value = assignment.subject ? String(assignment.subject) : "";
@@ -227,7 +250,8 @@ const loadTeacherAssignment = async () => {
     savedAssignmentWorkbook.value = assignment.workbook ? String(assignment.workbook) : "";
     savedAssignmentWorkbookName.value = assignment.workbook_title || "";
     await loadTopicsByWorkbook(savedAssignmentWorkbook.value);
-  } catch {
+  } catch (error) {
+    assignmentLoadError.value = apiError(error);
     savedAssignmentSubject.value = "";
     savedAssignmentSubjectName.value = "";
     savedAssignmentWorkbook.value = "";
@@ -330,28 +354,15 @@ const clearCalendarTask = async (day, item) => {
 const shiftRankingDate = async (direction) => {
   const baseDate = selectedRankingDate.value || new Date();
   rankingDate.value = formatISODate(shiftDateByDays(baseDate, direction));
-  await loadRanking();
-};
-
-const openRankingDatePicker = () => {
-  const input = rankingDateInput.value;
-  if (!input || rankingLoading.value) {
-    return;
-  }
-  if (typeof input.showPicker === "function") {
-    input.showPicker();
-    return;
-  }
-  input.focus();
-  input.click();
+  await onRankingDateChange();
 };
 
 const onRankingDateChange = async () => {
-  if (!selectedRankingDate.value) {
-    rankingDate.value = formatISODate(new Date());
-  }
-  await loadRanking();
+  const date = parseISODate(rankingDate.value);
+  if (!date || formatISODate(date) !== rankingDate.value) rankingDate.value = formatISODate(new Date());
+  await router.push({ query: { ...route.query, date: rankingDate.value } });
 };
+watch(() => route.query.date, async () => { rankingDate.value = queryDate(); await loadRanking(); });
 
 const resetPageState = () => {
   group.value = { students: [], teacher_assignment: null };
@@ -373,6 +384,7 @@ const resetPageState = () => {
 };
 
 const loadOverviewPage = async () => {
+  initializing.value = true;
   await Promise.all([loadGroup(), loadRanking()]);
   await loadTeacherAssignment();
   await loadTopicCalendar();
@@ -389,9 +401,22 @@ const loadOverviewPage = async () => {
       }
     }
   }
+  initializing.value = false;
 };
 
 const studentCount = computed(() => group.value.students.length);
+const visibleStudents = computed(() => {
+  const collator = createCollator();
+  const query = resultSearch.value.trim().toLocaleLowerCase();
+  return group.value.students.filter(student => (student.username || '').toLocaleLowerCase().includes(query))
+    .slice().sort((a, b) => {
+      if (resultSort.value === 'rank') {
+        const difference = (rankingByStudentId.value[a.id]?.rank ?? Infinity) - (rankingByStudentId.value[b.id]?.rank ?? Infinity);
+        if (difference && !Number.isNaN(difference)) return difference;
+      }
+      return collator.compare(a.username || '', b.username || '');
+    });
+});
 const assignmentLabel = computed(() => {
   if (!savedAssignmentSubjectName.value) {
     return t("groupOverview.assignmentMessages.notAssigned");
@@ -429,12 +454,6 @@ const calendarRangeLabel = computed(() => {
 });
 const selectedRankingDate = computed(() => parseISODate(rankingDate.value));
 const isViewingToday = computed(() => isToday(rankingDate.value));
-const rankingDateButtonLabel = computed(() => {
-  if (!selectedRankingDate.value) {
-    return t("groupOverview.selectDate");
-  }
-  return formatWithLocale(selectedRankingDate.value, SHORT_DATE_FORMAT);
-});
 const memberEmptyResultsLabel = computed(() => {
   if (!selectedRankingDate.value) {
     return t("groupOverview.noTestsOnDate");
@@ -449,6 +468,10 @@ const memberEmptyResultsLabel = computed(() => {
 
 const isCalendarTaskDirty = (item) =>
   (item.task ? String(item.task) : "") !== String(item.taskDraft || "");
+const hasCalendarDraft = () => calendarDays.value.some(day =>
+  day.items.some(item => isCalendarTaskDirty(item) || String(item.topic || '') !== String(item.topicDraft || ''))
+  || (day.items.length > 1 && day.items.some(item => !item.id)),
+);
 const isToday = (value) => formatISODate(new Date()) === value;
 const isWeekend = (value) => {
   const date = parseISODate(value);
@@ -473,58 +496,50 @@ watch(
 onMounted(async () => {
   await loadOverviewPage();
 });
+let activatedOnce = false;
+onActivated(async () => {
+  if (!activatedOnce) { activatedOnce = true; return; }
+  // Refresh server state when returning from membership/settings without discarding edits.
+  const hasDraft = hasCalendarDraft();
+  await Promise.all([loadGroup(), loadRanking()]);
+  await loadTeacherAssignment();
+  if (hasDraft) {
+    try { await primeCalendarTaskOptions(); }
+    catch (error) { calendarError.value = apiError(error); }
+  } else {
+    await loadTopicCalendar();
+  }
+});
 </script>
 
 <template>
   <div class="group-page">
-    <section class="surface-card group-hero">
-      <div class="hero-topline">
-        <div class="hero-heading-row">
-          <span class="pill">{{ t("groupOverview.badge") }}</span>
-          <h1 class="group-title">{{ group.name || t("common.untitledGroup") }}</h1>
-        </div>
-      </div>
+    <GroupWorkspaceHeader :id="props.id" :name="group.name" :description="group.description"
+      :active="summaryTab ? 'summary' : resultsTab ? 'results' : 'schedule'" :subject-id="savedAssignmentSubject" />
 
-      <div class="hero-copy">
-        <p class="group-description">{{ group.description || t("common.noDescriptionAvailable") }}</p>
-      </div>
+    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadGroup">{{ t('ux.retry') }}</button></div>
+    <div v-if="assignmentLoadError" class="alert alert-danger" role="alert">{{ assignmentLoadError }} <button class="btn btn-outline-primary" @click="loadOverviewPage">{{ t('ux.retry') }}</button></div>
 
-      <div class="hero-summary-row">
-        <div class="hero-meta">
-          <div class="meta-card">
-            <div class="meta-label">{{ t("common.members") }}</div>
-            <div class="meta-value">{{ studentCount }}</div>
-          </div>
-          <div class="meta-card meta-card-wide">
-            <div class="meta-label">{{ t("common.subject") }}</div>
-            <div class="meta-value meta-value-small">{{ assignmentLabel }}</div>
-          </div>
-        </div>
 
-        <router-link
-          class="hero-link-button hero-link-primary"
-          :to="{ name: 'group-details', params: { id: props.id } }"
-        >
-          {{ t("groupDetails.badge") }}
-        </router-link>
-        <router-link class="home-link hero-link-button hero-link-secondary" to="/">
-          {{ t("common.backToDashboard") }}
-        </router-link>
+    <section v-if="summaryTab" class="group-summary" :aria-label="t('workstation.group.summary')">
+      <div class="group-metrics">
+        <article class="surface-card group-metric"><span>{{ t('common.members') }}</span><strong>{{ groupLoading || loadError ? '—' : studentCount }}</strong></article>
+        <article class="surface-card group-metric"><span>{{ t('workstation.group.weekAssignments') }}</span><strong>{{ initializing || calendarLoading || calendarError ? '—' : calendarAssignedCount }}</strong><small>{{ calendarRangeLabel }}</small></article>
+        <article class="surface-card group-metric"><span>{{ t('workstation.group.subject') }}</span><strong class="metric-subject">{{ initializing || assignmentLoadError ? '—' : assignmentLabel }}</strong></article>
       </div>
+      <div class="surface-card summary-next">
+        <h2 class="section-title">{{ t('ux.schedule') }}</h2>
+        <p>{{ t('workstation.group.scheduleHint') }}</p>
+        <router-link class="btn btn-outline-primary" :to="{ name: 'group-overview', params: { id: props.id } }">{{ t('ux.schedule') }}</router-link>
+      </div>
+      <div v-if="calendarError" class="alert alert-danger" role="alert">{{ calendarError }}</div>
     </section>
 
-    <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
-
-    <nav class="page-tabs" aria-label="Group">
-      <router-link :to="{ name: 'group-overview', params: { id: props.id } }" :aria-current="!resultsTab ? 'page' : undefined">{{ t('ux.schedule') }}</router-link>
-      <router-link :to="{ name: 'group-overview', params: { id: props.id }, query: { tab: 'results' } }" :aria-current="resultsTab ? 'page' : undefined">{{ t('ux.results') }}</router-link>
-      <router-link v-if="savedAssignmentSubject" :to="{ name: 'subject-detail', params: { id: savedAssignmentSubject }, query: { group: props.id } }">{{ t('ux.material') }}</router-link>
-    </nav>
-    <section v-if="!resultsTab" class="surface-card schedule-panel">
+    <section v-if="!resultsTab && !summaryTab" id="group-schedule" class="surface-card schedule-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("groupOverview.schedule") }}</h2>
-          <span class="pill">{{ t("common.tasksScheduled", { count: calendarAssignedCount }) }}</span>
+          <span v-if="!calendarLoading && !calendarError" class="pill">{{ t("common.tasksScheduled", { count: calendarAssignedCount }) }}</span>
         </div>
       </div>
 
@@ -554,8 +569,8 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-if="calendarError" class="alert alert-danger mt-3 mb-0">{{ calendarError }}</div>
-      <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0">{{ calendarMessage }}</div>
+      <div v-if="calendarError" class="alert alert-danger mt-3 mb-0" role="alert">{{ calendarError }}</div>
+      <div v-if="calendarMessage" class="alert alert-success mt-3 mb-0" role="status">{{ calendarMessage }}</div>
 
       <div v-if="calendarLoading" class="empty-box schedule-empty mt-3">
         {{ t("groupOverview.loadingSchedule") }}
@@ -703,15 +718,9 @@ onMounted(async () => {
               >
                 <span aria-hidden="true">&lt;</span>
               </button>
-              <button
-                class="member-current-date-btn"
-                type="button"
-                :disabled="rankingLoading"
-                aria-live="polite"
-                @click="openRankingDatePicker"
-              >
-                {{ rankingDateButtonLabel }}
-              </button>
+              <label class="field-wrap">{{ t('workstation.group.resultDate') }}
+                <input v-model="rankingDate" class="form-control" type="date" :disabled="rankingLoading" @change="onRankingDateChange" />
+              </label>
               <button
                 class="btn btn-outline-primary btn-sm member-nav-btn"
                 type="button"
@@ -723,30 +732,29 @@ onMounted(async () => {
               </button>
             </div>
           </div>
-          <input
-            id="member-results-date"
-            ref="rankingDateInput"
-            v-model="rankingDate"
-            class="member-date-input-hidden"
-            type="date"
-            :disabled="rankingLoading"
-            @change="onRankingDateChange"
-          />
+
         </div>
       </div>
 
-      <div v-if="rankingError" class="alert alert-danger compact-alert">
+      <p class="helper-copy">{{ t('workstation.group.resultsHint') }}</p>
+      <div class="group-result-filters">
+        <label class="field-wrap">{{ t('workstation.group.search') }}<input v-model="resultSearch" type="search" class="form-control" /></label>
+        <label class="field-wrap">{{ t('workstation.group.sort') }}<select v-model="resultSort" class="form-select"><option value="name">{{ t('workstation.group.name') }}</option><option value="rank">{{ t('workstation.group.rank') }}</option></select></label>
+      </div>
+      <div v-if="rankingError" class="alert alert-danger compact-alert" role="alert">
         {{ rankingError }}
       </div>
 
-      <div v-if="group.students.length === 0" class="empty-box">{{ t("groupDetails.noStudentsInGroup") }}</div>
+      <div v-if="groupLoading" class="empty-box" role="status">{{ t('ux.loading') }}</div>
+      <div v-else-if="!loadError && group.students.length === 0" class="empty-box">{{ t("groupDetails.noStudentsInGroup") }}</div>
 
-      <div v-else class="members-list">
+      <div v-else-if="!loadError && !visibleStudents.length" class="empty-box">{{ t('ux.noMatches') }} <button class="btn btn-link" @click="resultSearch = ''">{{ t('ux.clearSearch') }}</button></div>
+      <div v-else-if="!loadError && !rankingError" class="members-list">
         <article
-          v-for="(student, index) in group.students"
+          v-for="(student, index) in visibleStudents"
           :key="student.id"
           class="member-item"
-          :style="{ '--delay': `${index * 38}ms` }"
+
         >
           <div class="member-index">#{{ index + 1 }}</div>
           <div class="member-info">
@@ -789,7 +797,7 @@ onMounted(async () => {
                   class="entity-chip"
                   :class="result.result === 'success' ? 'chip-success' : 'chip-fail'"
                 >
-                  {{ result.correct_count }} / {{ result.total_questions }}
+                  {{ result.correct_count }} / {{ result.total_questions }} · {{ t(result.result === 'success' ? 'studentHome.taskState.success' : 'studentHome.taskState.fail') }}
                 </router-link>
                 <span v-else class="member-result-placeholder">{{ t("common.noResultYet") }}</span>
               </div>
@@ -802,7 +810,12 @@ onMounted(async () => {
   </div>
 </template>
 
-<style scoped src="./GroupDetail.css"></style>
+<style scoped src="./GroupDetail.css">@media (max-width: 640px) {
+  .schedule-editor-day, .schedule-editor-day.is-editing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "date" "content" "add" "toggle"; }
+  .schedule-editor-day .add-task-btn { white-space: normal; justify-self: stretch; }
+  .schedule-edit-toggle { justify-self: stretch; }
+}
+</style>
 <style scoped>
 .schedule-editor-day {
   grid-template-columns: 150px minmax(0, 1fr) auto;
@@ -839,5 +852,10 @@ onMounted(async () => {
   .schedule-editor-day.is-editing {
     grid-template-areas: "date date" "content content" "add toggle";
   }
+}
+@media (max-width: 640px) {
+  .schedule-editor-day, .schedule-editor-day.is-editing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "date" "content" "add" "toggle"; }
+  .schedule-editor-day .add-task-btn { white-space: normal; justify-self: stretch; }
+  .schedule-edit-toggle { justify-self: stretch; }
 }
 </style>

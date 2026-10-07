@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { onMounted, onBeforeUnmount, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 defineProps({ title: String, message: String, description: String, confirmLabel: String, cancelLabel: String });
@@ -7,7 +7,9 @@ const emit = defineEmits(['confirm', 'cancel']);
 const dialog = ref(null);
 let previousFocus;
 onMounted(() => { previousFocus = document.activeElement; dialog.value.showModal(); });
-onBeforeUnmount(() => previousFocus?.focus?.());
+// Outside controls remain inert while a modal dialog is open.
+onBeforeUnmount(() => dialog.value?.close());
+onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus(); });
 </script>
 <template>
   <dialog ref="dialog" class="confirm-dialog" aria-labelledby="confirmation-title" @cancel.prevent="emit('cancel')">

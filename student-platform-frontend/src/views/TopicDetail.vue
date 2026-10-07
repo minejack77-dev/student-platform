@@ -10,8 +10,15 @@ import { Group, Question, Task, Topic } from "@/api.js";
 import { sanitizeInlineRichText } from "@/utils/richText.js";
 import QuestionImageGallery from "@/components/QuestionImageGallery.vue";
 import QuestionEditorForm from "./QuestionEditorForm.vue";
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 
-const props = defineProps(["id"]);
+import TaskAssignment from '@/components/TaskAssignment.vue';
+import QuestionPreview from '@/components/QuestionPreview.vue';
+import { allMaterialChoices } from '@/composables/useMaterialChoices';
+const props = defineProps({ id: String, taskId: String, workspace: Boolean });
+const previewQuestion = ref(null);
+const assignmentBusy = ref(false);
+const mobileEditor = ref(false);
 const { t } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
@@ -48,13 +55,18 @@ const restoreDraft = () => {
 };
 const undoImport = async () => {
   undoConfirm.value = false;
+  if (contextBusy.value) return;
+  isImporting.value = true;
+  const taskId = selectedTaskId.value;
+  const storageKey = undoKey();
   try {
-    await axios.post(`/api/task/${selectedTaskId.value}/undo-import/`, {token: undoToken.value});
+    await axios.post(`/api/task/${taskId}/undo-import/`, {token: undoToken.value});
     undoToken.value = '';
-    try { sessionStorage.removeItem(undoKey()); } catch {}
+    try { sessionStorage.removeItem(storageKey); } catch {}
     importSuccess.value = t('ux.undone');
     await Promise.all([getTasks(), getQuestions()]);
   } catch (error) { importError.value = apiError(error); }
+  finally { isImporting.value = false; }
 };
 
 const topic = ref({});
@@ -62,6 +74,10 @@ const tasks = ref([]);
 const selectedTaskId = ref("");
 const questions = ref([]);
 const loadError = ref("");
+const loading = ref(true);
+const questionsLoading = ref(false);
+const questionsError = ref("");
+const pendingDelete = ref(null);
 const importError = ref("");
 const importSuccess = ref("");
 const deleteError = ref("");
@@ -73,6 +89,9 @@ const importForm = ref({
   question_type: "single_choice",
 });
 const questionForm = ref(createBlankQuestionForm());
+const editorSnapshot = () => JSON.stringify({...questionForm.value, pending_images: questionForm.value.pending_images.map(image => image.file.name)});
+const editorBaseline = ref(editorSnapshot());
+const editorHasChanges = () => Boolean(openQuestionEditorId.value && editorSnapshot() !== editorBaseline.value);
 const questionFormError = ref("");
 const questionFormSuccess = ref("");
 const isQuestionSaving = ref(false);
@@ -94,6 +113,25 @@ const isTaskSaving = ref(false);
 const currentTaskSaveError = ref("");
 const currentTaskSaveSuccess = ref("");
 const isCurrentTaskSaving = ref(false);
+const contextBusy = computed(() => isQuestionSaving.value || isTaskSaving.value || isCurrentTaskSaving.value || isImporting.value || Boolean(deletingQuestionId.value) || assignmentBusy.value);
+const { pendingLeave, finishLeave, guardAction } = useUnsavedChanges(() =>
+  Boolean((props.workspace && editorHasChanges()) || questionForm.value.pending_images.length || taskForm.value.title.trim() || taskForm.value.description.trim()
+    || (selectedTask.value && (Number(currentTaskForm.value.questions_per_attempt) !== selectedTask.value.questions_per_attempt
+      || Number(currentTaskForm.value.passing_correct_answers) !== selectedTask.value.passing_correct_answers))),
+  () => contextBusy.value,
+);
+const changeTask = (event) => {
+  const nextTask = event.target.value;
+  event.target.value = selectedTaskId.value;
+  guardAction(() => { selectedTaskId.value = nextTask; });
+};
+const replaceEditor = (action) => guardAction(() => {
+  if (openQuestionEditorId.value) {
+    try { sessionStorage.removeItem(draftKey()); } catch {}
+    draftMessage.value = '';
+  }
+  action();
+}, editorHasChanges());
 
 function createBlankQuestionForm() {
   return {
@@ -152,6 +190,7 @@ const resetQuestionForm = () => {
   openQuestionEditorId.value = null;
   revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
+  editorBaseline.value = editorSnapshot();
   questionFormError.value = "";
   questionFormSuccess.value = "";
   openQuestionEditorId.value = null;
@@ -163,36 +202,52 @@ const getTopic = async () => {
 };
 
 const getTasks = async () => {
-  const response = await Task.filter({ topic: props.id, ordering: "title" });
-  tasks.value = response.results ?? response;
+  if (props.workspace) {
+    tasks.value = [await Task.get(props.taskId)];
+    if (!selectedTaskId.value) selectedTaskId.value = String(props.taskId);
+    return;
+  }
+  tasks.value = await allMaterialChoices(Task, { topic: props.id, ordering: "title" });
   if (!selectedTaskId.value && tasks.value.length > 0) {
     selectedTaskId.value = String(tasks.value[0].id);
   }
 };
 
+let questionsRequest = 0;
 const getQuestions = async () => {
+  const request = ++questionsRequest;
+  questionsError.value = "";
+  questionsLoading.value = true;
+  questions.value = [];
   if (!selectedTaskId.value) {
-    questions.value = [];
+    questionsLoading.value = false;
     return;
   }
-  const response = await Question.filter({
-    task: selectedTaskId.value,
-    page_size: 200,
-  });
-  questions.value = response.results ?? response;
+  try {
+    const response = await allMaterialChoices(Question, { task: selectedTaskId.value });
+    if (request === questionsRequest) questions.value = response;
+  } catch (error) {
+    if (request === questionsRequest) questionsError.value = apiError(error, 'workstation.materials.questionsError');
+  } finally {
+    if (request === questionsRequest) questionsLoading.value = false;
+  }
 };
 
 const loadTopicPage = async () => {
+  loading.value = true;
   loadError.value = "";
   try {
     await Promise.all([getTopic(), getTasks()]);
     await getQuestions();
   } catch {
     loadError.value = t("topicDetail.loadError");
+  } finally {
+    loading.value = false;
   }
 };
 
 const createTask = async () => {
+  if (contextBusy.value) return;
   taskSaveError.value = "";
   taskSaveSuccess.value = "";
   const title = taskForm.value.title.trim();
@@ -235,6 +290,7 @@ const createTask = async () => {
 };
 
 const updateCurrentTaskSettings = async () => {
+  if (contextBusy.value) return;
   currentTaskSaveError.value = "";
   currentTaskSaveSuccess.value = "";
   if (!selectedTask.value) {
@@ -349,6 +405,7 @@ const startNewQuestion = () => {
   openQuestionEditorId.value = null;
   revokePendingImagePreviews();
   questionForm.value = createBlankQuestionForm();
+  editorBaseline.value = editorSnapshot();
   questionFormError.value = "";
   questionFormSuccess.value = "";
   deleteError.value = "";
@@ -395,6 +452,7 @@ const editQuestion = (question) => {
         : createBlankQuestionForm().matching_pairs,
   };
   openQuestionEditorId.value = question.id;
+  editorBaseline.value = editorSnapshot();
 };
 
 const revokePendingImagePreviews = () => {
@@ -475,6 +533,7 @@ const validateQuestionForm = () => {
 };
 
 const saveQuestion = async () => {
+  if (contextBusy.value) return;
   questionFormError.value = "";
   questionFormSuccess.value = "";
   deleteError.value = "";
@@ -520,17 +579,19 @@ const saveQuestion = async () => {
   }
 
   isQuestionSaving.value = true;
+  const savingForm = questionForm.value;
+  const savingDraftKey = draftKey();
   try {
     const wasEditing = Boolean(payload.id);
     const savedQuestion = await Question.save(payload);
-    questionForm.value.id = savedQuestion.id;
+    savingForm.id = savedQuestion.id;
 
-    for (const imageId of questionForm.value.removed_image_ids) {
+    for (const imageId of savingForm.removed_image_ids) {
       await Question.deleteImage(savedQuestion.id, imageId);
     }
-    questionForm.value.removed_image_ids = [];
+    savingForm.removed_image_ids = [];
 
-    const pendingFiles = questionForm.value.pending_images.map(({ file }) => file);
+    const pendingFiles = savingForm.pending_images.map(({ file }) => file);
     if (pendingFiles.length > 0) {
       await Question.uploadImages(savedQuestion.id, pendingFiles);
     }
@@ -538,11 +599,12 @@ const saveQuestion = async () => {
     const successMessage = wasEditing
       ? t("topicDetail.questionUpdated")
       : t("topicDetail.questionCreated");
-    try { sessionStorage.removeItem(draftKey()); } catch {}
+    try { sessionStorage.removeItem(savingDraftKey); } catch {}
     draftMessage.value = "";
     resetQuestionForm();
     questionFormSuccess.value = successMessage;
     await getQuestions();
+    if (props.workspace) { await getTasks(); mobileEditor.value = false; }
   } catch (error) {
     questionFormError.value =
       apiError(error, "topicDetail.errors.saveQuestion");
@@ -559,6 +621,7 @@ const onQuestionFileChange = (event) => {
 };
 
 const importQuestions = async (commit = false) => {
+  if (contextBusy.value) return;
   importError.value = "";
   importSuccess.value = "";
   deleteError.value = "";
@@ -578,13 +641,15 @@ const importQuestions = async (commit = false) => {
   formData.append("question_type", importForm.value.question_type);
 
   isImporting.value = true;
+  const importingTask = selectedTaskId.value;
+  const importingUndoKey = undoKey();
   try {
-    const response = await Task.importQuestions(selectedTaskId.value, formData);
+    const response = await Task.importQuestions(importingTask, formData);
     if (!commit) { preview.value = response; return; }
     preview.value = null;
     if (response.undo_token) {
       undoToken.value = response.undo_token;
-      try { sessionStorage.setItem(undoKey(), undoToken.value); } catch {}
+      try { sessionStorage.setItem(importingUndoKey, undoToken.value); } catch {}
     }
     importSuccess.value = t("ux.imported", {count: response.imported_count, duplicates: response.duplicate_count});
     resetImportForm();
@@ -597,6 +662,7 @@ const importQuestions = async (commit = false) => {
 };
 
 const deleteQuestion = async (questionId) => {
+  if (contextBusy.value) return;
   deleteError.value = "";
   importSuccess.value = "";
   importError.value = "";
@@ -608,6 +674,7 @@ const deleteQuestion = async (questionId) => {
       resetQuestionForm();
     }
     questions.value = questions.value.filter((item) => item.id !== questionId);
+    if (props.workspace) await getTasks();
   } catch (error) {
     deleteError.value = apiError(error, "topicDetail.errors.deleteQuestion");
   } finally {
@@ -669,6 +736,9 @@ watch(selectedTaskId, async () => {
   try { undoToken.value = sessionStorage.getItem(undoKey()) || ""; } catch { undoToken.value = ""; }
   preview.value = null;
   restoreDraft();
+  if (props.workspace && !openQuestionEditorId.value && !questions.value.length && !questionsError.value) {
+    startNewQuestion(); mobileEditor.value = true;
+  }
 });
 
 watch(
@@ -697,14 +767,14 @@ watch(questionForm, (form) => {
 
 <template>
   <div class="topic-page">
-    <nav class="page-breadcrumbs">
+    <nav class="page-breadcrumbs" :aria-label="t('workstation.group.breadcrumbs')">
+      <router-link :to="{name:'teacher-home',query:{view:'materials'}}">{{ t('workstation.nav.materials') }}</router-link>
       <router-link v-if="route.query.group" :to="{name:'group-overview', params:{id:route.query.group}}">{{ t('ux.schedule') }}</router-link>
       <router-link v-if="topic.subject" :to="{name:'subject-detail', params:{id:topic.subject}, query:{group:route.query.group}}">{{ topic.subject_name || t('common.subject') }}</router-link>
-      <span>{{ topic.title }}</span>
+      <span aria-current="page">{{ workspace ? selectedTask?.title : topic.title }}</span>
     </nav>
-    <section class="surface-card topic-hero">
+    <header v-if="!workspace" class="topic-heading">
       <div>
-        <span class="pill">{{ t("topicDetail.badge") }}</span>
         <h1 class="topic-title">{{ topic.title || t("common.untitledLesson") }}</h1>
         <p class="topic-description">{{ topic.description || t("common.noDescriptionYet") }}</p>
       </div>
@@ -712,30 +782,37 @@ watch(questionForm, (form) => {
       <div class="hero-metrics">
         <div class="metric-card">
           <div class="metric-label">{{ t("common.status") }}</div>
-          <div class="metric-value">{{ topic.is_active ? t("common.active") : t("common.inactive") }}</div>
+          <div class="metric-value">{{ loading || loadError ? '—' : topic.is_active ? t("common.active") : t("common.inactive") }}</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">{{ t("common.tasks") }}</div>
-          <div class="metric-value">{{ tasksCount }}</div>
+          <div class="metric-value">{{ loading || loadError ? '—' : tasksCount }}</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">{{ t("topicDetail.selectedQuestions") }}</div>
-          <div class="metric-value">{{ questionsCount }}</div>
+          <div class="metric-value">{{ loading || loadError || questionsLoading || questionsError ? '—' : questionsCount }}</div>
         </div>
       </div>
-    </section>
+    </header>
 
-    <div v-if="loadError" class="alert alert-danger mt-3">{{ loadError }}</div>
+    <div v-if="loadError" class="alert alert-danger mt-3" role="alert">{{ loadError }} <button class="btn btn-link" @click="loadTopicPage">{{ t('ux.retry') }}</button></div>
+    <p v-if="loading" role="status">{{ t('common.loading') }}</p>
+    <template v-if="!loading && !loadError">
 
+    <header v-if="workspace && selectedTask" class="flow-heading">
+      <div><h1>{{ selectedTask.title }}</h1><p>{{ topic.subject_name }} · {{ t('materialsFlow.questions', { count: questionsCount }) }}</p><p>{{ t('materialsFlow.attempt', { count: selectedTask.questions_per_attempt, passing: selectedTask.passing_correct_answers }) }}</p></div>
+      <button class="btn btn-primary" :disabled="contextBusy" @click="activeTab = 'assign'">{{ t('materialsFlow.assign') }}</button>
+    </header>
     <section class="surface-card task-workspace-toolbar">
-    <label class="field-wrap">{{ t('ux.chooseTask') }}<select v-model="selectedTaskId" class="form-select"><option v-for="task in tasks" :key="task.id" :value="String(task.id)">{{ task.title }}</option></select></label>
+    <label v-if="!workspace" class="field-wrap">{{ t('ux.chooseTask') }}<select :value="selectedTaskId" :disabled="contextBusy" @change="changeTask" class="form-select"><option v-for="task in tasks" :key="task.id" :value="String(task.id)">{{ task.title }}</option></select></label>
     <nav class="page-tabs workspace-tabs"><button v-for="tab in ['questions', 'settings', 'import']" :key="tab" class="btn" :class="{ active: activeTab === tab }" :aria-pressed="activeTab === tab" @click="activeTab = tab">{{ t(tab === 'questions' ? 'ux.editQuestions' : tab === 'settings' ? 'ux.taskSettings' : 'ux.importQuestions') }}</button></nav>
-    <div class="workspace-actions"><button class="btn btn-outline-primary" @click="activeTab = 'settings'; newTaskOpen = true">{{ t('ux.createTask') }}</button>
+    <div v-if="!workspace" class="workspace-actions"><button class="btn btn-outline-primary" :disabled="contextBusy" @click="activeTab = 'settings'; newTaskOpen = true">{{ t('ux.createTask') }}</button>
     <router-link class="btn btn-primary" v-if="route.query.group && selectedTask" :to="{name: 'group-overview', params:{id:route.query.group}, query:{task:selectedTaskId, topic:props.id}}">{{ t('ux.assignTask') }}</router-link>
     <button v-else-if="selectedTask" class="btn btn-primary" @click="openAssignment">{{ t('ux.assignTask') }}</button>
     </div>
     </section>
-    <p v-if="draftMessage" class="draft-notice" role="status">{{ draftMessage }} <button class="btn btn-link" @click="discardConfirm = true">{{ t('ux.discardDraft') }}</button></p>
+    <TaskAssignment v-if="workspace && activeTab === 'assign' && selectedTask" :key="selectedTask.id" :task="selectedTask" :blocked="editorHasChanges() || isCurrentTaskSaving || Number(currentTaskForm.questions_per_attempt) !== selectedTask.questions_per_attempt || Number(currentTaskForm.passing_correct_answers) !== selectedTask.passing_correct_answers" @busy="assignmentBusy = $event" />
+    <p v-if="draftMessage" class="draft-notice" role="status">{{ draftMessage }} <button class="btn btn-link" :disabled="contextBusy" @click="discardConfirm = true">{{ t('ux.discardDraft') }}</button></p>
     <ConfirmDialog v-if="discardConfirm" :title="t('ux.discardDraft')" :description="t('ux.discardConfirm')" :confirm-label="t('ux.discardDraft')" @cancel="discardConfirm = false" @confirm="discardQuestionDraft" />
     <div v-if="assignmentOpen" class="surface-card p-3">
       <label class="field-wrap">{{ t('ux.chooseGroup') }}<select v-model="assignmentGroup" class="form-select"><option value="">—</option><option v-for="group in assignmentGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
@@ -745,8 +822,8 @@ watch(questionForm, (form) => {
     </div>
     <section v-show="activeTab === 'settings'" class="surface-card panel-card">
       <div class="panel-head">
-        <h2 class="section-title">{{ t("topicDetail.tasksInLesson") }}</h2>
-        <span class="pill">{{ t("common.totalCount", { count: tasksCount }) }}</span>
+        <h2 class="section-title">{{ t(workspace ? "ux.taskSettings" : "topicDetail.tasksInLesson") }}</h2>
+        <span v-if="!workspace" class="pill">{{ t("common.totalCount", { count: tasksCount }) }}</span>
       </div>
 
       <div class="task-sections">
@@ -754,9 +831,9 @@ watch(questionForm, (form) => {
           <h3 class="task-subsection-title">{{ t("topicDetail.currentTask") }}</h3>
 
           <div class="task-settings-grid">
-            <div>
+            <div v-if="!workspace">
               <label class="form-label" for="topic-field-1">{{ t("common.task") }}</label>
-              <select id="topic-field-1" v-model="selectedTaskId" class="form-select">
+              <select id="topic-field-1" :value="selectedTaskId" :disabled="contextBusy" @change="changeTask" class="form-select">
                 <option value="">{{ t("topicDetail.noTaskSelected") }}</option>
                 <option v-for="taskItem in tasks" :key="taskItem.id" :value="String(taskItem.id)">
                   {{ taskItem.title }}
@@ -792,7 +869,7 @@ watch(questionForm, (form) => {
             <button
               class="btn btn-outline-primary task-settings-btn"
               type="button"
-              :disabled="!selectedTask || isCurrentTaskSaving"
+              :disabled="!selectedTask || contextBusy"
               @click="updateCurrentTaskSettings"
             >
               {{ isCurrentTaskSaving ? t("common.saving") : t("topicDetail.saveSettings") }}
@@ -802,11 +879,11 @@ watch(questionForm, (form) => {
           <div v-if="selectedTask" class="field-hint mt-3">
             {{ t("topicDetail.selectedPool", { title: selectedTask.title }) }}
           </div>
-          <div v-if="currentTaskSaveError" class="alert alert-danger mt-3">{{ currentTaskSaveError }}</div>
-          <div v-if="currentTaskSaveSuccess" class="alert alert-success mt-3">{{ currentTaskSaveSuccess }}</div>
+          <div v-if="currentTaskSaveError" class="alert alert-danger mt-3" role="alert">{{ currentTaskSaveError }}</div>
+          <div v-if="currentTaskSaveSuccess" class="alert alert-success mt-3" role="status">{{ currentTaskSaveSuccess }}</div>
         </div>
 
-        <details :open="newTaskOpen" class="task-subsection" @toggle="newTaskOpen = $event.target.open">
+        <details v-if="!workspace" :open="newTaskOpen" class="task-subsection" @toggle="newTaskOpen = $event.target.open">
           <summary>{{ t("topicDetail.newTask") }}</summary>
 
           <div class="new-task-grid">
@@ -853,7 +930,7 @@ watch(questionForm, (form) => {
               />
             </div>
 
-            <button class="btn btn-primary new-task-btn" type="button" :disabled="isTaskSaving" @click="createTask">
+            <button class="btn btn-primary new-task-btn" type="button" :disabled="contextBusy" @click="createTask">
               {{ isTaskSaving ? t("common.creating") : t("topicDetail.createTask") }}
             </button>
           </div>
@@ -863,8 +940,8 @@ watch(questionForm, (form) => {
             <label class="form-check-label" for="task-active">{{ t("common.active") }}</label>
           </div>
 
-          <div v-if="taskSaveError" class="alert alert-danger mt-3">{{ taskSaveError }}</div>
-          <div v-if="taskSaveSuccess" class="alert alert-success mt-3">{{ taskSaveSuccess }}</div>
+          <div v-if="taskSaveError" class="alert alert-danger mt-3" role="alert">{{ taskSaveError }}</div>
+          <div v-if="taskSaveSuccess" class="alert alert-success mt-3" role="status">{{ taskSaveSuccess }}</div>
         </details>
       </div>
     </section>
@@ -880,7 +957,7 @@ watch(questionForm, (form) => {
       <div class="import-grid">
         <div>
           <label class="form-label" for="topic-field-8">{{ t("topicDetail.questionType") }}</label>
-          <select id="topic-field-8" v-model="importForm.question_type" class="form-select">
+          <select id="topic-field-8" :disabled="contextBusy" v-model="importForm.question_type" class="form-select">
             <option v-for="type in questionTypes" :key="type.value" :value="type.value">
               {{ type.label }}
             </option>
@@ -888,10 +965,11 @@ watch(questionForm, (form) => {
         </div>
 
         <div>
-          <label class="form-label">{{ t("topicDetail.questionFile") }}</label>
+          <label class="form-label" for="question-import-file">{{ t("topicDetail.questionFile") }}</label>
           <label class="file-drop">
             <input
               ref="fileInputRef"
+              id="question-import-file" :disabled="contextBusy"
               type="file"
               accept=".xls,.xlsx"
               class="file-input"
@@ -905,7 +983,7 @@ watch(questionForm, (form) => {
         <button
           class="btn btn-primary import-btn"
           type="button"
-          :disabled="isImporting || !selectedTaskId"
+          :disabled="contextBusy || !selectedTaskId"
           @click="importQuestions(false)"
         >
           {{ isImporting ? t("topicDetail.importing") : t("ux.previewImport") }}
@@ -918,15 +996,15 @@ watch(questionForm, (form) => {
       <div v-if="preview" class="alert alert-info">
         <p>{{ t('ux.importPreview', {count: preview.imported_count, duplicates: preview.duplicate_count}) }}</p>
         <ul><li v-for="(text, index) in preview.questions" :key="index" v-html="sanitizeInlineRichText(text)"></li></ul>
-        <button class="btn btn-primary" :disabled="isImporting" @click="importQuestions(true)">{{ t('ux.confirmImport') }}</button>
+        <button class="btn btn-primary" :disabled="contextBusy" @click="importQuestions(true)">{{ t('ux.confirmImport') }}</button>
       </div>
       <button v-if="undoToken" class="btn btn-outline-danger" @click="undoConfirm = true">{{ t('ux.undoImport') }}</button>
       <ConfirmDialog v-if="undoConfirm" :title="t('ux.undoImport')" :description="t('ux.undoConfirm')" :confirm-label="t('ux.undoImport')" @confirm="undoImport" @cancel="undoConfirm = false" />
-      <div v-if="importError" class="alert alert-danger mt-3">{{ importError }}</div>
-      <div v-if="importSuccess" class="alert alert-success mt-3">{{ importSuccess }}</div>
+      <div v-if="importError" class="alert alert-danger mt-3" role="alert">{{ importError }}</div>
+      <div v-if="importSuccess" class="alert alert-success mt-3" role="status">{{ importSuccess }}</div>
     </section>
 
-    <section v-show="activeTab === 'questions'" class="surface-card panel-card">
+    <section v-if="!workspace" v-show="activeTab === 'questions'" class="surface-card panel-card">
       <div class="panel-head">
         <div>
           <h2 class="section-title">{{ t("topicDetail.questionsInTask") }}</h2>
@@ -939,16 +1017,16 @@ watch(questionForm, (form) => {
           <button
             class="btn btn-outline-primary btn-sm"
             type="button"
-            :disabled="!selectedTaskId"
-            @click="startNewQuestion"
+            :disabled="!selectedTaskId || contextBusy"
+            @click="replaceEditor(startNewQuestion)"
           >
             {{ t("topicDetail.newQuestion") }}
           </button>
         </div>
       </div>
 
-      <div v-if="deleteError" class="alert alert-danger mb-3">{{ deleteError }}</div>
-      <div v-if="questionFormSuccess" class="alert alert-success mb-3">{{ questionFormSuccess }}</div>
+      <div v-if="deleteError" class="alert alert-danger mb-3" role="alert">{{ deleteError }}</div>
+      <div v-if="questionFormSuccess" class="alert alert-success mb-3" role="status">{{ questionFormSuccess }}</div>
 
       <article
         v-if="openQuestionEditorId === 'new'"
@@ -962,7 +1040,7 @@ watch(questionForm, (form) => {
           :question-types="questionTypes"
           :is-matching="isMatchingForm"
           :is-single-choice="isSingleChoiceForm"
-          :is-saving="isQuestionSaving"
+          :is-saving="contextBusy"
           :can-save="Boolean(selectedTaskId)"
           :error="questionFormError"
           :success="''"
@@ -977,11 +1055,13 @@ watch(questionForm, (form) => {
           @remove-pending-image="removePendingQuestionImage"
           @remove-saved-image="removeSavedQuestionImage"
           @save="saveQuestion"
-          @cancel="resetQuestionForm"
+          @cancel="guardAction(resetQuestionForm, editorHasChanges())"
         />
       </article>
 
-      <div v-if="questions.length === 0" class="empty-box">{{ t("topicDetail.noQuestionsYet") }}</div>
+      <p v-if="questionsLoading" role="status">{{ t('common.loading') }}</p>
+      <div v-else-if="questionsError" class="alert alert-danger" role="alert">{{ questionsError }} <button class="btn btn-link" @click="getQuestions">{{ t('ux.retry') }}</button></div>
+      <div v-else-if="questions.length === 0" class="empty-box">{{ t("topicDetail.noQuestionsYet") }}</div>
 
       <article
         v-for="(question, index) in questions"
@@ -1004,15 +1084,15 @@ watch(questionForm, (form) => {
             <button
               class="ghost-edit-btn"
               type="button"
-              @click="editQuestion(question)"
+              :disabled="contextBusy" @click="replaceEditor(() => editQuestion(question))"
             >
               {{ t("topicDetail.edit") }}
             </button>
             <button
               class="ghost-danger-btn"
               type="button"
-              :disabled="deletingQuestionId === question.id"
-              @click="deleteQuestion(question.id)"
+              :disabled="contextBusy"
+              @click="pendingDelete = question.id"
             >
               {{ deletingQuestionId === question.id ? t("topicDetail.removing") : t("topicDetail.delete") }}
             </button>
@@ -1051,7 +1131,7 @@ watch(questionForm, (form) => {
           :question-types="questionTypes"
           :is-matching="isMatchingForm"
           :is-single-choice="isSingleChoiceForm"
-          :is-saving="isQuestionSaving"
+          :is-saving="contextBusy"
           :can-save="Boolean(selectedTaskId)"
           :error="questionFormError"
           :success="''"
@@ -1066,11 +1146,86 @@ watch(questionForm, (form) => {
           @remove-pending-image="removePendingQuestionImage"
           @remove-saved-image="removeSavedQuestionImage"
           @save="saveQuestion"
-          @cancel="resetQuestionForm"
+          @cancel="guardAction(resetQuestionForm, editorHasChanges())"
         />
       </article>
     </section>
+
+    <section v-if="workspace" v-show="activeTab === 'questions'" class="flow-questions" :class="{ 'show-editor': mobileEditor }">
+      <aside class="surface-card flow-question-list">
+        <h2>{{ t('common.questions') }}</h2>
+        <button class="btn btn-primary" :disabled="contextBusy" @click="replaceEditor(() => { startNewQuestion(); mobileEditor = true; })">{{ t('topicDetail.newQuestion') }}</button>
+        <p v-if="questionsLoading" role="status">{{ t('common.loading') }}</p>
+        <div v-else-if="questionsError" role="alert">{{ questionsError }} <button class="btn btn-link" @click="getQuestions">{{ t('ux.retry') }}</button></div>
+        <p v-else-if="!questions.length">{{ t('topicDetail.noQuestionsYet') }}</p>
+        <ol><li v-for="(question, index) in questions" :key="question.id"><button class="flow-question-button" :class="{ selected: openQuestionEditorId === question.id }" :aria-pressed="openQuestionEditorId === question.id" :disabled="contextBusy" @click="replaceEditor(() => { editQuestion(question); mobileEditor = true; })"><span class="flow-number">{{ index + 1 }}</span><span><span class="flow-question-text" v-html="renderRichText(question.text)" /><small>{{ questionTypeLabel(question.question_type) }}{{ question.is_active ? '' : ' · ' + t('common.inactive') }}</small></span></button></li></ol>
+      </aside>
+      <div class="surface-card flow-editor">
+        <button class="btn btn-link flow-back" @click="mobileEditor = false">{{ t('materialsFlow.list') }}</button>
+        <div v-if="questionFormSuccess" class="alert alert-success" role="status">{{ questionFormSuccess }}</div>
+        <div v-if="deleteError" class="alert alert-danger" role="alert">{{ deleteError }}</div>
+        <template v-if="openQuestionEditorId">
+          <div class="flow-editor-head"><h2>{{ t(questionForm.id ? 'topicDetail.edit' : 'topicDetail.newQuestion') }}</h2><div class="flow-editor-actions"><button class="btn btn-outline-primary" :disabled="!questionForm.text" @click="previewQuestion = questionForm">{{ t('materialsFlow.preview') }}</button><button v-if="questionForm.id" class="btn btn-outline-danger" :disabled="contextBusy" @click="pendingDelete = questionForm.id">{{ t('common.remove') }}</button></div></div>
+        <QuestionEditorForm
+          :form="questionForm"
+          :question-types="questionTypes"
+          :is-matching="isMatchingForm"
+          :is-single-choice="isSingleChoiceForm"
+          :is-saving="contextBusy"
+          :can-save="Boolean(selectedTaskId)"
+          :error="questionFormError"
+          :success="''"
+          :save-label="isQuestionSaving ? t('common.saving') : t(questionForm.id ? 'topicDetail.updateQuestion' : 'topicDetail.createQuestion')"
+          @question-type-change="onQuestionTypeChange"
+          @add-choice="addChoice"
+          @remove-choice="removeChoice"
+          @set-choice-correct="setChoiceCorrect"
+          @add-matching-pair="addMatchingPair"
+          @remove-matching-pair="removeMatchingPair"
+          @add-images="addQuestionImages"
+          @remove-pending-image="removePendingQuestionImage"
+          @remove-saved-image="removeSavedQuestionImage"
+          @save="saveQuestion"
+          @cancel="guardAction(resetQuestionForm, editorHasChanges())"
+        />
+        </template>
+        <p v-else class="empty-box">{{ t('materialsFlow.selectQuestion') }}</p>
+      </div>
+    </section>
+    <QuestionPreview v-if="previewQuestion" :question="previewQuestion" @close="previewQuestion = null" />
+    <ConfirmDialog v-if="pendingDelete" :title="t('workstation.materials.removeQuestion')" :description="t('workstation.materials.removeQuestionHint')" :confirm-label="t('common.remove')" @cancel="pendingDelete = null" @confirm="deleteQuestion(pendingDelete); pendingDelete = null" />
+    </template>
+    <ConfirmDialog v-if="pendingLeave" :title="t('workstation.materials.leaveTitle')" :description="t('workstation.materials.leaveHint')" :confirm-label="t('workstation.materials.leave')" @cancel="finishLeave(false)" @confirm="finishLeave(true)" />
   </div>
 </template>
 
 <style scoped src="./TopicDetail.css"></style>
+
+<style scoped>
+.flow-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin:24px 0; }
+.flow-heading h1 { font-size:30px; overflow-wrap:anywhere; }
+.flow-heading p { color:var(--ink-soft); margin:8px 0 0; }
+.flow-questions { display:grid; grid-template-columns:minmax(230px, 300px) minmax(0, 1fr); gap:20px; margin-top:20px; }
+.flow-question-list, .flow-editor { padding:20px; min-width:0; }
+.flow-question-list h2, .flow-editor h2 { font-size:20px; margin:0 0 20px; }
+.flow-question-list ol { list-style:none; padding:0; margin:20px -20px 0; }
+.flow-question-button { display:flex; gap:12px; text-align:left; width:100%; padding:16px 20px; border:0; border-top:1px solid var(--line); background:transparent; color:var(--ink); }
+.flow-question-button:hover { background:var(--bg-0); }
+.flow-question-button.selected { background:#edf2fd; color:#244aa7; }
+.flow-question-button > span:last-child { min-width:0; }
+.flow-question-text { display:block; overflow-wrap:anywhere; }
+.flow-question-button small { display:block; margin-top:6px; color:var(--ink-soft); }
+.flow-number { font-variant-numeric:tabular-nums; }
+.flow-editor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+.flow-editor-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.flow-back { display:none; }
+@media(max-width:760px) {
+  .flow-heading { flex-direction:column; gap:16px; }
+  .flow-heading h1 { font-size:26px; }
+  .flow-questions { grid-template-columns:1fr; }
+  .flow-questions .flow-editor { display:none; }
+  .flow-questions.show-editor .flow-editor { display:block; }
+  .flow-questions.show-editor .flow-question-list { display:none; }
+  .flow-back { display:inline-flex; margin-bottom:20px; }
+}
+</style>

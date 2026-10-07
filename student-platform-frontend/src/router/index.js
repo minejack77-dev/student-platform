@@ -4,6 +4,8 @@ import { useAuthStore } from "@/stores/auth";
 import { pinia } from "@/stores";
 
 const routes = [
+  { name: 'task-create', path: '/materials/new', component: () => import('@/views/TaskCreate.vue'), meta: { requiresAuth: true, roles: ['teacher'] } },
+  { name: 'task-workspace', path: '/task/:id', props: true, component: () => import('@/views/TaskWorkspace.vue'), meta: { requiresAuth: true, roles: ['teacher'] } },
   {
     name: "login",
     path: "/login",

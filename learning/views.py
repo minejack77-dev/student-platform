@@ -227,6 +227,19 @@ class TaskViewSet(viewsets.ModelViewSet):
     ordering_fields = ("title", "updated_at", "id", "topic")
     ordering = ("topic__title", "title")
 
+    @action(detail=False, methods=["post"], url_path="quick-create")
+    def quick_create(self, request):
+        from learning.services.materials_workflow import create_quick_task
+        task = create_quick_task(request.user, request.data)
+        return Response(self.get_serializer(task).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def assign(self, request, pk=None):
+        from learning.services.materials_workflow import assign_task
+        entry, created = assign_task(request.user, self.get_object(), request.data)
+        return Response(GroupTopicScheduleSerializer(entry).data,
+                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
     @action(
         detail=True,
         methods=["post"],

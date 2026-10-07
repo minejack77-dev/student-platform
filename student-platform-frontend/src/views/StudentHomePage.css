@@ -4,29 +4,7 @@
   gap: 22px;
 }
 
-.hero-panel {
-  align-items: start;
-  animation: rise-fade 450ms ease both;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(242, 249, 255, 0.96) 100%);
-  display: block;
-  padding: 22px;
-}
-
-.hero-title {
-  font-size: clamp(28px, 3.4vw, 36px);
-  margin: 8px 0 6px;
-}
-
-.hero-subtitle {
-  color: var(--ink-soft);
-  margin: 0;
-  max-width: 620px;
-}
-
 .section-card {
-  animation: rise-fade 500ms ease both;
-  overflow: hidden;
   padding: 22px;
 }
 
@@ -37,7 +15,7 @@
 }
 
 .section-title {
-  font-size: 28px;
+  font-size: 18px;
   margin: 0;
 }
 
@@ -86,9 +64,7 @@
 
 .schedule-summary {
   align-items: center;
-  background:
-    radial-gradient(circle at top right, rgba(31, 95, 216, 0.14), transparent 34%),
-    linear-gradient(145deg, rgba(12, 169, 146, 0.08), rgba(255, 255, 255, 0.72));
+  background: var(--surface);
   border: 1px solid rgba(31, 95, 216, 0.12);
   border-radius: calc(var(--radius-lg) + 2px);
   display: flex;
@@ -99,7 +75,7 @@
 }
 
 .schedule-range {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 22px;
   font-weight: 700;
 }
@@ -113,9 +89,7 @@
 }
 
 .schedule-day-card {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 250, 255, 0.9)),
-    var(--surface-strong);
+  background: var(--surface);
   border: 1px solid rgba(18, 43, 70, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-2);
@@ -127,31 +101,13 @@
   position: relative;
 }
 
-.schedule-day-card::after {
-  background: linear-gradient(135deg, rgba(31, 95, 216, 0.18), rgba(12, 169, 146, 0));
-  border-radius: inherit;
-  content: "";
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  transition: opacity 140ms ease;
-}
-
-.schedule-day-card.has-items::after,
-.schedule-day-card.is-today::after {
-  opacity: 1;
-}
-
 .schedule-day-card.is-weekend {
-  background:
-    linear-gradient(180deg, rgba(255, 247, 236, 0.92), rgba(255, 255, 255, 0.9)),
-    var(--surface-strong);
+  background: var(--surface);
 }
 
 .schedule-day-card.is-today {
   border-color: rgba(31, 95, 216, 0.34);
-  transform: translateY(-2px);
+  background: #f5f8ff;
 }
 
 .schedule-day-top {
@@ -166,12 +122,10 @@
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .schedule-day-date {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 18px;
   font-weight: 700;
   margin-top: 3px;
@@ -183,7 +137,7 @@
   border-radius: 14px;
   color: var(--brand-blue-strong);
   display: inline-flex;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 22px;
   font-weight: 700;
   height: 42px;
@@ -275,12 +229,11 @@
 
 .entity-chip {
   background: rgba(12, 169, 146, 0.14);
-  border-radius: 999px;
+  border-radius: 5px;
   color: #097563;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 4px 8px;
-  text-transform: uppercase;
 }
 
 .chip-success {
@@ -325,7 +278,7 @@
 
 .assignment-chip {
   background: rgba(31, 95, 216, 0.1);
-  border-radius: 999px;
+  border-radius: 5px;
   color: var(--brand-blue-strong);
   font-size: 12px;
   font-weight: 700;
@@ -362,6 +315,8 @@
 }
 
 .push-actions {
+  flex-wrap: wrap;
+  margin-top: 16px;
   align-items: center;
   display: flex;
   gap: 12px;
@@ -385,9 +340,7 @@
 
 .recent-result-item {
   align-items: center;
-  background:
-    radial-gradient(circle at top right, rgba(31, 95, 216, 0.12), transparent 36%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 255, 0.96));
+  background: var(--surface);
   border: 1px solid rgba(15, 42, 68, 0.1);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
@@ -407,11 +360,10 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .recent-result-value {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 18px;
   font-weight: 700;
   margin-top: 4px;
@@ -433,7 +385,6 @@
 }
 
 .stats-section {
-  animation: rise-fade 480ms ease both;
 }
 
 .stats-grid {
@@ -461,7 +412,7 @@
 }
 
 .stats-value {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 22px;
   font-weight: 700;
 }
@@ -481,11 +432,10 @@
 
 .stats-table th {
   color: var(--ink-soft);
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .stats-table td {
@@ -527,8 +477,7 @@
   font-style: italic;
 }
 
-@media (max-width: 1100px) {
-  .hero-panel,
+@media (max-width: 1280px) {
   .schedule-header,
   .schedule-summary {
     flex-direction: column;
@@ -549,7 +498,7 @@
 
   .recent-result-item,
   .day-task-item {
-    grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .task-status-copy {
@@ -568,4 +517,20 @@
   .action-btn {
     width: 100%;
   }
+}
+
+.section-card > .section-title { margin-bottom: 16px; }
+.recent-results-head { margin-bottom: 16px; flex-wrap: wrap; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stats-row { flex-direction: column; align-items: start; gap: 8px; padding: 16px; }
+.entity-chip { flex-shrink: 0; }
+.day-task-meta, .task-status-copy, .recent-result-meta, .assignment-chip { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .section-card { padding: 16px; }
+  .column-head, .schedule-head { flex-wrap: wrap; gap: 8px; }
+  .schedule-summary { align-items: stretch; padding: 12px; }
+  .schedule-range { font-size: 18px; }
+  .day-task-head { flex-wrap: wrap; }
+  .stats-row { padding: 12px; }
 }

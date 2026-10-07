@@ -1,12 +1,19 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
+import { getWorkspaceSection } from "@/composables/useWorkspaceNavigation";
 
 import { Group, Subject } from "@/api.js";
 import { apiError } from "@/utils/apiError";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
+import MaterialsLibrary from '@/components/MaterialsLibrary.vue';
 const { t } = useI18n();
+const organize = ref(false);
+const route = useRoute();
+watch(() => route.query.organize, value => { organize.value = value === '1'; }, { immediate: true });
+const section = computed(() => getWorkspaceSection('teacher', route.query.view));
 const { localeTag } = useLocaleFormatting();
 const groupList = ref([]);
 const subjectList = ref([]);
@@ -187,38 +194,29 @@ const subjectsCount = computed(() => subjectList.value.length);
 
 <template>
   <div class="teacher-page">
-    <section class="surface-card hero-panel">
-      <div class="hero-copy">
-        <span class="pill">{{ t("teacherHome.badge") }}</span>
-        <h1 class="hero-title">{{ t("teacherHome.title") }}</h1>
-        <p class="hero-subtitle">{{ t("teacherHome.subtitle") }}</p>
+    <header class="workspace-heading">
+      <div>
+        <h1>{{ t(`workstation.nav.${section}`) }}</h1>
+        <p>{{ t(`workstation.description.${section}`) }}</p>
       </div>
-
-      <div class="hero-stats">
-        <div class="stat-card">
-          <div class="stat-label">{{ t("common.groups") }}</div>
-          <div class="stat-value">{{ groupLoading || groupError ? '—' : groupsCount }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">{{ t("common.subjects") }}</div>
-          <div class="stat-value">{{ subjectLoading || subjectError ? '—' : subjectsCount }}</div>
-        </div>
-      </div>
-    </section>
+      <button v-if="section === 'groups'" class="btn btn-primary" type="button" @click="isCreatingGroup = true">+ {{ t('teacherHome.addGroup') }}</button>
+      <button v-if="section === 'materials'" class="btn btn-outline-primary" type="button" :aria-expanded="organize" @click="organize = !organize">{{ t('materialsFlow.subjects') }}</button>
+    </header>
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
-    <section class="surface-card section-card">
+    <section v-show="section !== 'materials'" class="surface-card section-card">
       <div class="section-head">
       <div>
         <h2 class="section-title">{{ t("common.groups") }}</h2>
-        <p class="section-subtitle">{{ t("teacherHome.groupsSubtitle") }}</p>
+        <p v-if="!groupLoading && !groupError" class="section-subtitle">{{ t('workstation.found', { count: groupsCount }) }}</p>
       </div>
         <div class="controls-wrap">
           <div class="sort-switch">
             <button
               class="sort-btn"
               :class="{ active: groupSort === 'name' }"
+              :aria-pressed="groupSort === 'name'"
               type="button"
               :title="t('teacherHome.sortByName')"
               @click="setGroupSort('name')"
@@ -228,6 +226,7 @@ const subjectsCount = computed(() => subjectList.value.length);
             <button
               class="sort-btn"
               :class="{ active: groupSort === 'updated' }"
+              :aria-pressed="groupSort === 'updated'"
               type="button"
               :title="t('teacherHome.sortByEdited')"
               @click="setGroupSort('updated')"
@@ -241,6 +240,7 @@ const subjectsCount = computed(() => subjectList.value.length);
               class="form-control"
               type="text"
               :placeholder="t('teacherHome.searchGroups')"
+              :aria-label="t('teacherHome.searchGroups')"
             />
           </div>
         </div>
@@ -251,32 +251,32 @@ const subjectsCount = computed(() => subjectList.value.length);
       <div v-else-if="groupList.length === 0" class="empty-box">{{ t("teacherHome.noGroups") }}</div>
 
       <div class="cards-grid">
-        <article class="entity-card add-card">
-          <template v-if="!isCreatingGroup">
-            <button class="add-entity-button" type="button" @click="isCreatingGroup = true">
-              <span class="add-icon">+</span>
-              <span>{{ t("teacherHome.addGroup") }}</span>
-            </button>
-          </template>
-          <template v-else>
+        <article v-show="section === 'groups' && isCreatingGroup" class="entity-card add-card">
+          <template v-if="isCreatingGroup">
             <div class="add-form">
-              <input
+              <label for="create-group-name">{{ t('teacherHome.groupName') }}</label>
+              <input id="create-group-name"
                 v-model="createGroupForm.name"
                 class="form-control form-control-sm"
                 type="text"
                 :placeholder="t('teacherHome.groupName')"
+                :aria-label="t('teacherHome.groupName')"
+                :aria-describedby="createGroupError ? 'create-group-error' : undefined"
+                :aria-invalid="!!createGroupError && !createGroupForm.name.trim()"
               />
-              <textarea
+              <label for="create-group-description">{{ t('common.description') }}</label>
+              <textarea id="create-group-description"
                 v-model="createGroupForm.description"
                 class="form-control form-control-sm"
                 rows="2"
                 :placeholder="t('common.description')"
+                :aria-label="t('common.description')"
               />
               <div class="form-check">
                 <input id="new-group-active" v-model="createGroupForm.is_active" class="form-check-input" type="checkbox" />
                 <label class="form-check-label" for="new-group-active">{{ t("common.active") }}</label>
               </div>
-              <div v-if="createGroupError" class="small text-danger">{{ createGroupError }}</div>
+              <div v-if="createGroupError" id="create-group-error" class="small text-danger" role="alert">{{ createGroupError }}</div>
               <div class="add-form-actions">
                 <button class="btn btn-primary btn-sm" :disabled="createGroupLoading" type="button" @click="createGroup">
                   {{ createGroupLoading ? t("common.creating") : t("common.create") }}
@@ -290,10 +290,9 @@ const subjectsCount = computed(() => subjectList.value.length);
         </article>
 
         <article
-          v-for="(group, index) in (groupError || groupLoading ? [] : groupList)"
+          v-for="group in (groupError || groupLoading ? [] : groupList)"
           :key="group.id"
           class="entity-card"
-          :style="{ '--delay': `${index * 50}ms` }"
         >
           <div class="entity-header">
             <h3 class="entity-title">{{ group.name }}</h3>
@@ -308,8 +307,8 @@ const subjectsCount = computed(() => subjectList.value.length);
 
           <div class="entity-meta">{{ t("teacherHome.edited") }}: {{ formatUpdatedAt(group.updated_at) }}</div>
           <div class="entity-link-row">
-            <router-link :to="{ name: 'group-overview', params: { id: group.id } }" class="entity-link entity-link-primary">
-              {{ t("teacherHome.overview") }}
+            <router-link :to="{ name: 'group-overview', params: { id: group.id }, query: section === 'results' ? { tab: 'results' } : {} }" class="entity-link entity-link-primary">
+              {{ section === 'results' ? t('workstation.openResults') : t("teacherHome.overview") }}
             </router-link>
             <router-link :to="{ name: 'group-details', params: { id: group.id } }" class="entity-link entity-link-secondary">
               {{ t("teacherHome.details") }}
@@ -319,17 +318,20 @@ const subjectsCount = computed(() => subjectList.value.length);
       </div>
     </section>
 
-    <section class="surface-card section-card">
+    <MaterialsLibrary v-if="section === 'materials' && !organize" />
+    <section v-show="section === 'materials' && organize" class="surface-card section-card">
+      <button class="btn btn-primary mb-3" @click="isCreatingSubject = true">{{ t('teacherHome.addSubject') }}</button>
       <div class="section-head">
         <div>
           <h2 class="section-title">{{ t("common.subject") }}</h2>
-          <p class="section-subtitle">{{ t("teacherHome.subjectsSubtitle") }}</p>
+          <p v-if="!subjectLoading && !subjectError" class="section-subtitle">{{ t('workstation.found', { count: subjectsCount }) }}</p>
         </div>
         <div class="controls-wrap">
           <div class="sort-switch">
             <button
               class="sort-btn"
               :class="{ active: subjectSort === 'name' }"
+              :aria-pressed="subjectSort === 'name'"
               type="button"
               :title="t('teacherHome.sortByName')"
               @click="setSubjectSort('name')"
@@ -339,6 +341,7 @@ const subjectsCount = computed(() => subjectList.value.length);
             <button
               class="sort-btn"
               :class="{ active: subjectSort === 'updated' }"
+              :aria-pressed="subjectSort === 'updated'"
               type="button"
               :title="t('teacherHome.sortByEdited')"
               @click="setSubjectSort('updated')"
@@ -352,6 +355,7 @@ const subjectsCount = computed(() => subjectList.value.length);
               class="form-control"
               type="text"
               :placeholder="t('teacherHome.searchSubjects')"
+              :aria-label="t('teacherHome.searchSubjects')"
             />
           </div>
         </div>
@@ -362,32 +366,32 @@ const subjectsCount = computed(() => subjectList.value.length);
       <div v-else-if="subjectList.length === 0" class="empty-box">{{ t("teacherHome.noSubjects") }}</div>
 
       <div class="cards-grid">
-        <article class="entity-card add-card">
-          <template v-if="!isCreatingSubject">
-            <button class="add-entity-button" type="button" @click="isCreatingSubject = true">
-              <span class="add-icon">+</span>
-              <span>{{ t("teacherHome.addSubject") }}</span>
-            </button>
-          </template>
-          <template v-else>
+        <article v-show="isCreatingSubject" class="entity-card add-card">
+          <template v-if="isCreatingSubject">
             <div class="add-form">
-              <input
+              <label for="create-subject-name">{{ t('teacherHome.subjectName') }}</label>
+              <input id="create-subject-name"
                 v-model="createSubjectForm.name"
                 class="form-control form-control-sm"
                 type="text"
                 :placeholder="t('teacherHome.subjectName')"
+                :aria-label="t('teacherHome.subjectName')"
+                :aria-describedby="createSubjectError ? 'create-subject-error' : undefined"
+                :aria-invalid="!!createSubjectError && !createSubjectForm.name.trim()"
               />
-              <textarea
+              <label for="create-subject-description">{{ t('common.description') }}</label>
+              <textarea id="create-subject-description"
                 v-model="createSubjectForm.description"
                 class="form-control form-control-sm"
                 rows="2"
                 :placeholder="t('common.description')"
+                :aria-label="t('common.description')"
               />
               <div class="form-check">
                 <input id="new-subject-active" v-model="createSubjectForm.is_active" class="form-check-input" type="checkbox" />
                 <label class="form-check-label" for="new-subject-active">{{ t("common.active") }}</label>
               </div>
-              <div v-if="createSubjectError" class="small text-danger">{{ createSubjectError }}</div>
+              <div v-if="createSubjectError" id="create-subject-error" class="small text-danger" role="alert">{{ createSubjectError }}</div>
               <div class="add-form-actions">
                 <button class="btn btn-primary btn-sm" :disabled="createSubjectLoading" type="button" @click="createSubject">
                   {{ createSubjectLoading ? t("common.creating") : t("common.create") }}
@@ -401,10 +405,9 @@ const subjectsCount = computed(() => subjectList.value.length);
         </article>
 
         <article
-          v-for="(subject, index) in (subjectError || subjectLoading ? [] : subjectList)"
+          v-for="subject in (subjectError || subjectLoading ? [] : subjectList)"
           :key="subject.id"
           class="entity-card"
-          :style="{ '--delay': `${index * 50}ms` }"
         >
           <div class="entity-header">
             <h3 class="entity-title">{{ subject.name }}</h3>

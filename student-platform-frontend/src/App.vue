@@ -6,11 +6,14 @@ import { useI18n } from "vue-i18n";
 
 import { localeOptions, setAppLocale } from "@/i18n";
 import { useAuthStore } from "@/stores/auth";
+import AppSidebar from "@/components/AppSidebar.vue";
+import { useWorkspaceNavigation } from "@/composables/useWorkspaceNavigation";
 
 const router = useRouter();
 const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const { isAuthenticated, role, user } = storeToRefs(authStore);
+const { items: navigationItems, activeKey } = useWorkspaceNavigation(role);
 const logoutError = ref("");
 
 const roleLabel = computed(() => {
@@ -50,10 +53,13 @@ const handleLogout = async () => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'has-sidebar': isAuthenticated }">
+    <a class="skip-link" href="#workspace-main">{{ t('workstation.skip') }}</a>
+    <AppSidebar v-if="isAuthenticated" :items="navigationItems" :active-key="activeKey" :role-label="roleLabel" />
+    <div class="workspace-body">
     <header class="topbar">
-      <div class="container app-container topbar-inner">
-        <router-link class="brand-link" to="/">
+      <div class="topbar-inner">
+        <router-link v-if="!isAuthenticated" class="brand-link" to="/">
           <div class="brand-glyph">УП</div>
           <div>
             <div class="brand-title">{{ t("app.brandTitle") }}</div>
@@ -61,22 +67,9 @@ const handleLogout = async () => {
           </div>
         </router-link>
 
-        <nav class="nav-wrap">
+        <span v-else class="workspace-label">{{ t('workstation.workspace') }}</span>
+        <div class="nav-wrap">
           <template v-if="isAuthenticated">
-            <router-link
-              v-if="role === 'teacher'"
-              class="nav-item-link"
-              :to="{ name: 'teacher-home' }"
-            >
-              {{ t("app.nav.teacher") }}
-            </router-link>
-            <router-link
-              v-if="role === 'student'"
-              class="nav-item-link"
-              :to="{ name: 'student-home' }"
-            >
-              {{ t("app.nav.tasks") }}
-            </router-link>
             <span class="nav-user">{{ user?.username }} · {{ roleLabel }}</span>
             <button class="btn btn-outline-primary btn-sm" type="button" @click="handleLogout">
               {{ t("app.nav.signOut") }}
@@ -98,20 +91,22 @@ const handleLogout = async () => {
               {{ option.label }}
             </option>
           </select>
-        </nav>
+        </div>
       </div>
     </header>
 
-    <main class="app-main">
-      <div class="container app-container">
-        <div v-if="logoutError" class="alert alert-danger">{{ logoutError }}</div>
+    <main id="workspace-main" class="app-main" tabindex="-1">
+      <div class="app-container">
+        <div v-if="logoutError" class="alert alert-danger" role="alert">{{ logoutError }}</div>
         <router-view v-slot="{ Component, route: activeRoute }">
-          <transition name="route-fade" mode="out-in">
-            <component :is="Component" :key="activeRoute.fullPath" />
-          </transition>
+          <KeepAlive v-if="['group-overview', 'group-details'].includes(activeRoute.name)" :key="String(activeRoute.params.id)" :max="2">
+            <component :is="Component" :key="activeRoute.path" />
+          </KeepAlive>
+          <component v-else :is="Component" :key="['teacher-home', 'student-home'].includes(activeRoute.name) ? activeRoute.path : activeRoute.fullPath" />
         </router-view>
       </div>
     </main>
+    </div>
   </div>
 </template>
 

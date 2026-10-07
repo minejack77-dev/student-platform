@@ -547,9 +547,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="attempt-page">
-    <section class="surface-card attempt-hero">
+    <header class="attempt-heading">
       <div>
-        <span class="pill">{{ t("attemptDetail.badge") }}</span>
         <h1 class="attempt-title">{{ attempt?.task_title || attempt?.topic_title || t("common.lesson") }}</h1>
         <p class="attempt-topic">{{ attempt?.subject_name }} / {{ attempt?.topic_title }}</p>
         <p v-if="teacherView">{{ t('ux.teacherReview', { student: attempt?.student_username }) }} · {{ attempt?.schedule_group_name }} · {{ attempt?.schedule_date }}</p>
@@ -558,28 +557,28 @@ onBeforeUnmount(() => {
       <div class="hero-metrics">
         <div class="metric-card">
           <div class="metric-label">{{ t("common.questions") }}</div>
-          <div class="metric-value">{{ totalQuestions }}</div>
+          <div class="metric-value">{{ isLoading || loadError ? '—' : totalQuestions }}</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">{{ t("common.status") }}</div>
           <div class="metric-status" :class="{ done: attemptCompleted }">
-            {{ attemptCompleted ? t("attemptDetail.completed") : t("attemptDetail.inProgress") }}
+            {{ isLoading || loadError ? '—' : attemptCompleted ? t("attemptDetail.completed") : t("attemptDetail.inProgress") }}
           </div>
         </div>
       </div>
-    </section>
+    </header>
 
     <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadAttemptData">{{ t('ux.retry') }}</button></div>
     <div v-if="hasFailedSaves && !reviewMode" class="alert alert-danger" role="alert">
       {{ saveError || t('ux.savingBlocked') }}
       <button class="btn btn-outline-primary" :disabled="hasPendingSaves" @click="retryAnswers">{{ t('ux.saveRetry') }}</button>
     </div>
-    <div v-if="completeError" class="alert alert-danger">{{ completeError }}</div>
+    <div v-if="completeError" class="alert alert-danger" role="alert">{{ completeError }}</div>
     <div v-if="attemptInteractionLocked" class="alert alert-warning">
       {{ t("attemptDetail.scheduledWindowClosed") }}
     </div>
 
-    <section v-if="isLoading" class="surface-card attempt-state">
+    <section v-if="isLoading" class="surface-card attempt-state" role="status">
       {{ t("attemptDetail.loadingAttempt") }}
     </section>
 
@@ -648,6 +647,7 @@ onBeforeUnmount(() => {
               paired: isMatchingLeftPaired(activeQuestion.id, item.id),
             }"
             type="button"
+            :aria-pressed="isMatchingLeftActive(activeQuestion.id, item.id)"
             :disabled="attemptInteractionLocked || savingByQuestion[activeQuestion.id] || isCompleting"
             @click="handleMatchingLeftClick(activeQuestion, item.id)"
           >

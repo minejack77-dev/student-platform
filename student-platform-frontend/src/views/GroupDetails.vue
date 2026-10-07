@@ -1,9 +1,10 @@
 <script setup>
+import GroupWorkspaceHeader from "@/components/GroupWorkspaceHeader.vue";
 import { apiError } from "@/utils/apiError";
 import axios from "axios";
 import { useRoute } from "vue-router";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Group, Subject, Workbook } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
@@ -12,6 +13,8 @@ const props = defineProps(["id"]);
 const route = useRoute();
 const resultsTab = computed(() => route.query.tab === "results");
 const confirmRemove = ref(false);
+const pendingRemoval = ref(null);
+const membersTab = computed(() => route.query.tab === 'members');
 
 const MONTH_DAY_FORMAT = { month: "short", day: "numeric" };
 const WEEKDAY_FORMAT = { weekday: "short" };
@@ -53,7 +56,7 @@ const assignmentSuccess = ref("");
 
 const statistics = ref(createEmptyStatistics());
 const statisticsTable = ref(null);
-watch(statistics, async () => {
+watch([statistics, resultsTab], async () => {
   await nextTick();
   if (statisticsTable.value) statisticsTable.value.scrollLeft = statisticsTable.value.scrollWidth;
 }, {flush: 'post'});
@@ -216,7 +219,13 @@ const clearTeacherAssignment = async () => {
 const onSubjectChange = async () => {
   assignmentForm.value.workbook = "";
   assignmentSuccess.value = "";
-  await loadWorkbooks(assignmentForm.value.subject);
+  assignmentError.value = '';
+  try {
+    await loadWorkbooks(assignmentForm.value.subject);
+  } catch (error) {
+    workbooks.value = [];
+    assignmentError.value = apiError(error, 'groupDetails.assignmentLoadError');
+  }
 };
 
 const searchStudents = async (query) => {
@@ -265,6 +274,7 @@ const addStudentToGroup = async (student) => {
 };
 
 const removeStudentFromGroup = async (student) => {
+  pendingRemoval.value = null;
   addResultMessage.value = "";
   removeLoadingUserId.value = student.user;
   try {
@@ -449,6 +459,13 @@ watch(searchQuery, (value) => {
 onMounted(async () => {
   await loadDetailsPage();
 });
+let activatedOnce = false;
+onActivated(async () => {
+  if (!activatedOnce) { activatedOnce = true; return; }
+  const dirty = assignmentForm.value.subject !== savedAssignmentSubject.value || assignmentForm.value.workbook !== savedAssignmentWorkbook.value;
+  await Promise.all([loadGroup(), loadDetailedStatistics()]);
+  if (!dirty) await loadTeacherAssignment();
+});
 
 onBeforeUnmount(() => {
   if (searchDebounceTimer) {
@@ -460,47 +477,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="group-page">
-    <section class="surface-card group-hero">
-      <div class="hero-topline">
-        <div class="hero-heading-row">
-          <span class="pill">{{ t(resultsTab ? "ux.results" : "groupDetails.badge") }}</span>
-          <h1 class="group-title">{{ group.name || t("common.untitledGroup") }}</h1>
-        </div>
-      </div>
+    <GroupWorkspaceHeader :id="props.id" :name="group.name" :description="group.description"
+      :active="resultsTab ? 'results' : membersTab ? 'members' : 'settings'" :subject-id="savedAssignmentSubject" />
 
-      <div class="hero-copy">
-        <p class="group-description">{{ group.description || t("common.noDescriptionAvailable") }}</p>
-      </div>
+    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-primary" @click="loadDetailsPage">{{ t('ux.retry') }}</button></div>
 
-      <div class="hero-summary-row">
-        <div class="hero-meta">
-          <div class="meta-card">
-            <div class="meta-label">{{ t("common.members") }}</div>
-            <div class="meta-value">{{ studentCount }}</div>
-          </div>
-          <div class="meta-card meta-card-wide">
-            <div class="meta-label">{{ t("groupDetails.heroSubject") }}</div>
-            <div class="meta-value meta-value-small">{{ currentSubjectLabel }}</div>
-          </div>
-        </div>
-
-        <router-link
-          class="hero-link-button hero-link-primary"
-          :to="{ name: 'group-overview', params: { id: props.id } }"
-        >
-          {{ t("groupDetails.groupOverview") }}
-        </router-link>
-        <router-link class="home-link hero-link-button hero-link-secondary" to="/">
-          {{ t("common.backToDashboard") }}
-        </router-link>
-      </div>
-    </section>
-
-    <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
-
+    <ConfirmDialog v-if="pendingRemoval" :title="t('workstation.group.removeTitle')" :description="t('workstation.group.removeDescription', { name: pendingRemoval.username })" :confirm-label="t('common.remove')" @confirm="removeStudentFromGroup(pendingRemoval)" @cancel="pendingRemoval = null" />
     <ConfirmDialog v-if="confirmRemove" :title="t('ux.removeSubject')" :description="t('ux.removeSubjectConfirm')" :confirm-label="t('ux.removeSubject')" @confirm="clearTeacherAssignment" @cancel="confirmRemove = false" />
-    <nav class="page-tabs"><router-link :to="{name: 'group-overview', params: {id: props.id}, query: {tab: 'results'}}" :aria-current="resultsTab ? 'page' : undefined">{{ t('ux.results') }}</router-link><router-link :to="{name: 'group-details', params: {id: props.id}}" :aria-current="!resultsTab ? 'page' : undefined">{{ t('ux.settings') }}</router-link></nav>
-    <section v-if="!resultsTab" class="surface-card assignment-panel">
+
+    <section v-if="!resultsTab && !membersTab" class="surface-card assignment-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("common.subject") }}</h2>
@@ -514,8 +499,8 @@ onBeforeUnmount(() => {
 
       <div class="row g-3">
         <div class="col-md-6">
-          <label class="form-label">{{ t("common.subject") }}</label>
-          <select v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
+          <label for="group-subject" class="form-label">{{ t("common.subject") }}</label>
+          <select id="group-subject" v-model="assignmentForm.subject" class="form-select" @change="onSubjectChange">
             <option value="">{{ t("groupDetails.noSubjectSelected") }}</option>
             <option v-for="subject in subjects" :key="subject.id" :value="String(subject.id)">
               {{ subject.name }}
@@ -523,8 +508,8 @@ onBeforeUnmount(() => {
           </select>
         </div>
         <div class="col-md-6">
-          <label class="form-label">{{ t("common.textbook") }}</label>
-          <select v-model="assignmentForm.workbook" class="form-select" :disabled="!assignmentForm.subject">
+          <label for="group-workbook" class="form-label">{{ t("common.textbook") }}</label>
+          <select id="group-workbook" v-model="assignmentForm.workbook" class="form-select" :disabled="!assignmentForm.subject">
             <option value="">
               {{
                 assignmentForm.subject
@@ -554,8 +539,8 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="assignmentError" class="alert alert-danger mt-3 mb-0">{{ assignmentError }}</div>
-      <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0">{{ assignmentSuccess }}</div>
+      <div v-if="assignmentError" class="alert alert-danger mt-3 mb-0" role="alert">{{ assignmentError }}</div>
+      <div v-if="assignmentSuccess" class="alert alert-success mt-3 mb-0" role="status">{{ assignmentSuccess }}</div>
     </section>
 
     <section v-if="resultsTab" class="surface-card members-panel">
@@ -578,6 +563,7 @@ onBeforeUnmount(() => {
               :key="scale.value"
               class="statistics-scale-btn"
               :class="{ active: statisticsScale === scale.value }"
+              :aria-pressed="statisticsScale === scale.value"
               type="button"
               :disabled="statisticsLoading"
               @click="setStatisticsScale(scale.value)"
@@ -613,19 +599,20 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
-      <div v-if="statisticsError" class="alert alert-danger compact-alert">
+      <div v-if="statisticsError" class="alert alert-danger compact-alert" role="alert">
         {{ statisticsError }}
+        <button class="btn btn-outline-primary" @click="loadDetailedStatistics">{{ t('ux.retry') }}</button>
       </div>
 
       <div v-if="statisticsLoading" class="empty-box">
         {{ t("groupDetails.loadingDetailedStatistics") }}
       </div>
 
-      <div v-else-if="group.students.length === 0" class="empty-box">
+      <div v-else-if="!statisticsError && !loadError && group.students.length === 0" class="empty-box">
         {{ t("groupDetails.noStudentsInGroup") }}
       </div>
 
-      <div v-else>
+      <div v-else-if="!statisticsError && !loadError">
         <div v-if="!hasScheduledTests" class="empty-box compact-empty-box">
           {{ t("groupDetails.noScheduledTests") }}
         </div>
@@ -643,7 +630,7 @@ onBeforeUnmount(() => {
             </template>
           </article>
         </div>
-        <div ref="statisticsTable" class="statistics-table-wrap">
+        <div ref="statisticsTable" class="statistics-table-wrap" tabindex="0" role="region" :aria-label="t('groupDetails.detailedStatistics')">
           <table class="statistics-table">
             <thead>
               <tr>
@@ -716,7 +703,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="!resultsTab" class="surface-card search-panel">
+    <section v-if="membersTab" class="surface-card search-panel">
       <div class="panel-header">
         <div class="column-head panel-head">
           <h2 class="section-title">{{ t("groupDetails.addNewStudent") }}</h2>
@@ -733,10 +720,11 @@ onBeforeUnmount(() => {
           class="form-control search-input"
           type="text"
           :placeholder="t('groupDetails.searchPlaceholder')"
+          :aria-label="t('groupDetails.searchPlaceholder')"
         />
 
         <div v-if="searchLoading" class="search-state">{{ t("groupDetails.searching") }}</div>
-        <div v-if="searchError" class="alert alert-danger mt-3 mb-0">{{ searchError }}</div>
+        <div v-if="searchError" class="alert alert-danger mt-3 mb-0" role="alert">{{ searchError }}</div>
         <div
           v-if="!searchLoading && searchQuery.trim() && !searchError && searchResults.length === 0"
           class="search-state"
@@ -774,9 +762,10 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div v-if="addResultMessage" class="alert alert-info mt-3 mb-0">{{ addResultMessage }}</div>
+        <div v-if="addResultMessage" class="alert alert-info mt-3 mb-0" role="status">{{ addResultMessage }}</div>
 
-        <div class="current-students-wrap">
+      </div>
+      <div class="current-students-wrap">
           <div class="column-head current-students-head">
             <h3 class="current-students-title">{{ t("groupDetails.currentStudents") }}</h3>
             <span class="pill">{{ t("common.totalCount", { count: studentCount }) }}</span>
@@ -791,7 +780,7 @@ onBeforeUnmount(() => {
               v-for="(student, index) in group.students"
               :key="student.id"
               class="member-item"
-              :style="{ '--delay': `${index * 32}ms` }"
+
             >
               <div class="member-index">#{{ index + 1 }}</div>
               <div class="member-info">
@@ -801,16 +790,15 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <button
-                class="ghost-danger-btn"
+                v-if="group.can_manage_students" class="ghost-danger-btn"
                 type="button"
                 :disabled="removeLoadingUserId === student.user"
-                @click="removeStudentFromGroup(student)"
+                @click="pendingRemoval = student"
               >
                 {{ removeLoadingUserId === student.user ? t("groupDetails.removing") : t("common.remove") }}
               </button>
             </article>
           </div>
-        </div>
       </div>
     </section>
   </div>

@@ -4,59 +4,15 @@
   gap: 18px;
 }
 
-.topic-hero {
-  align-items: end;
-  animation: rise-fade 420ms ease both;
-  background:
-    radial-gradient(circle at 85% 25%, rgba(12, 169, 146, 0.2), transparent 42%),
-    linear-gradient(120deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 249, 255, 0.9) 100%);
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 1.15fr 0.85fr;
-  padding: 24px;
-}
-
-.topic-title {
-  font-size: clamp(28px, 3.8vw, 38px);
-  margin: 10px 0 6px;
-}
-
-.topic-description {
-  color: var(--ink-soft);
-  margin: 0;
-  max-width: 640px;
-}
-
-.hero-metrics {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-}
-
-.metric-card {
-  background: var(--surface-strong);
-  border: 1px solid rgba(20, 46, 72, 0.12);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-2);
-  padding: 12px;
-}
-
-.metric-label {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.metric-value {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-}
+.topic-heading { display: flex; flex-direction: column; gap: 16px; }
+.topic-title { font-size: 28px; margin: 0 0 8px; }
+.topic-description { color: var(--ink-soft); margin: 0; max-width: 70ch; }
+.hero-metrics { display: flex; gap: 24px; flex-wrap: wrap; }
+.metric-card { display: flex; align-items: baseline; gap: 8px; }
+.metric-label { color: var(--ink-soft); font-size: 13px; }
+.metric-value { font-size: 14px; font-weight: 600; }
 
 .panel-card {
-  animation: rise-fade 420ms ease both;
   padding: 20px;
 }
 
@@ -68,7 +24,7 @@
 }
 
 .section-title {
-  font-size: 27px;
+  font-size: 18px;
   margin: 0;
 }
 
@@ -107,11 +63,11 @@
 }
 
 .task-settings-grid {
-  grid-template-columns: minmax(260px, 1.2fr) minmax(130px, 0.4fr) minmax(130px, 0.4fr) auto;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 .new-task-grid {
-  grid-template-columns: minmax(180px, 0.95fr) minmax(180px, 0.95fr) minmax(130px, 0.4fr) minmax(130px, 0.4fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .task-settings-btn,
@@ -170,7 +126,7 @@
 .file-action {
   background: rgba(31, 95, 216, 0.08);
   border: 1px solid rgba(31, 95, 216, 0.22);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--brand-blue-strong);
   font-size: 12px;
   font-weight: 700;
@@ -196,8 +152,6 @@
 }
 
 .question-item {
-  animation: rise-fade 350ms ease both;
-  animation-delay: var(--delay);
   background: var(--surface-strong);
   border: 1px solid rgba(16, 39, 64, 0.12);
   border-radius: var(--radius-lg);
@@ -248,7 +202,7 @@
 
 .question-type {
   background: rgba(31, 95, 216, 0.12);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--brand-blue-strong);
   font-size: 12px;
   font-weight: 700;
@@ -267,7 +221,7 @@
 .ghost-danger-btn {
   background: rgba(193, 61, 61, 0.14);
   border: 1px solid rgba(193, 61, 61, 0.26);
-  border-radius: 999px;
+  border-radius: 6px;
   color: #9d2727;
   font-size: 12px;
   font-weight: 700;
@@ -290,7 +244,7 @@
 .ghost-edit-btn {
   background: rgba(31, 95, 216, 0.1);
   border: 1px solid rgba(31, 95, 216, 0.22);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--brand-blue-strong);
   font-size: 12px;
   font-weight: 700;
@@ -398,3 +352,20 @@
   }
 }
 
+
+.task-workspace-toolbar { gap: 12px; padding: 16px; }
+.task-workspace-toolbar > .field-wrap { flex: 1 1 300px; }
+.workspace-tabs { flex: 1 1 100%; order: 3; margin: 0; }
+.question-item { border-width: 0 0 1px; border-radius: 0; padding: 18px 0; margin: 0; }
+.question-item-editing, .question-editor-card { border: 1px solid var(--brand-blue); border-radius: 6px; padding: 16px; margin-bottom: 12px; box-shadow: none; }
+.question-head > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.question-text { font-size: 16px; }
+.file-drop:focus-within { outline: 3px solid var(--brand-blue); outline-offset: 3px; }
+.ghost-edit-btn, .ghost-danger-btn { min-height: 36px; }
+@media (max-width: 640px) {
+  .panel-card { padding: 16px; }
+  .question-head { flex-direction: column; }
+  .question-actions { flex-direction: row; flex-wrap: wrap; justify-content: start; }
+  .hero-metrics { gap: 8px 20px; }
+  .workspace-actions { width: 100%; flex-wrap: wrap; }
+}

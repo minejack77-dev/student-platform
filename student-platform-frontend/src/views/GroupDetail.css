@@ -1,169 +1,7 @@
-.group-page {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.group-hero {
-  animation: rise-fade 430ms ease both;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 250, 255, 0.98) 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-}
-
-.hero-topline {
-  background: linear-gradient(180deg, rgba(231, 239, 255, 0.95), rgba(225, 235, 255, 0.92));
-  border: 1px solid rgba(91, 130, 226, 0.45);
-  border-radius: 999px;
-  min-width: 0;
-  padding: 6px 10px;
-}
-
-.hero-heading-row {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  min-width: 0;
-}
-
-.hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.group-title {
-  flex: 1 1 auto;
-  font-size: clamp(28px, 3.4vw, 34px);
-  letter-spacing: -0.02em;
-  line-height: 1;
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-description {
-  color: var(--ink-soft);
-  font-size: 14px;
-  line-height: 1.45;
-  margin: 0;
-  max-width: 620px;
-}
-
-.hero-summary-row {
-  align-items: stretch;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(170px, 1fr) minmax(170px, 1fr);
-}
-
-.hero-meta {
-  display: grid;
-  gap: 12px;
-  grid-column: 1 / span 2;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.meta-card {
-  background: rgba(255, 255, 255, 0.84);
-  border: 1px solid rgba(20, 46, 72, 0.1);
-  border-radius: 16px;
-  min-height: 64px;
-  padding: 11px 13px 10px;
-}
-
-.meta-label {
-  color: var(--ink-soft);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.meta-value {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.home-link {
-  text-decoration: none;
-}
-
-.home-link:hover {
-  text-decoration: none;
-}
-
-.hero-link-button {
-  align-items: center;
-  border-radius: 999px;
-  box-shadow: 0 6px 14px rgba(31, 95, 216, 0.1);
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 700;
-  justify-content: center;
-  min-height: 48px;
-  padding: 0 16px;
-  text-decoration: none;
-  transition:
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    background 140ms ease,
-    color 140ms ease;
-  width: 100%;
-}
-
-.hero-link-button:hover {
-  box-shadow: 0 10px 20px rgba(31, 95, 216, 0.14);
-  text-decoration: none;
-  transform: translateY(-1px);
-}
-
-.hero-link-primary {
-  background: linear-gradient(135deg, #2d61d1 0%, #4a7bef 100%);
-  border: 1px solid transparent;
-  color: #fff;
-}
-
-.hero-link-primary:hover {
-  background: linear-gradient(135deg, #2758c3 0%, #3f70e4 100%);
-  color: #fff;
-}
-
-.hero-link-secondary {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(31, 95, 216, 0.18);
-  color: var(--brand-blue-strong);
-}
-
-.hero-link-secondary:hover {
-  background: rgba(246, 250, 255, 0.98);
-  color: var(--brand-blue-strong);
-}
-
-.meta-value-small {
-  font-size: 16px;
-  line-height: 1.2;
-}
-
-.inline-link {
-  color: var(--brand-blue-strong);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.inline-link:hover {
-  text-decoration: underline;
-}
+.group-page { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.inline-link { color: var(--brand-blue-strong); }
 
 .assignment-panel {
-  animation: rise-fade 430ms ease both;
   padding: 20px;
 }
 
@@ -179,7 +17,6 @@
 }
 
 .schedule-panel {
-  animation: rise-fade 460ms ease both;
   overflow: hidden;
   padding: 20px;
 }
@@ -208,9 +45,7 @@
 
 .schedule-summary {
   align-items: center;
-  background:
-    radial-gradient(circle at top right, rgba(12, 169, 146, 0.16), transparent 34%),
-    linear-gradient(145deg, rgba(31, 95, 216, 0.08), rgba(255, 255, 255, 0.72));
+  background: var(--surface);
   border: 1px solid rgba(31, 95, 216, 0.12);
   border-radius: calc(var(--radius-lg) + 2px);
   display: flex;
@@ -221,7 +56,7 @@
 }
 
 .schedule-range {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 22px;
   font-weight: 700;
 }
@@ -240,12 +75,10 @@
 }
 
 .schedule-day-card {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 250, 255, 0.9)),
-    var(--surface-strong);
+  background: var(--surface);
   border: 1px solid rgba(18, 43, 70, 0.12);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-2);
+  box-shadow: none;
   display: grid;
   gap: 14px;
   grid-template-columns: 150px minmax(0, 1fr) auto;
@@ -254,31 +87,13 @@
   position: relative;
 }
 
-.schedule-day-card::after {
-  background: linear-gradient(135deg, rgba(31, 95, 216, 0.18), rgba(12, 169, 146, 0));
-  border-radius: inherit;
-  content: "";
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  transition: opacity 140ms ease;
-}
-
-.schedule-day-card.is-assigned::after,
-.schedule-day-card.is-today::after {
-  opacity: 1;
-}
-
 .schedule-day-card.is-weekend {
-  background:
-    linear-gradient(180deg, rgba(255, 247, 236, 0.92), rgba(255, 255, 255, 0.9)),
-    var(--surface-strong);
+  background: var(--surface);
 }
 
 .schedule-day-card.is-today {
   border-color: rgba(31, 95, 216, 0.34);
-  transform: translateY(-2px);
+  background: #f5f8ff;
 }
 
 .schedule-day-top {
@@ -293,12 +108,10 @@
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .schedule-day-date {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 18px;
   font-weight: 700;
   margin-top: 3px;
@@ -307,10 +120,10 @@
 .schedule-day-number {
   align-items: center;
   background: rgba(31, 95, 216, 0.1);
-  border-radius: 14px;
+  border-radius: 6px;
   color: var(--brand-blue-strong);
   display: inline-flex;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 22px;
   font-weight: 700;
   height: 42px;
@@ -344,11 +157,7 @@
   border-top: 1px solid rgba(18, 43, 70, 0.1);
   display: grid;
   gap: 10px 12px;
-  grid-template-columns:
-    minmax(180px, 0.95fr)
-    minmax(180px, 0.95fr)
-    minmax(170px, 0.8fr)
-    minmax(150px, auto);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-top: 10px;
 }
 
@@ -368,7 +177,7 @@
   background: rgba(255, 255, 255, 0.72);
   border: 1px dashed rgba(18, 43, 70, 0.14);
   border-radius: var(--radius-md);
-  grid-column: 3;
+  grid-column: 1;
   margin-top: 0;
   min-height: 64px;
   padding: 10px 12px;
@@ -379,18 +188,16 @@
 .schedule-topic-caption {
   color: var(--ink-soft);
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
   margin-bottom: 4px;
-  text-transform: uppercase;
 }
 
 .schedule-day-actions {
   align-self: center;
   display: flex;
   gap: 8px;
-  grid-column: 4;
+  grid-column: 2;
   position: relative;
   z-index: 1;
 }
@@ -411,7 +218,7 @@
 }
 
 .schedule-empty-title {
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 20px;
   font-weight: 700;
   margin-bottom: 6px;
@@ -425,7 +232,6 @@
 
 .members-panel,
 .search-panel {
-  animation: rise-fade 450ms ease both;
   padding: 20px;
 }
 
@@ -441,7 +247,7 @@
 }
 
 .section-title {
-  font-size: 26px;
+  font-size: 18px;
   margin: 0;
 }
 
@@ -463,17 +269,17 @@
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(31, 95, 216, 0.2);
   border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(31, 95, 216, 0.08);
+  box-shadow: none;
   color: var(--brand-blue-strong);
   display: inline-flex;
   flex: 0 0 auto;
   font-size: 20px;
   font-weight: 700;
-  height: 34px;
+  height: 40px;
   justify-content: center;
   line-height: 1;
   padding: 0;
-  width: 34px;
+  width: 44px;
 }
 
 .panel-toggle:hover {
@@ -518,7 +324,8 @@
   align-items: center;
   display: grid;
   gap: 6px;
-  grid-template-columns: 34px minmax(116px, auto) 34px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: end;
 }
 
 .member-nav-btn {
@@ -526,46 +333,14 @@
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(31, 95, 216, 0.22);
   border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(31, 95, 216, 0.08);
+  box-shadow: none;
   display: inline-flex;
   font-size: 16px;
-  height: 34px;
+  height: 40px;
   justify-content: center;
   line-height: 1;
   padding: 0;
-  width: 34px;
-}
-
-.member-current-date-btn {
-  align-items: center;
-  background: linear-gradient(135deg, #2d61d1 0%, #4a7bef 100%);
-  border: 1px solid rgba(31, 95, 216, 0.14);
-  border-radius: 10px;
-  box-shadow: 0 8px 18px rgba(31, 95, 216, 0.18);
-  color: #fff;
-  display: inline-flex;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  justify-content: center;
-  min-height: 34px;
-  min-width: 116px;
-  padding: 0 12px;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.member-current-date-btn:hover:not(:disabled),
-.member-current-date-btn:focus-visible {
-  background: linear-gradient(135deg, #2756bc 0%, #4271de 100%);
-}
-
-.member-date-input-hidden {
-  block-size: 0;
-  inline-size: 0;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
+  width: 44px;
 }
 
 .search-column {
@@ -584,6 +359,7 @@
 }
 
 .members-list {
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -591,10 +367,9 @@
 
 .member-item {
   align-items: center;
-  animation: rise-fade 320ms ease both;
-  animation-delay: var(--delay);
   background: var(--surface-strong);
-  border: 1px solid rgba(16, 39, 64, 0.12);
+  border: 0;
+  border-bottom: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex;
   gap: 10px;
@@ -670,25 +445,23 @@
 
 .member-result-task {
   color: var(--ink-soft);
-  font-size: 12px;
-  max-width: 120px;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 
 .member-result-placeholder {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .entity-chip {
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: 5px;
+  font-size: 12px;
   font-weight: 700;
   padding: 4px 8px;
-  text-transform: uppercase;
 }
 
 .chip-success {
@@ -725,7 +498,8 @@
 .search-item {
   align-items: center;
   background: var(--surface-strong);
-  border: 1px solid rgba(16, 39, 64, 0.12);
+  border: 0;
+  border-bottom: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex;
   gap: 10px;
@@ -763,7 +537,7 @@
 .statistics-scale-btn {
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(31, 95, 216, 0.18);
-  border-radius: 999px;
+  border-radius: 5px;
   color: var(--brand-blue-strong);
   font-size: 13px;
   font-weight: 700;
@@ -775,7 +549,7 @@
 }
 
 .statistics-scale-btn.active {
-  background: linear-gradient(135deg, #2d61d1 0%, #4a7bef 100%);
+  background: var(--brand-blue);
   border-color: transparent;
   color: #fff;
 }
@@ -784,7 +558,7 @@
   align-items: center;
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(31, 95, 216, 0.18);
-  border-radius: 999px;
+  border-radius: 5px;
   color: var(--brand-blue-strong);
   display: inline-flex;
   font-size: 13px;
@@ -805,8 +579,9 @@
 }
 
 .statistics-sort-toggle:focus-visible {
-  box-shadow: 0 0 0 0.2rem rgba(45, 97, 209, 0.18);
-  outline: none;
+  box-shadow: none;
+  outline: 3px solid var(--brand-blue);
+  outline-offset: 3px;
 }
 
 .statistics-sort-toggle:disabled {
@@ -851,7 +626,7 @@
 }
 
 .statistics-table thead th {
-  background: linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(241, 247, 255, 0.96));
+  background: var(--surface);
   border-bottom: 1px solid rgba(18, 43, 70, 0.12);
   position: sticky;
   top: 0;
@@ -893,7 +668,7 @@
 
 .statistics-rank-label {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -918,23 +693,19 @@
 }
 
 .statistics-date-head.has-tests {
-  background:
-    radial-gradient(circle at top center, rgba(12, 169, 146, 0.14), transparent 58%),
-    linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(241, 247, 255, 0.96));
+  background: var(--surface);
 }
 
 .statistics-date-weekday {
   color: var(--ink-soft);
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .statistics-date-label {
   display: block;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  font-family: inherit;
   font-size: 15px;
   font-weight: 700;
   margin-top: 4px;
@@ -957,7 +728,7 @@
 .statistics-test-item {
   background: rgba(255, 255, 255, 0.68);
   border: 1px solid rgba(18, 43, 70, 0.08);
-  border-radius: 12px;
+  border-radius: 6px;
   padding: 8px;
 }
 
@@ -1045,7 +816,7 @@
 .ghost-danger-btn {
   background: rgba(193, 61, 61, 0.14);
   border: 1px solid rgba(193, 61, 61, 0.26);
-  border-radius: 999px;
+  border-radius: 5px;
   color: #9d2727;
   font-size: 12px;
   font-weight: 700;
@@ -1114,7 +885,7 @@
   }
 
   .member-nav-group {
-    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     width: min(100%, 280px);
   }
 
@@ -1202,4 +973,37 @@
   .statistics-cell {
     min-width: 132px;
   }
+}
+
+.group-summary { display: grid; gap: 22px; }
+.group-metrics { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 16px; }
+.group-metric { display: flex; flex-direction: column; align-items: start; gap: 10px; padding: 20px; min-width: 0; }
+.group-metric > span, .group-metric small { color: var(--ink-soft); }
+.group-metric strong { font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.group-metric .metric-subject { font-size: 18px; overflow-wrap: anywhere; }
+.summary-next { padding: 22px; }
+.summary-next p { margin: 12px 0 18px; color: var(--ink-soft); }
+.group-result-filters { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; margin-bottom: 22px; }
+.member-item { border-radius: 0; padding: 16px 0; gap: 16px; }
+.member-name, .member-meta, .schedule-topic-state strong, .schedule-subject { overflow-wrap: anywhere; }
+.member-index { flex-shrink: 0; background: transparent; color: var(--ink-soft); }
+.member-last-result { flex: 1.6; min-width: 0; align-items: stretch; }
+.member-result-item { flex-wrap: wrap; gap: 10px; }
+.entity-chip { font-size: 13px; text-decoration: none; }
+.schedule-field .form-select { min-width: 0; width: 100%; }
+.statistics-test-title, .statistics-test-result { font-size: 14px; }
+.ghost-danger-btn { min-height: 40px; }
+.statistics-table-wrap { max-width: 100%; }
+.member-nav-group input { min-width: 0; width: 100%; }
+.schedule-summary { flex-wrap: wrap; }
+@media (max-width: 1000px) { .group-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .group-metric:last-child { grid-column: 1 / -1; } }
+@media (max-width: 640px) {
+  .group-result-filters { grid-template-columns: minmax(0, 1fr); }
+  .group-metrics { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .group-metric { padding: 16px; }
+  .assignment-panel, .schedule-panel, .members-panel, .search-panel, .summary-next { padding: 16px; }
+  .member-last-result { flex-basis: 100%; align-items: stretch; }
+  .member-results-list, .member-result-item { width: 100%; }
+  .member-nav-btn, .ghost-danger-btn { min-height: 44px; }
+  .statistics-mobile p { overflow-wrap: anywhere; }
 }

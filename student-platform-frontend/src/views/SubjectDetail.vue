@@ -4,6 +4,8 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Group, Subject, Topic, Unit, Workbook } from "@/api.js";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 
 const props = defineProps(["id"]);
 const route = useRoute();
@@ -15,6 +17,12 @@ const topics = ref([]);
 const workbooks = ref([]);
 const units = ref([]);
 const loadError = ref("");
+const loading = ref(true);
+const topicSearch = ref("");
+const pendingClear = ref(null);
+const filteredTopics = computed(() => topics.value.filter(topic =>
+  [topic.title, topic.workbook_title, topic.unit_title].join(' ').toLocaleLowerCase().includes(topicSearch.value.trim().toLocaleLowerCase()),
+));
 const assignError = ref("");
 const assignSuccess = ref("");
 const assignLoadingByGroup = ref({});
@@ -32,6 +40,9 @@ const createTopicForm = ref({
 });
 const createTopicLoading = ref(false);
 const createTopicError = ref("");
+const { pendingLeave, finishLeave } = useUnsavedChanges(() =>
+  ['title', 'description', 'new_workbook_title', 'new_unit_title'].some(key => createTopicForm.value[key].trim()),
+);
 
 const numericSubjectId = computed(() => Number(props.id));
 
@@ -97,6 +108,7 @@ const loadGroups = async () => {
 };
 
 const loadSubjectPage = async () => {
+  loading.value = true;
   loadError.value = "";
   assignError.value = "";
   assignSuccess.value = "";
@@ -104,6 +116,8 @@ const loadSubjectPage = async () => {
     await Promise.all([loadSubject(), loadTopics(), loadGroups(), loadWorkbooks(), loadUnits()]);
   } catch {
     loadError.value = t("subjectDetail.groupPageLoadError");
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -288,10 +302,13 @@ onMounted(async () => {
 
 <template>
   <div class="subject-page">
-    <router-link class="inline-action-link" v-if="route.query.group" :to="{name: 'group-overview', params:{id:route.query.group}}">{{ t("ux.schedule") }}</router-link>
-    <section class="surface-card subject-hero">
+    <nav class="page-breadcrumbs" :aria-label="t('workstation.group.breadcrumbs')">
+      <router-link :to="{name:'teacher-home', query:{view:'materials'}}">{{ t('workstation.nav.materials') }}</router-link>
+      <router-link v-if="route.query.group" :to="{name: 'group-overview', params:{id:route.query.group}}">{{ t("ux.schedule") }}</router-link>
+      <span aria-current="page">{{ subject.name }}</span>
+    </nav>
+    <header class="subject-heading">
       <div>
-        <span class="pill">{{ t("subjectDetail.badge") }}</span>
         <h1 class="subject-title">{{ subject.name || t("common.untitledSubject") }}</h1>
         <p class="subject-description">{{ subject.description || t("common.noDescriptionYet") }}</p>
       </div>
@@ -299,34 +316,36 @@ onMounted(async () => {
       <div class="hero-meta">
         <div class="meta-card">
           <div class="meta-label">{{ t("common.lessons") }}</div>
-          <div class="meta-value">{{ topics.length }}</div>
+          <div class="meta-value">{{ loading || loadError ? '—' : topics.length }}</div>
         </div>
         <div class="meta-card">
           <div class="meta-label">{{ t("subjectDetail.groupsAssigned") }}</div>
-          <div class="meta-value">{{ assignedGroups.length }}</div>
+          <div class="meta-value">{{ loading || loadError ? '—' : assignedGroups.length }}</div>
         </div>
       </div>
-    </section>
+    </header>
 
-    <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
-    <div v-if="assignError" class="alert alert-danger">{{ assignError }}</div>
-    <div v-if="assignSuccess" class="alert alert-success">{{ assignSuccess }}</div>
+    <div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-link" @click="loadSubjectPage">{{ t('ux.retry') }}</button></div>
+    <p v-if="loading" role="status">{{ t('common.loading') }}</p>
+    <div v-if="assignError" class="alert alert-danger" role="alert">{{ assignError }}</div>
+    <div v-if="assignSuccess" class="alert alert-success" role="status">{{ assignSuccess }}</div>
 
 
 
-    <section class="surface-card panel-card">
+    <section v-if="!loading && !loadError" class="surface-card panel-card">
       <div class="panel-head">
         <h2 class="section-title">{{ t("subjectDetail.lessonsInSubject") }}</h2>
         <span class="pill">{{ t("common.totalCount", { count: topics.length }) }}</span>
       </div>
 
+      <label class="field-wrap">{{ t('workstation.materials.search') }}<input v-model="topicSearch" type="search" class="form-control" /></label>
       <details class="create-topic-box">
         <summary>{{ t("subjectDetail.createLesson") }}</summary>
         <div class="topic-structure-grid">
           <div class="topic-structure-field">
-            <label class="form-label mb-1">{{ t("common.textbook") }}</label>
+            <label class="form-label mb-1" for="topic-workbook">{{ t("common.textbook") }}</label>
             <select
-              v-model="createTopicForm.workbook"
+              id="topic-workbook" v-model="createTopicForm.workbook"
               class="form-select form-select-sm"
             >
               <option value="">{{ t("subjectDetail.createNewTextbook") }}</option>
@@ -343,18 +362,18 @@ onMounted(async () => {
             v-if="!createTopicForm.workbook"
             class="topic-structure-field"
           >
-            <label class="form-label mb-1">{{ t("subjectDetail.newTextbookTitle") }}</label>
+            <label class="form-label mb-1" for="topic-new_workbook_title">{{ t("subjectDetail.newTextbookTitle") }}</label>
             <input
-              v-model="createTopicForm.new_workbook_title"
+              id="topic-new_workbook_title" v-model="createTopicForm.new_workbook_title"
               class="form-control form-control-sm"
               type="text"
               :placeholder="t('subjectDetail.textbookTitlePlaceholder')"
             />
           </div>
           <div class="topic-structure-field">
-            <label class="form-label mb-1">{{ t("common.unit") }}</label>
+            <label class="form-label mb-1" for="topic-unit">{{ t("common.unit") }}</label>
             <select
-              v-model="createTopicForm.unit"
+              id="topic-unit" v-model="createTopicForm.unit"
               class="form-select form-select-sm"
               :disabled="!createTopicForm.workbook"
             >
@@ -374,23 +393,25 @@ onMounted(async () => {
             v-if="!createTopicForm.unit"
             class="topic-structure-field"
           >
-            <label class="form-label mb-1">{{ t("subjectDetail.newUnitTitle") }}</label>
+            <label class="form-label mb-1" for="topic-new_unit_title">{{ t("subjectDetail.newUnitTitle") }}</label>
             <input
-              v-model="createTopicForm.new_unit_title"
+              id="topic-new_unit_title" v-model="createTopicForm.new_unit_title"
               class="form-control form-control-sm"
               type="text"
               :placeholder="t('subjectDetail.unitTitlePlaceholder')"
             />
           </div>
         </div>
+        <label class="form-label" for="topic-title">{{ t("common.title") }}</label>
         <input
-          v-model="createTopicForm.title"
+          id="topic-title" :aria-describedby="createTopicError ? 'create-topic-error' : undefined" v-model="createTopicForm.title"
           class="form-control form-control-sm"
           type="text"
           :placeholder="t('subjectDetail.lessonTitlePlaceholder')"
         />
+        <label class="form-label" for="topic-description">{{ t("common.description") }}</label>
         <textarea
-          v-model="createTopicForm.description"
+          id="topic-description" :aria-describedby="createTopicError ? 'create-topic-error' : undefined" v-model="createTopicForm.description"
           class="form-control form-control-sm"
           rows="2"
           :placeholder="t('common.description')"
@@ -399,7 +420,7 @@ onMounted(async () => {
           <input id="topic-active" v-model="createTopicForm.is_active" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="topic-active">{{ t("common.active") }}</label>
         </div>
-        <div v-if="createTopicError" class="small text-danger">{{ createTopicError }}</div>
+        <div v-if="createTopicError" id="create-topic-error" class="small text-danger" role="alert">{{ createTopicError }}</div>
         <button class="btn btn-primary btn-sm" type="button" :disabled="createTopicLoading" @click="createTopic">
           {{ createTopicLoading ? t("common.creating") : t("subjectDetail.createLesson") }}
         </button>
@@ -407,9 +428,10 @@ onMounted(async () => {
 
       <div v-if="topics.length === 0" class="empty-box">{{ t("subjectDetail.noLessonsYet") }}</div>
 
-      <div class="cards-grid">
+      <div v-if="topics.length && !filteredTopics.length" class="empty-box">{{ t('ux.noMatches') }} <button class="btn btn-link" @click="topicSearch = ''">{{ t('ux.clearSearch') }}</button></div>
+      <div class="cards-grid topic-list">
         <article
-          v-for="topic in topics"
+          v-for="topic in filteredTopics"
           :key="topic.id"
           class="topic-card"
         >
@@ -427,7 +449,7 @@ onMounted(async () => {
         </article>
       </div>
     </section>
-    <section class="surface-card panel-card">
+    <section v-if="!loading && !loadError" class="surface-card panel-card">
       <div class="panel-head">
         <h2 class="section-title">{{ t("subjectDetail.groupsInSubject") }}</h2>
         <span class="pill">{{ t("common.groupsCount", { count: assignedGroups.length }) }}</span>
@@ -455,9 +477,9 @@ onMounted(async () => {
 
           <p class="group-description">{{ group.description || t("common.noDescription") }}</p>
 
-          <label class="form-label mb-1">{{ t("subjectDetail.lessonForGroup") }}</label>
+          <label class="form-label mb-1" :for="`group-topic-${group.id}`">{{ t("subjectDetail.lessonForGroup") }}</label>
           <select
-            v-model="selectedTopicByGroup[group.id]"
+            :id="`group-topic-${group.id}`" v-model="selectedTopicByGroup[group.id]"
             class="form-select form-select-sm"
           >
             <option value="">{{ t("subjectDetail.noLessonSelected") }}</option>
@@ -479,7 +501,7 @@ onMounted(async () => {
               class="btn btn-outline-danger btn-sm"
               type="button"
               :disabled="assignLoadingByGroup[group.id]"
-              @click="clearSubjectFromGroup(group.id)"
+              @click="pendingClear = group"
             >
               {{ t("subjectDetail.removeSubject") }}
             </button>
@@ -495,18 +517,20 @@ onMounted(async () => {
           </p>
         </div>
         <div class="assign-controls">
-          <select v-model="selectedGroupToAssign" class="form-select">
+          <select v-model="selectedGroupToAssign" class="form-select" :aria-label="t('subjectDetail.chooseGroup')">
             <option value="">{{ t("subjectDetail.chooseGroup") }}</option>
             <option v-for="group in availableGroups" :key="group.id" :value="group.id">
               {{ group.name }}
             </option>
           </select>
-          <button class="btn btn-outline-primary" type="button" @click="assignSelectedGroup">
+          <button class="btn btn-outline-primary" type="button" :disabled="!selectedGroupToAssign || assignLoadingByGroup[selectedGroupToAssign]" @click="assignSelectedGroup">
             {{ t("subjectDetail.assignSubject") }}
           </button>
         </div>
       </div>
     </section>
+    <ConfirmDialog v-if="pendingClear" :title="t('subjectDetail.removeSubject')" :description="t('workstation.materials.removeSubject', {name: pendingClear.name})" :confirm-label="t('common.remove')" @cancel="pendingClear = null" @confirm="clearSubjectFromGroup(pendingClear.id); pendingClear = null" />
+    <ConfirmDialog v-if="pendingLeave" :title="t('workstation.materials.leaveTitle')" :description="t('workstation.materials.leaveHint')" :confirm-label="t('workstation.materials.leave')" @cancel="finishLeave(false)" @confirm="finishLeave(true)" />
   </div>
 </template>
 

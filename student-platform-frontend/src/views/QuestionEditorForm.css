@@ -63,7 +63,7 @@
   align-items: center;
   display: grid;
   gap: 10px;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(90px, .2fr) minmax(0, 1fr) auto;
 }
 
 .matching-editor-head {
@@ -97,7 +97,7 @@
 .ghost-danger-btn {
   background: rgba(193, 61, 61, 0.14);
   border: 1px solid rgba(193, 61, 61, 0.26);
-  border-radius: 999px;
+  border-radius: 6px;
   color: #9d2727;
   font-size: 12px;
   font-weight: 700;
@@ -138,3 +138,9 @@
     display: none;
   }
 }
+
+.choice-field, .matching-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.choice-field > span, .matching-field > span { font-size: 13px; color: var(--ink-soft); }
+.answer-editor-head { flex-wrap: wrap; gap: 8px; }
+.matching-editor-head { display: none; }
+.ghost-danger-btn { min-height: 36px; }

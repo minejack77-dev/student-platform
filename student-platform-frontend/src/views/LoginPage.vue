@@ -105,6 +105,8 @@ const submit = async () => {
               class="form-control"
               type="text"
               autocomplete="username"
+              :aria-describedby="errorMessage ? 'login-error' : undefined"
+              :disabled="isSubmitting"
               :placeholder="t('login.usernamePlaceholder')"
             />
           </label>
@@ -116,12 +118,14 @@ const submit = async () => {
               class="form-control"
               :type="showPassword ? 'text' : 'password'"
               autocomplete="current-password"
+              :aria-describedby="errorMessage ? 'login-error' : undefined"
+              :disabled="isSubmitting"
               :placeholder="t('login.passwordPlaceholder')"
             />
           </label>
 
           <button type="button" class="btn btn-link" :aria-pressed="showPassword" @click="showPassword = !showPassword">{{ t(showPassword ? 'ux.hidePassword' : 'ux.showPassword') }}</button>
-          <div v-if="errorMessage" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
+          <div v-if="errorMessage" id="login-error" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
 
           <button class="btn btn-primary login-btn" :disabled="isSubmitting" type="submit">
             {{ isSubmitting ? t("login.signingIn") : t("login.signIn") }}

@@ -1,116 +1,35 @@
-.app-shell {
-  position: relative;
+.app-shell { min-height: 100dvh; }
+.app-shell.has-sidebar { display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+.workspace-body { min-width: 0; }
+.topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 66px; padding: 12px 32px; }
+.workspace-label { font-size: 14px; color: var(--ink-soft); }
+.nav-wrap { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.nav-user { color: var(--ink-soft); font-size: 13px; overflow-wrap: anywhere; }
+.nav-wrap .form-select { min-height: 36px; padding-top: 5px; padding-bottom: 5px; }
+.brand-link { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+.brand-glyph { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 7px; background: var(--nav-bg); color: #fff; font-size: 13px; flex-shrink: 0; }
+.brand-title { font-weight: 650; }
+.brand-subtitle { color: var(--ink-soft); font-size: 12px; }
+.app-main { padding: 30px 32px 48px; }
+.app-container { max-width: 1400px; margin: 0 auto; min-width: 0; }
+.skip-link { position: fixed; top: 8px; left: 16px; padding: 12px 18px; background: #fff; border: 2px solid var(--brand-blue); border-radius: 6px; z-index: 1100; transform: translateY(-160%); }
+.skip-link:focus { transform: translateY(0); }
+@media (max-width: 1100px) {
+  .app-shell.has-sidebar { grid-template-columns: 192px minmax(0, 1fr); }
+  .topbar-inner { padding: 12px 24px; }
+  .app-main { padding: 24px; }
 }
-
-.topbar {
-  background: linear-gradient(
-    140deg,
-    rgba(255, 255, 255, 0.86) 0%,
-    rgba(255, 255, 255, 0.67) 100%
-  );
-  border-bottom: 1px solid rgba(17, 35, 59, 0.12);
-  backdrop-filter: blur(10px);
-  left: 0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+@media (max-width: 800px) {
+  .app-shell.has-sidebar { display: block; }
+  .topbar-inner { padding: 10px 16px; min-height: 56px; }
+  .workspace-label { display: none; }
+  .nav-wrap { flex: 1; gap: 8px; }
+  .nav-user { margin-right: auto; }
+  .app-main { padding: 24px 16px 36px; }
 }
-
-.app-container {
-  position: relative;
-  z-index: 1;
+@media (max-width: 400px) {
+  .nav-user { flex-basis: 100%; }
+  .nav-wrap { justify-content: flex-start; }
+  .brand-subtitle { display: none; }
 }
-
-.topbar-inner {
-  align-items: center;
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-  min-height: 72px;
-}
-
-.brand-link {
-  align-items: center;
-  color: inherit;
-  display: flex;
-  gap: 12px;
-  text-decoration: none;
-}
-
-.brand-glyph {
-  align-items: center;
-  background: linear-gradient(140deg, var(--brand-blue) 0%, var(--brand-mint) 100%);
-  border-radius: 14px;
-  color: #fff;
-  display: inline-flex;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
-  font-size: 14px;
-  font-weight: 700;
-  height: 40px;
-  justify-content: center;
-  letter-spacing: 0.04em;
-  width: 40px;
-}
-
-.brand-title {
-  color: var(--ink);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.brand-subtitle {
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.nav-wrap {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-}
-
-.nav-user {
-  color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.nav-item-link {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.nav-item-link:hover {
-  color: var(--brand-blue-strong);
-}
-
-.app-main {
-  padding-bottom: 38px;
-  padding-top: 26px;
-}
-
-@media (max-width: 768px) {
-  .topbar-inner {
-    flex-direction: column;
-    gap: 10px;
-    padding-bottom: 10px;
-    padding-top: 10px;
-  }
-
-  .nav-wrap {
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .brand-title {
-    font-size: 16px;
-  }
-
-  .app-main {
-    padding-top: 20px;
-  }
-}
-

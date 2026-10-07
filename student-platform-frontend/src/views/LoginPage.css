@@ -19,13 +19,12 @@
 }
 
 .login-aside {
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(244, 250, 255, 0.86));
+  background: var(--surface-strong);
 }
 
 .login-title {
-  font-size: clamp(2rem, 3.5vw, 2.8rem);
-  line-height: 1.02;
+  font-size: 28px;
+  line-height: 1.2;
   margin: 18px 0 16px;
 }
 
@@ -40,7 +39,6 @@
 .field-wrap span,
 .login-card-head h2 {
   display: block;
-  font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
 }
 
 .login-card-head p {
@@ -50,7 +48,7 @@
 }
 
 .login-card-head h2 {
-  font-size: 1.8rem;
+  font-size: 22px;
   margin: 0 0 8px;
 }
 
@@ -95,4 +93,12 @@
   .login-title {
     max-width: none;
   }
+}
+
+@media (max-width: 600px) {
+  .login-grid { gap: 16px; }
+  .login-aside { padding: 0; border: 0; background: transparent; }
+  .login-aside .pill { display: none; }
+  .login-title { margin: 0 0 8px; }
+  .login-card { padding: 20px; }
 }

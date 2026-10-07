@@ -91,7 +91,8 @@ const removeImage = (image) => {
 </script>
 
 <template>
-  <div class="question-editor">
+  <fieldset class="question-editor" :disabled="isSaving" :aria-busy="isSaving">
+    <legend class="visually-hidden">{{ t('common.question') }}</legend>
     <div class="editor-grid">
       <label>
         <span class="form-label">{{ t("topicDetail.questionType") }}</span>
@@ -113,6 +114,7 @@ const removeImage = (image) => {
       <textarea
         v-model="form.text"
         :id="`question-text-${form.id || 'new'}`"
+        :aria-describedby="error ? `question-error-${form.id || 'new'}` : undefined"
         class="form-control"
         rows="3"
         :placeholder="t('topicDetail.questionTextPlaceholder')"
@@ -183,13 +185,13 @@ const removeImage = (image) => {
             class="form-check-input"
             @change="emit('set-choice-correct', index, $event.target.checked)"
           /></label>
-          <textarea
+          <label class="choice-field"><span>{{ t('ux.option', {number: index + 1}) }}</span><textarea
             v-model="choice.text"
             :aria-label="t('ux.option', {number: index + 1})"
             class="form-control"
             rows="1"
             :placeholder="t('topicDetail.optionPlaceholder', { number: index + 1 })"
-          />
+          /></label>
           <button
             class="ghost-danger-btn"
             type="button"
@@ -220,20 +222,20 @@ const removeImage = (image) => {
           :key="index"
           class="matching-editor-row"
         >
-          <textarea
+          <label class="matching-field"><span>{{ t('ux.left', {number: index + 1}) }}</span><textarea
             v-model="pair.left_content"
             :aria-label="t('ux.left', {number: index + 1})"
             class="form-control"
             rows="2"
             :placeholder="t('topicDetail.leftPlaceholder', { number: index + 1 })"
-          />
-          <textarea
+          /></label>
+          <label class="matching-field"><span>{{ t('ux.right', {number: index + 1}) }}</span><textarea
             v-model="pair.right_content"
             :aria-label="t('ux.right', {number: index + 1})"
             class="form-control"
             rows="2"
             :placeholder="t('topicDetail.rightPlaceholder', { number: index + 1 })"
-          />
+          /></label>
           <button
             class="ghost-danger-btn"
             type="button"
@@ -246,8 +248,8 @@ const removeImage = (image) => {
       </div>
     </div>
 
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
-    <div v-if="success" class="alert alert-success">{{ success }}</div>
+    <div v-if="error" :id="`question-error-${form.id || 'new'}`" class="alert alert-danger" role="alert">{{ error }}</div>
+    <div v-if="success" class="alert alert-success" role="status">{{ success }}</div>
 
     <div class="editor-actions">
       <button
@@ -262,7 +264,7 @@ const removeImage = (image) => {
         {{ t("common.cancel") }}
       </button>
     </div>
-  </div>
+  </fieldset>
 </template>
 
 <style scoped src="./QuestionEditorForm.css"></style>
