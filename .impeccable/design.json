@@ -1,288 +1,88 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-02T03:29:16Z",
+  "generatedAt": "2026-10-15T03:31:34.198215+00:00",
   "title": "Design System: Учебная платформа — Рабочая станция",
   "extensions": {
     "colorMeta": {
       "bg-0": {
         "role": "neutral",
-        "displayName": "Рабочее поле",
-        "tonalRamp": [
-          "oklch(15.00% 0.00626 255.48)",
-          "oklch(26.43% 0.00626 255.48)",
-          "oklch(37.86% 0.00626 255.48)",
-          "oklch(49.29% 0.00626 255.48)",
-          "oklch(60.71% 0.00626 255.48)",
-          "oklch(72.14% 0.00626 255.48)",
-          "oklch(83.57% 0.00626 255.48)",
-          "oklch(95.00% 0.00626 255.48)"
-        ]
+        "displayName": "Рабочее поле"
       },
       "surface": {
         "role": "neutral",
-        "displayName": "Белая поверхность",
-        "tonalRamp": [
-          "oklch(15.00% 0.00000 89.88)",
-          "oklch(26.43% 0.00000 89.88)",
-          "oklch(37.86% 0.00000 89.88)",
-          "oklch(49.29% 0.00000 89.88)",
-          "oklch(60.71% 0.00000 89.88)",
-          "oklch(72.14% 0.00000 89.88)",
-          "oklch(83.57% 0.00000 89.88)",
-          "oklch(95.00% 0.00000 89.88)"
-        ]
+        "displayName": "Белая поверхность"
       },
       "ink": {
         "role": "neutral",
-        "displayName": "Основной текст",
-        "tonalRamp": [
-          "oklch(15.00% 0.03503 252.30)",
-          "oklch(26.43% 0.03503 252.30)",
-          "oklch(37.86% 0.03503 252.30)",
-          "oklch(49.29% 0.03503 252.30)",
-          "oklch(60.71% 0.03503 252.30)",
-          "oklch(72.14% 0.03503 252.30)",
-          "oklch(83.57% 0.03503 252.30)",
-          "oklch(95.00% 0.03503 252.30)"
-        ]
+        "displayName": "Основной текст"
       },
       "ink-soft": {
         "role": "neutral",
-        "displayName": "Вторичный текст",
-        "tonalRamp": [
-          "oklch(15.00% 0.02938 255.65)",
-          "oklch(26.43% 0.02938 255.65)",
-          "oklch(37.86% 0.02938 255.65)",
-          "oklch(49.29% 0.02938 255.65)",
-          "oklch(60.71% 0.02938 255.65)",
-          "oklch(72.14% 0.02938 255.65)",
-          "oklch(83.57% 0.02938 255.65)",
-          "oklch(95.00% 0.02938 255.65)"
-        ]
+        "displayName": "Вторичный текст"
       },
       "line": {
         "role": "neutral",
-        "displayName": "Разделитель",
-        "tonalRamp": [
-          "oklch(15.00% 0.01269 255.51)",
-          "oklch(26.43% 0.01269 255.51)",
-          "oklch(37.86% 0.01269 255.51)",
-          "oklch(49.29% 0.01269 255.51)",
-          "oklch(60.71% 0.01269 255.51)",
-          "oklch(72.14% 0.01269 255.51)",
-          "oklch(83.57% 0.01269 255.51)",
-          "oklch(95.00% 0.01269 255.51)"
-        ]
+        "displayName": "Разделитель"
       },
       "input-line": {
         "role": "neutral",
-        "displayName": "Граница поля",
-        "tonalRamp": [
-          "oklch(15.00% 0.03234 256.05)",
-          "oklch(26.43% 0.03234 256.05)",
-          "oklch(37.86% 0.03234 256.05)",
-          "oklch(49.29% 0.03234 256.05)",
-          "oklch(60.71% 0.03234 256.05)",
-          "oklch(72.14% 0.03234 256.05)",
-          "oklch(83.57% 0.03234 256.05)",
-          "oklch(95.00% 0.03234 256.05)"
-        ]
+        "displayName": "Граница поля"
       },
       "brand-blue": {
         "role": "primary",
-        "displayName": "Рабочий синий",
-        "tonalRamp": [
-          "oklch(15.00% 0.17933 264.52)",
-          "oklch(26.43% 0.17933 264.52)",
-          "oklch(37.86% 0.17933 264.52)",
-          "oklch(49.29% 0.17933 264.52)",
-          "oklch(60.71% 0.17933 264.52)",
-          "oklch(72.14% 0.17933 264.52)",
-          "oklch(83.57% 0.17933 264.52)",
-          "oklch(95.00% 0.17933 264.52)"
-        ]
+        "displayName": "Рабочий синий"
       },
       "brand-blue-strong": {
         "role": "primary",
-        "displayName": "Глубокий синий",
-        "tonalRamp": [
-          "oklch(15.00% 0.15624 264.16)",
-          "oklch(26.43% 0.15624 264.16)",
-          "oklch(37.86% 0.15624 264.16)",
-          "oklch(49.29% 0.15624 264.16)",
-          "oklch(60.71% 0.15624 264.16)",
-          "oklch(72.14% 0.15624 264.16)",
-          "oklch(83.57% 0.15624 264.16)",
-          "oklch(95.00% 0.15624 264.16)"
-        ]
+        "displayName": "Глубокий синий"
       },
       "success": {
         "role": "semantic",
-        "displayName": "Успех",
-        "tonalRamp": [
-          "oklch(15.00% 0.09776 165.41)",
-          "oklch(26.43% 0.09776 165.41)",
-          "oklch(37.86% 0.09776 165.41)",
-          "oklch(49.29% 0.09776 165.41)",
-          "oklch(60.71% 0.09776 165.41)",
-          "oklch(72.14% 0.09776 165.41)",
-          "oklch(83.57% 0.09776 165.41)",
-          "oklch(95.00% 0.09776 165.41)"
-        ]
+        "displayName": "Успех"
       },
       "danger": {
         "role": "semantic",
-        "displayName": "Ошибка",
-        "tonalRamp": [
-          "oklch(15.00% 0.15959 24.89)",
-          "oklch(26.43% 0.15959 24.89)",
-          "oklch(37.86% 0.15959 24.89)",
-          "oklch(49.29% 0.15959 24.89)",
-          "oklch(60.71% 0.15959 24.89)",
-          "oklch(72.14% 0.15959 24.89)",
-          "oklch(83.57% 0.15959 24.89)",
-          "oklch(95.00% 0.15959 24.89)"
-        ]
+        "displayName": "Ошибка"
       },
       "nav-bg": {
         "role": "neutral",
-        "displayName": "Тёмная навигация",
-        "tonalRamp": [
-          "oklch(15.00% 0.03729 253.82)",
-          "oklch(26.43% 0.03729 253.82)",
-          "oklch(37.86% 0.03729 253.82)",
-          "oklch(49.29% 0.03729 253.82)",
-          "oklch(60.71% 0.03729 253.82)",
-          "oklch(72.14% 0.03729 253.82)",
-          "oklch(83.57% 0.03729 253.82)",
-          "oklch(95.00% 0.03729 253.82)"
-        ]
+        "displayName": "Светлая навигация"
       },
       "nav-active": {
         "role": "neutral",
-        "displayName": "Активный маршрут",
-        "tonalRamp": [
-          "oklch(15.00% 0.05146 255.30)",
-          "oklch(26.43% 0.05146 255.30)",
-          "oklch(37.86% 0.05146 255.30)",
-          "oklch(49.29% 0.05146 255.30)",
-          "oklch(60.71% 0.05146 255.30)",
-          "oklch(72.14% 0.05146 255.30)",
-          "oklch(83.57% 0.05146 255.30)",
-          "oklch(95.00% 0.05146 255.30)"
-        ]
+        "displayName": "Активный маршрут"
       },
       "nav-text": {
         "role": "neutral",
-        "displayName": "Текст навигации",
-        "tonalRamp": [
-          "oklch(15.00% 0.02400 256.11)",
-          "oklch(26.43% 0.02400 256.11)",
-          "oklch(37.86% 0.02400 256.11)",
-          "oklch(49.29% 0.02400 256.11)",
-          "oklch(60.71% 0.02400 256.11)",
-          "oklch(72.14% 0.02400 256.11)",
-          "oklch(83.57% 0.02400 256.11)",
-          "oklch(95.00% 0.02400 256.11)"
-        ]
+        "displayName": "Текст навигации"
       },
       "nav-hover": {
         "role": "neutral",
-        "displayName": "Наведение в навигации",
-        "tonalRamp": [
-          "oklch(15.00% 0.04611 252.74)",
-          "oklch(26.43% 0.04611 252.74)",
-          "oklch(37.86% 0.04611 252.74)",
-          "oklch(49.29% 0.04611 252.74)",
-          "oklch(60.71% 0.04611 252.74)",
-          "oklch(72.14% 0.04611 252.74)",
-          "oklch(83.57% 0.04611 252.74)",
-          "oklch(95.00% 0.04611 252.74)"
-        ]
+        "displayName": "Наведение в навигации"
       },
       "nav-focus": {
         "role": "primary",
-        "displayName": "Фокус навигации",
-        "tonalRamp": [
-          "oklch(15.00% 0.08935 266.91)",
-          "oklch(26.43% 0.08935 266.91)",
-          "oklch(37.86% 0.08935 266.91)",
-          "oklch(49.29% 0.08935 266.91)",
-          "oklch(60.71% 0.08935 266.91)",
-          "oklch(72.14% 0.08935 266.91)",
-          "oklch(83.57% 0.08935 266.91)",
-          "oklch(95.00% 0.08935 266.91)"
-        ]
+        "displayName": "Фокус навигации"
       },
       "pill-bg": {
         "role": "primary",
-        "displayName": "Подложка метки",
-        "tonalRamp": [
-          "oklch(15.00% 0.01569 266.28)",
-          "oklch(26.43% 0.01569 266.28)",
-          "oklch(37.86% 0.01569 266.28)",
-          "oklch(49.29% 0.01569 266.28)",
-          "oklch(60.71% 0.01569 266.28)",
-          "oklch(72.14% 0.01569 266.28)",
-          "oklch(83.57% 0.01569 266.28)",
-          "oklch(95.00% 0.01569 266.28)"
-        ]
+        "displayName": "Подложка метки"
       },
       "pill-line": {
         "role": "primary",
-        "displayName": "Контур метки",
-        "tonalRamp": [
-          "oklch(15.00% 0.03816 265.83)",
-          "oklch(26.43% 0.03816 265.83)",
-          "oklch(37.86% 0.03816 265.83)",
-          "oklch(49.29% 0.03816 265.83)",
-          "oklch(60.71% 0.03816 265.83)",
-          "oklch(72.14% 0.03816 265.83)",
-          "oklch(83.57% 0.03816 265.83)",
-          "oklch(95.00% 0.03816 265.83)"
-        ]
+        "displayName": "Контур метки"
       },
       "outline-line": {
         "role": "primary",
-        "displayName": "Контур действия",
-        "tonalRamp": [
-          "oklch(15.00% 0.05322 263.11)",
-          "oklch(26.43% 0.05322 263.11)",
-          "oklch(37.86% 0.05322 263.11)",
-          "oklch(49.29% 0.05322 263.11)",
-          "oklch(60.71% 0.05322 263.11)",
-          "oklch(72.14% 0.05322 263.11)",
-          "oklch(83.57% 0.05322 263.11)",
-          "oklch(95.00% 0.05322 263.11)"
-        ]
+        "displayName": "Контур действия"
       },
       "outline-hover": {
         "role": "primary",
-        "displayName": "Подложка наведения",
-        "tonalRamp": [
-          "oklch(15.00% 0.01737 264.49)",
-          "oklch(26.43% 0.01737 264.49)",
-          "oklch(37.86% 0.01737 264.49)",
-          "oklch(49.29% 0.01737 264.49)",
-          "oklch(60.71% 0.01737 264.49)",
-          "oklch(72.14% 0.01737 264.49)",
-          "oklch(83.57% 0.01737 264.49)",
-          "oklch(95.00% 0.01737 264.49)"
-        ]
+        "displayName": "Подложка наведения"
       },
       "outline-active": {
         "role": "primary",
-        "displayName": "Подложка нажатия",
-        "tonalRamp": [
-          "oklch(15.00% 0.02331 264.46)",
-          "oklch(26.43% 0.02331 264.46)",
-          "oklch(37.86% 0.02331 264.46)",
-          "oklch(49.29% 0.02331 264.46)",
-          "oklch(60.71% 0.02331 264.46)",
-          "oklch(72.14% 0.02331 264.46)",
-          "oklch(83.57% 0.02331 264.46)",
-          "oklch(95.00% 0.02331 264.46)"
-        ]
+        "displayName": "Подложка нажатия"
       }
     },
     "typographyMeta": {
@@ -333,16 +133,26 @@
       },
       {
         "name": "navigation-outline",
-        "value": "3px solid #aac3ff",
+        "value": "3px solid var(--brand-blue)",
         "offset": "2px",
         "purpose": "Ссылки боковой навигации."
       }
     ],
     "motion": [
       {
-        "name": "bootstrap-control-transition",
-        "value": "0.15s ease-in-out",
-        "purpose": "Унаследованные переходы цвета/границы кнопок и полей Bootstrap."
+        "name": "motion-fast",
+        "value": "160ms",
+        "purpose": "Кнопки и навигация."
+      },
+      {
+        "name": "motion-reveal",
+        "value": "220ms",
+        "purpose": "Vue Transition: opacity и translateY(-6px)."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(.22, 1, .36, 1)",
+        "purpose": "Появление областей."
       },
       {
         "name": "reduced-motion",
@@ -380,23 +190,24 @@
         "value": "640px"
       },
       {
-        "name": "topbar-narrow",
-        "value": "400px"
+        "name": "editor-mobile",
+        "value": "760px"
+      },
+      {
+        "name": "creation-mobile",
+        "value": "600px"
       }
     ],
-    "tonalRampProvenance": {
-      "method": "Синтез OKLCH из frontmatter hex: восемь ступеней L 15–95%, постоянные исходные C/H.",
-      "usage": "Только справочная визуализация панели; не токены приложения и не утверждённые варианты. При выходе за gamut отображение зависит от CSS-рендерера."
-    },
     "evidence": {
       "format": "Локальный sidecar по schemaVersion 2 из закреплённого document.md; проверены JSON и согласованность с исходниками. Совместимость с неустановленным движком не проверялась.",
       "mode": "Operate",
       "direction": {
         "name": "Рабочая станция",
         "option": "02",
-        "reference": "docs/design-directions.html"
+        "reference": "docs/design-directions.html",
+        "currentReference": "docs/ux-ui-update-2026-10-14.md"
       },
-      "scope": "Первая поставка: общая тема, оболочка и главные страницы преподавателя и студента. Вторая поставка: рабочая область группы — сводка, расписание, результаты, участники, настройки и подробная статистика; итог независимого ревью группы пока ожидается.",
+      "scope": "Обновление 14–15 октября: светлая оболочка, главные страницы, библиотека, создание, редактор и назначение.",
       "sources": [
         "student-platform-frontend/src/theme.css",
         "student-platform-frontend/src/App.css",
@@ -408,14 +219,15 @@
         "student-platform-frontend/src/views/GroupOverview.vue",
         "student-platform-frontend/src/views/GroupDetails.vue",
         "student-platform-frontend/src/views/GroupDetail.css",
-        "student-platform-frontend/src/App.vue"
+        "student-platform-frontend/src/App.vue",
+        "student-platform-frontend/src/components/MaterialsLibrary.vue",
+        "student-platform-frontend/src/views/TaskCreate.vue",
+        "student-platform-frontend/src/views/TopicDetail.vue"
       ],
       "sourceNotes": [
-        "bg-1 повторяет bg-0; surface-strong повторяет surface; brand-mint повторяет success. Дублирующие примитивы не размножены в frontmatter.",
-        "Имена spacing описывают наблюдаемые значения CSS, отдельной именованной spacing-шкалы в коде нет.",
-        "HTML/CSS-примеры извлечены для автономного показа, используют var() с fallback; не заменяют Vue-компоненты и их бизнес-логику.",
-        "Неинтерактивные метки/панели не получили выдуманных hover-эффектов. Поле сохраняет исходный focus без нового hover-стиля.",
-        "Вторая поставка расширяет существующий визуальный язык; frontmatter, палитра и автономные HTML/CSS-примеры сохранены."
+        "Сверено с реализацией 15 октября. bg-1 теперь отличается от bg-0; старые синтезированные tonalRamp удалены как неиспользуемые токены.",
+        "HTML/CSS-примеры автономны, используют var() с fallback; не заменяют Vue-компоненты.",
+        "Названия spacing описывают наблюдаемые значения CSS."
       ],
       "groupBehavior": [
         "Общий заголовок группы: возврат к группам, название, описание, пять маршрутных вкладок с aria-current; ссылка на материалы при назначенном предмете и действие перехода к расписанию.",
@@ -429,7 +241,9 @@
         "newWork": ".runlogs/design-skill-research/selected/impeccable/reference/new-work.md",
         "application": "Применены тексты инструкций; документация создана самостоятельной ролью, не установленным shipped agent.",
         "engineInstalled": false,
-        "detectorRun": false
+        "detectorRun": false,
+        "taste": ".runlogs/ux-update-skills/taste-redesign.md",
+        "motion": ".runlogs/ux-update-skills/motion-framer.md"
       },
       "validation": {
         "build": {
@@ -441,7 +255,7 @@
         "browser": {
           "status": "passed",
           "report": ".runlogs/workstation-review/report.json",
-          "checks": 75,
+          "checks": 121,
           "javascriptErrors": 0,
           "widths": [
             320,
@@ -489,44 +303,34 @@
           "basis": "docs/redesign-progress.md и переданный итог независимого reviewer"
         },
         "groupReview": {
-          "status": "pending",
-          "reviewer": "group_finish_reviewer",
-          "scope": "Вторая поставка: рабочая область группы.",
-          "basis": "На момент дополнения документации окончательный независимый вердикт не получен."
+          "status": "ship",
+          "scope": "Повторная проверка прежних F1–F3, см. журнал 6 октября."
         },
-        "contrast": {
-          "method": "Математический расчёт для указанных пар; не полный аудит контраста приложения.",
-          "ratios": [
-            {
-              "foreground": "ink",
-              "background": "surface",
-              "ratio": 13.99
-            },
-            {
-              "foreground": "ink-soft",
-              "background": "surface",
-              "ratio": 5.67
-            },
-            {
-              "foreground": "surface",
-              "background": "brand-blue",
-              "ratio": 5.89
-            },
-            {
-              "foreground": "nav-text",
-              "background": "nav-bg",
-              "ratio": 9.99
-            }
-          ]
+        "backend": {
+          "status": "passed",
+          "tests": 7,
+          "scope": "materials workflow"
+        },
+        "richText": {
+          "status": "passed",
+          "payloads": 7
+        },
+        "updateReview": {
+          "status": "ship",
+          "scope": "Только три находки текущего ревью, не полная приёмка приложения.",
+          "resolved": [
+            "P2: быстрая очистка поиска",
+            "P2: фильтры хлебных крошек",
+            "P3: высота мобильного редактора"
+          ],
+          "basis": "Итог основного исполнителя и независимого reviewer, 15 октября."
         }
       },
       "limitations": [
-        "Ручное прослушивание скринридером не проводилось.",
-        "Визуальная миграция материалов, редакторов и попытки остаётся впереди; рабочая область группы реализована, окончательный независимый вердикт пока ожидается.",
-        "Полный цикл ответов и отправки попытки не проверен этим браузерным сценарием.",
-        "Не проверены все состояния остальных маршрутов, контролируемая долгая загрузка и реальная push-доставка.",
-        "Сохранение поиска/сортировки результатов группы после полной перезагрузки проверено; это не подтверждает аналогичное поведение всех остальных маршрутов.",
-        "Скриншоты и браузерный отчёт являются доказательствами основной работы; документер не выполнял повторный визуальный аудит."
+        "Полный цикл попытки и таймера не проверен этой поставкой.",
+        "Ручной скринридер, реальная экранная клавиатура и push-доставка не проверены.",
+        "Документер сверил исходники; повторный визуальный аудит не выполнял.",
+        "Launcher/detector Impeccable отсутствуют; проверка их схемой не выполнялась."
       ],
       "planning": [
         "PRODUCT.md",
@@ -542,7 +346,7 @@
       "refersTo": "button-primary",
       "description": "Основное действие. Размеры и состояния извлечены из theme.css и Bootstrap.",
       "html": "<button class=\"ds-primary\" type=\"button\">Создать группу</button>",
-      "css": ".ds-primary{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:600;line-height:1.5;min-height:38px;padding:8px 14px;border-radius:var(--radius-md,6px);border:1px solid;cursor:pointer;transition:color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out;background:var(--brand-blue,#315dcc);border-color:var(--brand-blue,#315dcc);color:#fff}.ds-primary:hover,.ds-primary:active{background:var(--brand-blue-strong,#244aa7);border-color:var(--brand-blue-strong,#244aa7)}.ds-primary:disabled{background:#596b97;border-color:#596b97;opacity:.65;pointer-events:none}.ds-primary:focus-visible,.ds-outline:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:640px){.ds-primary{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
+      "css": ".ds-primary{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:600;line-height:1.5;min-height:38px;padding:8px 14px;border-radius:var(--radius-md,8px);border:1px solid;cursor:pointer;transition:color 160ms,background-color 160ms,border-color 160ms,box-shadow 160ms;background:var(--brand-blue,#315dcc);border-color:var(--brand-blue,#315dcc);color:#fff}.ds-primary:hover,.ds-primary:active{background:var(--brand-blue-strong,#244aa7);border-color:var(--brand-blue-strong,#244aa7)}.ds-primary:disabled{background:#596b97;border-color:#596b97;opacity:.65;pointer-events:none}.ds-primary:focus-visible,.ds-outline:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:640px){.ds-primary{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
     },
     {
       "name": "Outline Button",
@@ -550,7 +354,7 @@
       "refersTo": "button-outline",
       "description": "Вторичное действие с различимым контуром.",
       "html": "<button class=\"ds-outline\" type=\"button\">Обновить</button>",
-      "css": ".ds-outline{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:600;line-height:1.5;min-height:38px;padding:8px 14px;border-radius:var(--radius-md,6px);border:1px solid;cursor:pointer;transition:color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out;background:transparent;border-color:#9badcf;color:var(--brand-blue-strong,#244aa7)}.ds-outline:hover{background:#eaf0fc;border-color:var(--brand-blue,#315dcc)}.ds-outline:active{background:#e2eafa;color:var(--brand-blue-strong,#244aa7)}.ds-outline:disabled{opacity:.65;pointer-events:none}.ds-primary:focus-visible,.ds-outline:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:640px){.ds-outline{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
+      "css": ".ds-outline{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:600;line-height:1.5;min-height:38px;padding:8px 14px;border-radius:var(--radius-md,8px);border:1px solid;cursor:pointer;transition:color 160ms,background-color 160ms,border-color 160ms,box-shadow 160ms;background:transparent;border-color:#9badcf;color:var(--brand-blue-strong,#244aa7)}.ds-outline:hover{background:#eaf0fc;border-color:var(--brand-blue,#315dcc)}.ds-outline:active{background:#e2eafa;color:var(--brand-blue-strong,#244aa7)}.ds-outline:disabled{opacity:.65;pointer-events:none}.ds-primary:focus-visible,.ds-outline:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:640px){.ds-outline{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
     },
     {
       "name": "Text Field",
@@ -558,15 +362,15 @@
       "refersTo": "input",
       "description": "Подписанное поле с акцентной границей и кольцом фокуса.",
       "html": "<label class=\"ds-field\">Название группы<input class=\"ds-input\" type=\"text\" placeholder=\"Введите название\"></label>",
-      "css": ".ds-field{display:flex;flex-direction:column;gap:6px;color:var(--ink-soft,#5c6878);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:13px;font-weight:700}.ds-input{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:400;line-height:1.5;padding:.55rem .75rem;border:1px solid var(--input-line,#8c9aad);border-radius:var(--radius-md,6px);background:var(--surface,#fff);color:var(--ink,#1f2d3d);transition:border-color .15s ease-in-out,box-shadow .15s ease-in-out}.ds-input:focus,.ds-input:focus-visible{outline:0;border-color:var(--brand-blue,#315dcc);box-shadow:0 0 0 3px #315dcc26}@media(max-width:640px){.ds-input{font-size:16px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
+      "css": ".ds-field{display:flex;flex-direction:column;gap:6px;color:var(--ink-soft,#606b7a);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:13px;font-weight:700}.ds-input{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;font-weight:400;line-height:1.5;padding:.55rem .75rem;border:1px solid var(--input-line,#929eaf);border-radius:var(--radius-md,8px);background:var(--surface,#fff);color:var(--ink,#202a38);transition:border-color .15s ease-in-out,box-shadow .15s ease-in-out}.ds-input:focus,.ds-input:focus-visible{outline:0;border-color:var(--brand-blue,#315dcc);box-shadow:0 0 0 3px #315dcc26}@media(max-width:640px){.ds-input{font-size:16px}}@media(prefers-reduced-motion:reduce){.ds-primary,.ds-outline,.ds-input{transition-duration:.01ms!important}}"
     },
     {
       "name": "Workspace Navigation",
       "kind": "nav",
       "refersTo": "navigation",
-      "description": "Видимые ссылки разделов; активность указана текстом и aria-current.",
+      "description": "Светлая навигация; в приложении мобильная панель закреплена снизу, в автономном примере показана без fixed.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Разделы\"><a class=\"ds-nav-link\" href=\"#groups\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z\"/></svg>Группы</a><a class=\"ds-nav-link\" href=\"#materials\">Материалы</a></nav>",
-      "css": ".ds-nav{display:flex;flex-direction:column;gap:5px;background:var(--nav-bg,#192738);padding:28px 14px 20px;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-nav-link{display:flex;align-items:center;gap:11px;padding:12px;min-height:44px;border-radius:6px;color:#c8d3e2;text-decoration:none;font-size:14px;line-height:1.4}.ds-nav-link svg{width:19px;height:19px;flex-shrink:0}.ds-nav-link:hover{background:#26394f;color:#fff}.ds-nav-link[aria-current=page]{background:var(--nav-active,#30445e);color:#fff;font-weight:600}.ds-nav-link:focus-visible{outline:3px solid #aac3ff;outline-offset:2px}@media(max-width:800px){.ds-nav{flex-direction:row;flex-wrap:wrap;gap:3px;padding:14px 16px 8px}.ds-nav-link{padding:10px;gap:7px}.ds-nav-link svg{width:16px;height:16px}}"
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:5px;background:var(--nav-bg,#f0f2f5);padding:28px 16px 24px;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-nav-link{display:flex;align-items:center;gap:11px;padding:12px;min-height:46px;border-radius:8px;color:#536073;text-decoration:none;font-size:14px;line-height:1.4}.ds-nav-link svg{width:19px;height:19px;flex-shrink:0}.ds-nav-link:hover{background:#e7ebf1;color:var(--brand-blue-strong,#244aa7)}.ds-nav-link[aria-current=page]{background:var(--nav-active,#e2eafb);color:var(--brand-blue-strong,#244aa7);font-weight:600}.ds-nav-link:focus-visible{outline:3px solid #315dcc;outline-offset:2px}@media(max-width:800px){.ds-nav{flex-direction:row;gap:3px;padding:6px;background:#fff;border-top:1px solid var(--line,#e0e4ea)}.ds-nav-link{flex:1 1 0;min-width:0;flex-direction:column;justify-content:center;padding:8px 2px;gap:5px;font-size:11px;min-height:56px;text-align:center}.ds-nav-link svg{width:20px;height:20px}}"
     },
     {
       "name": "Pill",
@@ -582,7 +386,7 @@
       "refersTo": "panel",
       "description": "Плоская панель главной страницы с заголовком и содержимым.",
       "html": "<section class=\"ds-panel\"><h2 class=\"ds-panel-title\">Группы</h2><p class=\"ds-panel-copy\">Выберите группу для работы с заданиями.</p></section>",
-      "css": ".ds-panel{background:var(--surface,#fff);color:var(--ink,#1f2d3d);border:1px solid var(--line,#dbe1e9);border-radius:var(--radius-lg,7px);padding:22px;box-shadow:var(--shadow-2,none);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;line-height:1.5}.ds-panel-title{font-size:18px;font-weight:650;line-height:1.2;letter-spacing:-.02em;margin:0 0 16px}.ds-panel-copy{color:var(--ink-soft,#5c6878);margin:0}@media(max-width:640px){.ds-panel{padding:16px}}"
+      "css": ".ds-panel{background:var(--surface,#fff);color:var(--ink,#202a38);border:1px solid var(--line,#e0e4ea);border-radius:var(--radius-lg,12px);padding:28px;box-shadow:var(--shadow-2,none);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;line-height:1.5}.ds-panel-title{font-size:18px;font-weight:650;line-height:1.2;letter-spacing:-.02em;margin:0 0 16px}.ds-panel-copy{color:var(--ink-soft,#606b7a);margin:0}@media(max-width:640px){.ds-panel{padding:16px}}"
     },
     {
       "name": "Page Tabs",
@@ -590,7 +394,7 @@
       "refersTo": "page-tabs",
       "description": "Внутренняя навигация с подчёркиванием выбранного раздела.",
       "html": "<nav class=\"ds-tabs\" aria-label=\"Разделы страницы\"><a class=\"ds-tab\" href=\"#overview\" aria-current=\"page\">Обзор</a><a class=\"ds-tab\" href=\"#results\">Результаты</a></nav>",
-      "css": ".ds-tabs{display:flex;flex-wrap:wrap;gap:20px;border-bottom:1px solid var(--line,#dbe1e9);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-tab{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 0;border-bottom:2px solid transparent;color:var(--ink-soft,#5c6878);font-size:14px;font-weight:600;line-height:1.5;text-decoration:none}.ds-tab:hover{color:var(--brand-blue-strong,#244aa7)}.ds-tab[aria-current=page]{color:var(--brand-blue-strong,#244aa7);border-bottom-color:var(--brand-blue,#315dcc)}.ds-tab:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}"
+      "css": ".ds-tabs{display:flex;flex-wrap:wrap;gap:20px;border-bottom:1px solid var(--line,#e0e4ea);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-tab{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 0;border-bottom:2px solid transparent;color:var(--ink-soft,#606b7a);font-size:14px;font-weight:600;line-height:1.5;text-decoration:none}.ds-tab:hover{color:var(--brand-blue-strong,#244aa7)}.ds-tab[aria-current=page]{color:var(--brand-blue-strong,#244aa7);border-bottom-color:var(--brand-blue,#315dcc)}.ds-tab:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}"
     },
     {
       "name": "Teacher Entity Row",
@@ -598,17 +402,17 @@
       "refersTo": "entity-row",
       "description": "Название, контекст и действие компактной строки; демонстрационный текст не является данными продукта.",
       "html": "<article class=\"ds-row\"><h3 class=\"ds-row-title\">Учебная группа</h3><p class=\"ds-row-copy\">Описание группы</p><span class=\"ds-row-subject\">Математика</span><span class=\"ds-row-meta\">Обновлено сегодня</span><a class=\"ds-row-action\" href=\"#group\">Открыть</a></article>",
-      "css": ".ds-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;grid-template-areas:\"name subject actions\" \"description updated actions\";gap:5px 24px;align-items:center;border-top:1px solid var(--line,#dbe1e9);padding:18px 0;color:var(--ink,#1f2d3d);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;line-height:1.5}.ds-row-title{grid-area:name;font-size:16px;font-weight:650;line-height:1.2;letter-spacing:-.02em;margin:0;overflow-wrap:anywhere}.ds-row-copy{grid-area:description;margin:0;color:var(--ink-soft,#5c6878);overflow-wrap:anywhere}.ds-row-subject{grid-area:subject;overflow-wrap:anywhere}.ds-row-meta{grid-area:updated;font-size:12px;color:var(--ink-soft,#5c6878)}.ds-row-action{grid-area:actions;display:inline-flex;align-items:center;justify-content:center;padding:8px 10px;min-height:38px;border:1px solid #b5c4df;border-radius:6px;color:var(--brand-blue-strong,#244aa7);font-size:13px;font-weight:600;text-decoration:none}.ds-row-action:hover{background:#edf2fc}.ds-row-action:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:1150px){.ds-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:\"name actions\" \"description actions\" \"subject actions\" \"updated actions\";gap:5px 16px}}@media(max-width:640px){.ds-row{grid-template-columns:minmax(0,1fr);grid-template-areas:\"name\" \"description\" \"subject\" \"updated\" \"actions\";gap:8px}.ds-row-action{min-height:44px}}"
+      "css": ".ds-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;grid-template-areas:\"name subject actions\" \"description updated actions\";gap:5px 24px;align-items:center;border-top:1px solid var(--line,#e0e4ea);padding:18px 0;color:var(--ink,#202a38);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:14px;line-height:1.5}.ds-row-title{grid-area:name;font-size:16px;font-weight:650;line-height:1.2;letter-spacing:-.02em;margin:0;overflow-wrap:anywhere}.ds-row-copy{grid-area:description;margin:0;color:var(--ink-soft,#606b7a);overflow-wrap:anywhere}.ds-row-subject{grid-area:subject;overflow-wrap:anywhere}.ds-row-meta{grid-area:updated;font-size:12px;color:var(--ink-soft,#606b7a)}.ds-row-action{grid-area:actions;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;min-height:40px;border:1px solid transparent;border-radius:8px;background:var(--surface-muted,#f5f7fa);color:var(--brand-blue-strong,#244aa7);font-size:13px;font-weight:600;text-decoration:none}.ds-row-action:hover{background:#edf2fc}.ds-row-action:focus-visible{outline:3px solid var(--brand-blue,#315dcc);outline-offset:3px}@media(max-width:1150px){.ds-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:\"name actions\" \"description actions\" \"subject actions\" \"updated actions\";gap:5px 16px}}@media(max-width:640px){.ds-row{grid-template-columns:minmax(0,1fr);grid-template-areas:\"name\" \"description\" \"subject\" \"updated\" \"actions\";gap:8px}.ds-row-action{min-height:44px}}"
     }
   ],
   "narrative": {
     "northStar": "Рабочая станция",
-    "overview": "Направление 02 из [выбранного макета](docs/design-directions.html), режим Operate. Тёмная навигация задаёт постоянную опору; белые панели на светлом рабочем поле содержат плотные, читаемые строки. Иерархию создают размер текста, отступы и границы.\n\nСистема использует один системный шрифт с кириллицей, синий акцент для действий и спокойную плоскую поверхность. Визуальный язык сохраняется на телефоне: навигация видна, строки перестраиваются, действия доступны без наведения. Новая эстетика при документировании не вводилась.",
+    "overview": "Обновление Рабочей станции 14–15 октября 2026: светлая навигация, белые панели и открытые списки. Один системный шрифт, синий акцент, короткая обратная связь. На телефоне маршруты закреплены снизу; материалы организованы вокруг теста.",
     "keyCharacteristics": [
-      "Плотные строки и ясная рабочая иерархия.",
-      "Тёмная навигация, белые панели, один основной синий акцент.",
-      "Системная типографика, небольшие радиусы и тонкие границы.",
-      "Видимый фокус, текстовые статусы и адаптация содержимого."
+      "Светлая навигация и белые поверхности.",
+      "Ясное действие и подписанные состояния.",
+      "Мобильное переключение списка/редактора.",
+      "Видимый фокус и reduced motion."
     ],
     "rules": [
       {
@@ -623,7 +427,7 @@
       }
     ],
     "dos": [
-      "**Do** сохраняйте направление 02: тёмную навигацию, светлое рабочее поле и белые панели.",
+      "Do сохраняйте светлую навигацию, открытые списки и белые панели.",
       "**Do** используйте общие токены для цвета, радиуса и типографики; сверяйте изменения с CSS-источниками.",
       "**Do** сохраняйте текстовые статусы, видимый фокус, подписи полей и сообщения об ошибках.",
       "**Do** проверяйте длинные русские и английские строки и перенос действий на узком экране.",

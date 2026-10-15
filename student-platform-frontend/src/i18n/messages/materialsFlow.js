@@ -1,4 +1,10 @@
 export const ruMaterialsFlow = {
+  previewAction: 'Предпросмотр',
+  searchPlaceholder: 'Название теста…', clearFilters: 'Сбросить фильтры', total: 'Тестов: {count}',
+  firstTest: 'Начните с первого теста', firstTestHint: 'Укажите название и предмет, добавьте вопросы — и тест можно назначить группе.',
+  noMatches: 'По этим условиям тестов нет', noMatchesHint: 'Попробуйте другое название или сбросьте фильтр предмета.', loadFailed: 'Не удалось загрузить тесты',
+  stepDetails: 'Название и предмет', stepQuestions: 'Вопросы', stepAssign: 'Назначение', steps: 'Создание теста',
+  editingQuestion: 'Вопрос {number}', newQuestionHint: 'Сформулируйте вопрос и отметьте правильный ответ.',
   duplicateTitle: 'Тест с таким названием уже есть в этой теме. Измените название.', futureDate: 'Выберите сегодняшнюю или будущую дату.', inactiveTopic: 'Выберите активную тему в дополнительных настройках.',
   library: 'Библиотека тестов', create: 'Создать тест', intro: 'Создавайте тесты, добавляйте вопросы и назначайте их группам.',
   subjects: 'Предметы и учебники', title: 'Название теста', subject: 'Предмет', chooseSubject: 'Выберите предмет',
@@ -19,6 +25,12 @@ export const ruMaterialsFlow = {
   chooseBoth: 'Выберите группу и дату.', titleHint: 'Например, Present Simple — практика',
 };
 export const enMaterialsFlow = {
+  previewAction: 'Preview',
+  searchPlaceholder: 'Test title…', clearFilters: 'Clear filters', total: 'Tests: {count}',
+  firstTest: 'Create your first test', firstTestHint: 'Choose a title and subject, add questions, then assign the test to a group.',
+  noMatches: 'No tests match these filters', noMatchesHint: 'Try another title or clear the subject filter.', loadFailed: 'Could not load tests',
+  stepDetails: 'Title and subject', stepQuestions: 'Questions', stepAssign: 'Assignment', steps: 'Create a test',
+  editingQuestion: 'Question {number}', newQuestionHint: 'Write your question and mark the correct answer.',
   duplicateTitle: 'A test with this title already exists in this topic. Choose another title.', futureDate: 'Choose today or a future date.', inactiveTopic: 'Choose an active topic in the optional settings.',
   library: 'Test library', create: 'Create test', intro: 'Create tests, add questions and assign them to groups.',
   subjects: 'Subjects and textbooks', title: 'Test title', subject: 'Subject', chooseSubject: 'Choose a subject',

@@ -37,25 +37,24 @@ const paths = {
 </template>
 
 <style scoped>
-.workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: var(--nav-bg); color: #e5edf7; padding: 28px 14px 20px; }
-.sidebar-brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 650; font-size: 14px; padding: 0 8px 30px; }
-.sidebar-brand small { display: block; font-weight: 400; font-size: 12px; color: #b5c3d5; margin-top: 3px; }
-.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid #617792; border-radius: 7px; font-size: 13px; }
+.workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: var(--nav-bg); color: var(--ink); padding: 28px 16px 24px; border-right: 1px solid var(--line); }
+.sidebar-brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 650; font-size: 14px; padding: 0 8px 38px; }
+.sidebar-brand small { display: block; font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; background: var(--brand-blue); color: #fff; border-radius: 10px; font-size: 13px; }
 .sidebar-nav { display: flex; flex-direction: column; gap: 5px; }
-.sidebar-link { display: flex; align-items: center; gap: 11px; padding: 12px; border-radius: 6px; color: #c8d3e2; text-decoration: none; font-size: 14px; line-height: 1.4; min-height: 44px; }
+.sidebar-link { display: flex; align-items: center; gap: 11px; padding: 12px; border-radius: 8px; color: var(--nav-text); text-decoration: none; font-size: 14px; line-height: 1.4; min-height: 46px; }
 .sidebar-link svg { width: 19px; height: 19px; flex-shrink: 0; }
-.sidebar-link:hover { background: #26394f; color: #fff; }
-.sidebar-link.is-active { color: #fff; background: var(--nav-active); font-weight: 600; }
-.sidebar-brand:focus-visible, .sidebar-link:focus-visible { outline-color: #aac3ff; outline-offset: 2px; }
-.sidebar-foot { margin-top: auto; padding: 16px 12px 0; font-size: 12px; color: #b5c3d5; }
+.sidebar-link:hover { background: var(--nav-hover); color: var(--ink); }
+.sidebar-link.is-active { color: var(--brand-blue-strong); background: var(--nav-active); font-weight: 600; }
+.sidebar-brand:focus-visible, .sidebar-link:focus-visible { outline-color: var(--brand-blue); outline-offset: 2px; }
+.sidebar-foot { margin-top: auto; padding: 16px 12px 0; font-size: 12px; color: var(--ink-soft); }
 @media (max-width: 800px) {
-  .workspace-sidebar { position: static; height: auto; padding: 14px 16px 8px; }
-  .sidebar-brand { padding: 0 0 12px; }
-  .sidebar-brand small { display: none; }
-  .brand-mark { width: 30px; height: 30px; flex-basis: 30px; }
-  .sidebar-nav { flex-direction: row; flex-wrap: wrap; gap: 3px; }
-  .sidebar-link { padding: 10px; gap: 7px; }
-  .sidebar-link svg { width: 16px; height: 16px; }
+  .workspace-sidebar { position: fixed; inset: auto 0 0; z-index: 100; height: auto; padding: 6px 6px max(6px, env(safe-area-inset-bottom)); background: var(--surface); border: 0; border-top: 1px solid var(--line); }
+  .sidebar-brand { display: none; }
+  .sidebar-nav { flex-direction: row; gap: 3px; }
+  .sidebar-link { flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; padding: 8px 2px; gap: 5px; font-size: 11px; min-height: 56px; }
+  .sidebar-link span { overflow-wrap: anywhere; text-align: center; }
+  .sidebar-link svg { width: 20px; height: 20px; }
   .sidebar-foot { display: none; }
 }
 </style>

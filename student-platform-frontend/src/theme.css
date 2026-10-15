@@ -1,23 +1,29 @@
 :root {
-  --bg-0: #eef1f5;
-  --bg-1: #eef1f5;
+  --bg-0: #f7f8fa;
+  --bg-1: #f0f2f5;
   --surface: #fff;
   --surface-strong: #fff;
-  --ink: #1f2d3d;
-  --ink-soft: #5c6878;
-  --line: #dbe1e9;
-  --input-line: #8c9aad;
+  --ink: #202a38;
+  --ink-soft: #606b7a;
+  --line: #e0e4ea;
+  --input-line: #929eaf;
   --brand-blue: #315dcc;
   --brand-blue-strong: #244aa7;
   --brand-mint: #187657;
   --brand-gold: #946009;
   --danger: #ae3333;
   --success: #187657;
-  --nav-bg: #192738;
-  --nav-active: #30445e;
-  --radius-xl: 8px;
-  --radius-lg: 7px;
-  --radius-md: 6px;
+  --nav-bg: #f0f2f5;
+  --nav-active: #e2eafb;
+  --nav-text: #536073;
+  --nav-hover: #e7ebf1;
+  --surface-muted: #f5f7fa;
+  --motion-fast: 160ms;
+  --motion-reveal: 220ms;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --radius-xl: 14px;
+  --radius-lg: 12px;
+  --radius-md: 8px;
   --shadow-1: none;
   --shadow-2: none;
   --bs-body-color: var(--ink);
@@ -30,6 +36,11 @@ h1, h2, h3, h4, h5, .display-title, .section-title { font-family: inherit; lette
 .surface-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .pill { display: inline-flex; align-items: center; gap: 6px; background: #edf2fd; border: 1px solid #cdd9f3; border-radius: 5px; color: var(--brand-blue-strong); padding: 4px 8px; font-size: 12px; font-weight: 600; }
 .btn { border-radius: var(--radius-md); font-weight: 600; font-size: 14px; min-height: 38px; padding: 8px 14px; }
+.btn, .sidebar-link, .entity-link { transition: background-color var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast) var(--ease-out); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+::selection { background: #dbe6ff; color: var(--ink); }
+input, textarea { caret-color: var(--brand-blue); }
+a { text-underline-offset: .2em; }
 .btn-primary { --bs-btn-bg: var(--brand-blue); --bs-btn-border-color: var(--brand-blue); --bs-btn-hover-bg: var(--brand-blue-strong); --bs-btn-hover-border-color: var(--brand-blue-strong); --bs-btn-active-bg: var(--brand-blue-strong); --bs-btn-active-border-color: var(--brand-blue-strong); --bs-btn-disabled-bg: #596b97; --bs-btn-disabled-border-color: #596b97; }
 .btn-outline-primary { --bs-btn-color: var(--brand-blue-strong); --bs-btn-border-color: #9badcf; --bs-btn-hover-bg: #eaf0fc; --bs-btn-hover-color: var(--brand-blue-strong); --bs-btn-hover-border-color: var(--brand-blue); --bs-btn-active-bg: #e2eafa; --bs-btn-active-color: var(--brand-blue-strong); }
 .form-control, .form-select { border: 1px solid var(--input-line); border-radius: var(--radius-md); background-color: #fff; color: var(--ink); padding: .55rem .75rem; font-size: 14px; }
@@ -37,15 +48,18 @@ h1, h2, h3, h4, h5, .display-title, .section-title { font-family: inherit; lette
 .form-control:focus, .form-select:focus { border-color: var(--brand-blue); box-shadow: 0 0 0 3px #315dcc26; }
 .form-check-input:checked { background-color: var(--brand-blue); border-color: var(--brand-blue); }
 .workspace-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
-.workspace-heading h1 { font-size: clamp(26px, 2.4vw, 30px); font-weight: 650; margin: 0 0 6px; }
+.workspace-heading h1 { font-size: 2rem; font-weight: 650; margin: 0 0 8px; line-height: 1.2; }
 .workspace-heading p { color: var(--ink-soft); margin: 0; max-width: 650px; }
 .workspace-heading .btn { flex-shrink: 0; }
 table, .stat-value, .stats-value { font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) {
+  .workspace-heading h1 { font-size: 1.625rem; }
   .workspace-heading { flex-wrap: wrap; gap: 14px; }
   .form-control, .form-select { font-size: 16px; }
   .btn { min-height: 44px; }
 }
+.reveal-enter-active, .reveal-leave-active { transition: opacity var(--motion-reveal) var(--ease-out), transform var(--motion-reveal) var(--ease-out); }
+.reveal-enter-from, .reveal-leave-to { opacity: 0; transform: translateY(-6px); }
 
 .page-tabs { display: flex; flex-wrap: wrap; gap: 20px; border-bottom: 1px solid var(--line); margin: 0; }
 .page-tabs a, .page-tabs .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--ink-soft); background: transparent; font-size: 14px; font-weight: 600; text-decoration: none; box-shadow: none; }

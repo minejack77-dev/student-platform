@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { getWorkspaceSection } from "@/composables/useWorkspaceNavigation";
 
 import { Group, Subject } from "@/api.js";
@@ -12,6 +12,8 @@ import MaterialsLibrary from '@/components/MaterialsLibrary.vue';
 const { t } = useI18n();
 const organize = ref(false);
 const route = useRoute();
+const router = useRouter();
+function setOrganization(value) { router.push({ query: { ...route.query, organize: value ? '1' : undefined } }); }
 watch(() => route.query.organize, value => { organize.value = value === '1'; }, { immediate: true });
 const section = computed(() => getWorkspaceSection('teacher', route.query.view));
 const { localeTag } = useLocaleFormatting();
@@ -200,15 +202,21 @@ const subjectsCount = computed(() => subjectList.value.length);
         <p>{{ t(`workstation.description.${section}`) }}</p>
       </div>
       <button v-if="section === 'groups'" class="btn btn-primary" type="button" @click="isCreatingGroup = true">+ {{ t('teacherHome.addGroup') }}</button>
-      <button v-if="section === 'materials'" class="btn btn-outline-primary" type="button" :aria-expanded="organize" @click="organize = !organize">{{ t('materialsFlow.subjects') }}</button>
+      <router-link v-if="section === 'materials' && !organize" class="btn btn-primary" :to="{ name: 'task-create' }">{{ t('materialsFlow.create') }}</router-link>
+      <button v-if="section === 'materials' && organize" class="btn btn-primary" type="button" @click="isCreatingSubject = true">{{ t('teacherHome.addSubject') }}</button>
     </header>
+
+    <nav v-if="section === 'materials'" class="page-tabs materials-views" :aria-label="t('workstation.nav.materials')">
+      <button class="btn" :class="{ active: !organize }" :aria-pressed="!organize" @click="setOrganization(false)">{{ t('materialsFlow.library') }}</button>
+      <button class="btn" :class="{ active: organize }" :aria-pressed="organize" @click="setOrganization(true)">{{ t('materialsFlow.subjects') }}</button>
+    </nav>
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
     <section v-show="section !== 'materials'" class="surface-card section-card">
       <div class="section-head">
       <div>
-        <h2 class="section-title">{{ t("common.groups") }}</h2>
+        <h2 class="section-title">{{ t(section === 'results' ? 'workstation.chooseGroup' : 'workstation.groupList') }}</h2>
         <p v-if="!groupLoading && !groupError" class="section-subtitle">{{ t('workstation.found', { count: groupsCount }) }}</p>
       </div>
         <div class="controls-wrap">
@@ -320,7 +328,6 @@ const subjectsCount = computed(() => subjectList.value.length);
 
     <MaterialsLibrary v-if="section === 'materials' && !organize" />
     <section v-show="section === 'materials' && organize" class="surface-card section-card">
-      <button class="btn btn-primary mb-3" @click="isCreatingSubject = true">{{ t('teacherHome.addSubject') }}</button>
       <div class="section-head">
         <div>
           <h2 class="section-title">{{ t("common.subject") }}</h2>

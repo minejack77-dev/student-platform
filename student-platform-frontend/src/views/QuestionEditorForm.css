@@ -1,7 +1,7 @@
 .question-editor {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
 }
 
 .editor-grid {
@@ -12,17 +12,13 @@
 }
 
 .answer-editor {
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(16, 39, 64, 0.1);
-  border-radius: var(--radius-md);
-  padding: 12px;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--line);
 }
 
 .question-image-editor {
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(16, 39, 64, 0.1);
-  border-radius: var(--radius-md);
-  padding: 12px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
 }
 
 .question-image-editor-head {
@@ -92,11 +88,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 
 .ghost-danger-btn {
-  background: rgba(193, 61, 61, 0.14);
-  border: 1px solid rgba(193, 61, 61, 0.26);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 6px;
   color: #9d2727;
   font-size: 12px;

@@ -451,7 +451,7 @@ onMounted(async () => {
         <h1>{{ t(`workstation.nav.${section}`) }}</h1>
         <p>{{ t(`workstation.description.${section === 'results' ? 'studentResults' : section}`) }}</p>
       </div>
-      <router-link v-if="section === 'assignments'" class="btn btn-outline-primary" :to="{ name: 'student-home', query: { view: 'schedule' } }">{{ t('workstation.nav.schedule') }}</router-link>
+      <router-link v-if="section === 'assignments'" class="btn btn-link" :to="{ name: 'student-home', query: { view: 'schedule' } }">{{ t('workstation.nav.schedule') }}</router-link>
     </header>
 
     <ConfirmDialog v-if="pendingTask" :title="pendingTask.task_title || t('ux.startTitle')"

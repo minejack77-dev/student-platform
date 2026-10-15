@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import axios from "axios";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
@@ -19,8 +19,21 @@ const props = defineProps({ id: String, taskId: String, workspace: Boolean });
 const previewQuestion = ref(null);
 const assignmentBusy = ref(false);
 const mobileEditor = ref(false);
+const editorHeading = ref(null);
+const questionsHeading = ref(null);
+watch(mobileEditor, async (editing) => {
+  if (!props.workspace || !window.matchMedia('(max-width: 760px)').matches) return;
+  await nextTick();
+  (editing ? editorHeading.value : questionsHeading.value)?.focus();
+});
 const { t } = useI18n();
 const route = useRoute();
+const libraryReturnQuery = computed(() => ({
+  view: 'materials',
+  q: typeof route.query.libraryQ === 'string' ? route.query.libraryQ : undefined,
+  subject: typeof route.query.librarySubject === 'string' && /^\d+$/.test(route.query.librarySubject) ? route.query.librarySubject : undefined,
+  page: typeof route.query.libraryPage === 'string' && /^[1-9]\d*$/.test(route.query.libraryPage) && Number.isSafeInteger(Number(route.query.libraryPage)) ? route.query.libraryPage : undefined,
+}));
 const auth = useAuthStore();
 const activeTab = ref('questions');
 const newTaskOpen = ref(false);
@@ -237,8 +250,11 @@ const loadTopicPage = async () => {
   loading.value = true;
   loadError.value = "";
   try {
+    const previousTaskId = selectedTaskId.value;
     await Promise.all([getTopic(), getTasks()]);
-    await getQuestions();
+    // Selection changes load questions in the watcher; avoid a second request
+    // clearing its list while it decides whether to open a new question.
+    if (selectedTaskId.value === previousTaskId) await getQuestions();
   } catch {
     loadError.value = t("topicDetail.loadError");
   } finally {
@@ -766,12 +782,12 @@ watch(questionForm, (form) => {
 </script>
 
 <template>
-  <div class="topic-page">
+  <div class="topic-page" :class="{ 'test-workspace': workspace }">
     <nav class="page-breadcrumbs" :aria-label="t('workstation.group.breadcrumbs')">
-      <router-link :to="{name:'teacher-home',query:{view:'materials'}}">{{ t('workstation.nav.materials') }}</router-link>
+      <router-link :to="{name:'teacher-home',query: libraryReturnQuery}">{{ t('workstation.nav.materials') }}</router-link>
       <router-link v-if="route.query.group" :to="{name:'group-overview', params:{id:route.query.group}}">{{ t('ux.schedule') }}</router-link>
-      <router-link v-if="topic.subject" :to="{name:'subject-detail', params:{id:topic.subject}, query:{group:route.query.group}}">{{ topic.subject_name || t('common.subject') }}</router-link>
-      <span aria-current="page">{{ workspace ? selectedTask?.title : topic.title }}</span>
+      <router-link v-if="topic.subject && !workspace" :to="{name:'subject-detail', params:{id:topic.subject}, query:{group:route.query.group}}">{{ topic.subject_name || t('common.subject') }}</router-link>
+      <span aria-current="page">{{ workspace ? t('materialsFlow.editor') : topic.title }}</span>
     </nav>
     <header v-if="!workspace" class="topic-heading">
       <div>
@@ -801,17 +817,17 @@ watch(questionForm, (form) => {
 
     <header v-if="workspace && selectedTask" class="flow-heading">
       <div><h1>{{ selectedTask.title }}</h1><p>{{ topic.subject_name }} · {{ t('materialsFlow.questions', { count: questionsCount }) }}</p><p>{{ t('materialsFlow.attempt', { count: selectedTask.questions_per_attempt, passing: selectedTask.passing_correct_answers }) }}</p></div>
-      <button class="btn btn-primary" :disabled="contextBusy" @click="activeTab = 'assign'">{{ t('materialsFlow.assign') }}</button>
+      <button v-if="activeTab !== 'assign'" class="btn btn-primary" :disabled="contextBusy" @click="activeTab = 'assign'">{{ t('materialsFlow.assign') }}</button>
     </header>
     <section class="surface-card task-workspace-toolbar">
     <label v-if="!workspace" class="field-wrap">{{ t('ux.chooseTask') }}<select :value="selectedTaskId" :disabled="contextBusy" @change="changeTask" class="form-select"><option v-for="task in tasks" :key="task.id" :value="String(task.id)">{{ task.title }}</option></select></label>
-    <nav class="page-tabs workspace-tabs"><button v-for="tab in ['questions', 'settings', 'import']" :key="tab" class="btn" :class="{ active: activeTab === tab }" :aria-pressed="activeTab === tab" @click="activeTab = tab">{{ t(tab === 'questions' ? 'ux.editQuestions' : tab === 'settings' ? 'ux.taskSettings' : 'ux.importQuestions') }}</button></nav>
+    <nav class="page-tabs workspace-tabs" :aria-label="t('materialsFlow.editor')"><button v-for="tab in (workspace ? ['questions', 'settings', 'import', 'assign'] : ['questions', 'settings', 'import'])" :key="tab" class="btn" :class="{ active: activeTab === tab }" :aria-pressed="activeTab === tab" :disabled="assignmentBusy" @click="activeTab = tab">{{ t(tab === 'questions' ? 'ux.editQuestions' : tab === 'settings' ? 'ux.taskSettings' : tab === 'assign' ? 'materialsFlow.stepAssign' : 'ux.importQuestions') }}</button></nav>
     <div v-if="!workspace" class="workspace-actions"><button class="btn btn-outline-primary" :disabled="contextBusy" @click="activeTab = 'settings'; newTaskOpen = true">{{ t('ux.createTask') }}</button>
     <router-link class="btn btn-primary" v-if="route.query.group && selectedTask" :to="{name: 'group-overview', params:{id:route.query.group}, query:{task:selectedTaskId, topic:props.id}}">{{ t('ux.assignTask') }}</router-link>
     <button v-else-if="selectedTask" class="btn btn-primary" @click="openAssignment">{{ t('ux.assignTask') }}</button>
     </div>
     </section>
-    <TaskAssignment v-if="workspace && activeTab === 'assign' && selectedTask" :key="selectedTask.id" :task="selectedTask" :blocked="editorHasChanges() || isCurrentTaskSaving || Number(currentTaskForm.questions_per_attempt) !== selectedTask.questions_per_attempt || Number(currentTaskForm.passing_correct_answers) !== selectedTask.passing_correct_answers" @busy="assignmentBusy = $event" />
+    <Transition name="reveal"><TaskAssignment v-if="workspace && activeTab === 'assign' && selectedTask" :key="selectedTask.id" :task="selectedTask" :blocked="editorHasChanges() || isCurrentTaskSaving || Number(currentTaskForm.questions_per_attempt) !== selectedTask.questions_per_attempt || Number(currentTaskForm.passing_correct_answers) !== selectedTask.passing_correct_answers" @busy="assignmentBusy = $event" /></Transition>
     <p v-if="draftMessage" class="draft-notice" role="status">{{ draftMessage }} <button class="btn btn-link" :disabled="contextBusy" @click="discardConfirm = true">{{ t('ux.discardDraft') }}</button></p>
     <ConfirmDialog v-if="discardConfirm" :title="t('ux.discardDraft')" :description="t('ux.discardConfirm')" :confirm-label="t('ux.discardDraft')" @cancel="discardConfirm = false" @confirm="discardQuestionDraft" />
     <div v-if="assignmentOpen" class="surface-card p-3">
@@ -1151,10 +1167,11 @@ watch(questionForm, (form) => {
       </article>
     </section>
 
+    <div v-if="workspace && questionFormSuccess" class="alert alert-success" role="status">{{ questionFormSuccess }}</div>
     <section v-if="workspace" v-show="activeTab === 'questions'" class="flow-questions" :class="{ 'show-editor': mobileEditor }">
       <aside class="surface-card flow-question-list">
-        <h2>{{ t('common.questions') }}</h2>
-        <button class="btn btn-primary" :disabled="contextBusy" @click="replaceEditor(() => { startNewQuestion(); mobileEditor = true; })">{{ t('topicDetail.newQuestion') }}</button>
+        <h2 ref="questionsHeading" tabindex="-1">{{ t('common.questions') }} <span class="question-count">{{ questionsCount }}</span></h2>
+        <button class="btn btn-outline-primary" :disabled="contextBusy" @click="replaceEditor(() => { startNewQuestion(); mobileEditor = true; })">{{ t('topicDetail.newQuestion') }}</button>
         <p v-if="questionsLoading" role="status">{{ t('common.loading') }}</p>
         <div v-else-if="questionsError" role="alert">{{ questionsError }} <button class="btn btn-link" @click="getQuestions">{{ t('ux.retry') }}</button></div>
         <p v-else-if="!questions.length">{{ t('topicDetail.noQuestionsYet') }}</p>
@@ -1162,10 +1179,9 @@ watch(questionForm, (form) => {
       </aside>
       <div class="surface-card flow-editor">
         <button class="btn btn-link flow-back" @click="mobileEditor = false">{{ t('materialsFlow.list') }}</button>
-        <div v-if="questionFormSuccess" class="alert alert-success" role="status">{{ questionFormSuccess }}</div>
         <div v-if="deleteError" class="alert alert-danger" role="alert">{{ deleteError }}</div>
         <template v-if="openQuestionEditorId">
-          <div class="flow-editor-head"><h2>{{ t(questionForm.id ? 'topicDetail.edit' : 'topicDetail.newQuestion') }}</h2><div class="flow-editor-actions"><button class="btn btn-outline-primary" :disabled="!questionForm.text" @click="previewQuestion = questionForm">{{ t('materialsFlow.preview') }}</button><button v-if="questionForm.id" class="btn btn-outline-danger" :disabled="contextBusy" @click="pendingDelete = questionForm.id">{{ t('common.remove') }}</button></div></div>
+          <div class="flow-editor-head"><h2 ref="editorHeading" tabindex="-1">{{ questionForm.id ? t('materialsFlow.editingQuestion', { number: questions.findIndex(q => q.id === questionForm.id) + 1 }) : t('topicDetail.newQuestion') }}</h2><div class="flow-editor-actions"><button class="btn btn-link" :disabled="!questionForm.text" @click="previewQuestion = questionForm">{{ t('materialsFlow.previewAction') }}</button><button v-if="questionForm.id" class="btn btn-outline-danger" :disabled="contextBusy" @click="pendingDelete = questionForm.id">{{ t('common.remove') }}</button></div></div>
         <QuestionEditorForm
           :form="questionForm"
           :question-types="questionTypes"
@@ -1202,30 +1218,49 @@ watch(questionForm, (form) => {
 <style scoped src="./TopicDetail.css"></style>
 
 <style scoped>
-.flow-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin:24px 0; }
+.flow-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin:12px 0; }
 .flow-heading h1 { font-size:30px; overflow-wrap:anywhere; }
 .flow-heading p { color:var(--ink-soft); margin:8px 0 0; }
-.flow-questions { display:grid; grid-template-columns:minmax(230px, 300px) minmax(0, 1fr); gap:20px; margin-top:20px; }
-.flow-question-list, .flow-editor { padding:20px; min-width:0; }
+.flow-questions { display:grid; grid-template-columns:minmax(200px, 260px) minmax(0, 1fr); gap:24px; }
+.flow-question-list, .flow-editor { padding:24px; min-width:0; }
+.flow-question-list { align-self:start; background:transparent; border:0; padding:16px 0; }
+.flow-question-list > .btn { width:100%; }
+.question-count { color:var(--ink-soft); margin-left:6px; font-size:14px; font-weight:400; }
+.test-workspace .task-workspace-toolbar { border:0; border-radius:0; background:transparent; padding:0; }
+.test-workspace .workspace-tabs { width:100%; }
 .flow-question-list h2, .flow-editor h2 { font-size:20px; margin:0 0 20px; }
-.flow-question-list ol { list-style:none; padding:0; margin:20px -20px 0; }
-.flow-question-button { display:flex; gap:12px; text-align:left; width:100%; padding:16px 20px; border:0; border-top:1px solid var(--line); background:transparent; color:var(--ink); }
+.flow-question-list ol { list-style:none; padding:0; margin:16px 0 0; }
+.flow-question-button { display:flex; gap:12px; text-align:left; width:100%; padding:16px 12px; border:0; border-radius:8px; background:transparent; color:var(--ink); transition:background-color var(--motion-fast); }
 .flow-question-button:hover { background:var(--bg-0); }
 .flow-question-button.selected { background:#edf2fd; color:#244aa7; }
 .flow-question-button > span:last-child { min-width:0; }
-.flow-question-text { display:block; overflow-wrap:anywhere; }
+.flow-question-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
 .flow-question-button small { display:block; margin-top:6px; color:var(--ink-soft); }
 .flow-number { font-variant-numeric:tabular-nums; }
 .flow-editor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
 .flow-editor-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .flow-back { display:none; }
 @media(max-width:760px) {
+  .test-workspace { gap:12px; }
+  .test-workspace .flow-heading { margin:0; gap:8px; }
+  .test-workspace .flow-heading h1 { font-size:22px; margin:0; }
+  .test-workspace .flow-heading p { font-size:12px; margin-top:4px; }
+  .test-workspace .flow-heading > .btn { display:none; }
+  .test-workspace .draft-notice { padding:8px 12px; gap:0 8px; font-size:12px; }
+  .test-workspace .draft-notice .btn { padding:4px 0; font-size:12px; }
+  .flow-editor-head { align-items:center; gap:4px 8px; margin-bottom:16px; }
+  .flow-editor-head h2 { margin:0; font-size:18px; }
+  .flow-editor-actions { gap:4px; }
+  .flow-editor-actions .btn { padding:6px 0; font-size:12px; }
+  .flow-editor { padding:20px 16px; }
+  .test-workspace .workspace-tabs { gap:14px; }
+  .test-workspace .workspace-tabs > .btn { flex:0 0 auto; font-size:13px; }
   .flow-heading { flex-direction:column; gap:16px; }
   .flow-heading h1 { font-size:26px; }
   .flow-questions { grid-template-columns:1fr; }
   .flow-questions .flow-editor { display:none; }
   .flow-questions.show-editor .flow-editor { display:block; }
   .flow-questions.show-editor .flow-question-list { display:none; }
-  .flow-back { display:inline-flex; margin-bottom:20px; }
+  .flow-back { display:inline-flex; margin-bottom:8px; padding:0; }
 }
 </style>

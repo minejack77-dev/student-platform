@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import { localeOptions, setAppLocale } from "@/i18n";
@@ -15,6 +15,21 @@ const authStore = useAuthStore();
 const { isAuthenticated, role, user } = storeToRefs(authStore);
 const { items: navigationItems, activeKey } = useWorkspaceNavigation(role);
 const logoutError = ref("");
+const route = useRoute();
+const accountOpen = ref(false);
+const accountMenu = ref(null);
+const accountButton = ref(null);
+function closeAccount(event) {
+  if (event.type === 'keydown' && event.key === 'Escape' && accountOpen.value) {
+    accountOpen.value = false;
+    accountButton.value?.focus();
+  } else if (event.type === 'pointerdown' && !accountMenu.value?.contains(event.target)) {
+    accountOpen.value = false;
+  }
+}
+watch(() => route.fullPath, () => { accountOpen.value = false; });
+onMounted(() => { document.addEventListener('pointerdown', closeAccount); document.addEventListener('keydown', closeAccount); });
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeAccount); document.removeEventListener('keydown', closeAccount); });
 
 const roleLabel = computed(() => {
   if (role.value === "student") {
@@ -67,20 +82,21 @@ const handleLogout = async () => {
           </div>
         </router-link>
 
-        <span v-else class="workspace-label">{{ t('workstation.workspace') }}</span>
-        <div class="nav-wrap">
-          <template v-if="isAuthenticated">
-            <span class="nav-user">{{ user?.username }} · {{ roleLabel }}</span>
-            <button class="btn btn-outline-primary btn-sm" type="button" @click="handleLogout">
-              {{ t("app.nav.signOut") }}
-            </button>
-          </template>
+        <span v-else class="workspace-label">{{ t('app.brandTitle') }}<span>{{ roleLabel }}</span></span>
+        <div ref="accountMenu" class="account-menu">
+          <button v-if="isAuthenticated" ref="accountButton" class="account-trigger" type="button" :aria-label="t('workstation.account', { name: user?.username })" :aria-expanded="accountOpen" aria-controls="account-controls" @click="accountOpen = !accountOpen">
+            <span class="account-avatar" aria-hidden="true">{{ user?.username?.slice(0, 1).toUpperCase() }}</span>
+            <span class="account-name">{{ user?.username }}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+          </button>
+        <Transition name="reveal">
+        <div v-if="!isAuthenticated || accountOpen" id="account-controls" class="nav-wrap" :class="{ 'account-panel': isAuthenticated }" @focusout="event => { if (event.relatedTarget && !accountMenu?.contains(event.relatedTarget)) accountOpen = false; }">
+          <span v-if="isAuthenticated" class="nav-user">{{ user?.username }} · {{ roleLabel }}</span>
           <label class="visually-hidden" for="app-language-select">{{ t("language.label") }}</label>
           <select
             id="app-language-select"
             :value="locale"
             class="form-select form-select-sm"
-            style="width: auto;"
             @change="handleLanguageChange"
           >
             <option
@@ -91,6 +107,9 @@ const handleLogout = async () => {
               {{ option.label }}
             </option>
           </select>
+          <button v-if="isAuthenticated" class="btn btn-outline-secondary btn-sm" type="button" @click="handleLogout">{{ t("app.nav.signOut") }}</button>
+        </div>
+        </Transition>
         </div>
       </div>
     </header>

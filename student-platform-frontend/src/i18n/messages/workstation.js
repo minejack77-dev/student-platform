@@ -1,4 +1,5 @@
 export const ruWorkstation = {
+  account: 'Аккаунт: {name}', groupList: 'Ваши группы', chooseGroup: 'Выберите группу',
   materials: {
     search: 'Найти тему или учебник', removeSubject: 'Снять назначение предмета у группы {name}?',
     removeQuestion: 'Удалить вопрос?', removeQuestionHint: 'Вопрос будет удалён из этого задания. Это действие нельзя отменить.',
@@ -19,7 +20,7 @@ export const ruWorkstation = {
   nav: { groups: "Группы", materials: "Материалы", results: "Результаты", assignments: "Мои тесты", schedule: "Расписание", notifications: "Уведомления" },
   description: {
     groups: "Учебные группы, назначения и состав.",
-    materials: "Предметы, темы и задания для ваших групп.",
+    materials: "Создавайте тесты и назначайте их группам.",
     results: "Выберите группу, чтобы посмотреть результаты студентов.",
     assignments: "Ваши задания на сегодня. Будущие работы — в расписании.",
     schedule: "План занятий и задания по дням недели.",
@@ -31,6 +32,7 @@ export const ruWorkstation = {
 };
 
 export const enWorkstation = {
+  account: 'Account: {name}', groupList: 'Your groups', chooseGroup: 'Choose a group',
   materials: {
     search: 'Find a topic or textbook', removeSubject: 'Remove this subject assignment from {name}?',
     removeQuestion: 'Delete question?', removeQuestionHint: 'This question will be deleted from the task. This cannot be undone.',
@@ -51,7 +53,7 @@ export const enWorkstation = {
   nav: { groups: "Groups", materials: "Materials", results: "Results", assignments: "My tests", schedule: "Schedule", notifications: "Notifications" },
   description: {
     groups: "Learning groups, assignments and members.",
-    materials: "Subjects, topics and tasks for your groups.",
+    materials: "Create tests and assign them to your groups.",
     results: "Choose a group to view student results.",
     assignments: "Your tasks for today. Find upcoming work in the schedule.",
     schedule: "Weekly lessons and scheduled tasks.",

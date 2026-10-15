@@ -115,7 +115,8 @@ def run():
                     assert sizes['page'] <= width + 1 and not sizes['overflowing'], (role, label, width, sizes)
                     checks.append(f'{role}:{label}:{width}')
                     if width in [390, 1440] and label == views[0]:
-                        page.screenshot(path=str(ARTIFACTS / f'{role}-{width}.png'), full_page=True)
+                        page.evaluate('window.scrollTo(0, 0)')
+                        page.screenshot(path=str(ARTIFACTS / f'{role}-{width}.png'), full_page=True, animations='disabled')
 
         try:
             with sync_playwright() as playwright:
@@ -150,10 +151,13 @@ def run():
                 page.goto(base + '/?view=unknown')
                 expect(page.get_by_role('heading', level=1)).to_have_text('Группы')
                 matrix(page, 'teacher', ['Группы', 'Материалы', 'Результаты'])
+                page.locator('.account-trigger').click()
                 page.locator('#app-language-select').select_option('en')
                 expect(page.get_by_role('heading', level=1)).to_have_text('Results')
                 expect(page.locator('html')).to_have_attribute('lang', 'en')
                 page.locator('#app-language-select').select_option('ru')
+                page.keyboard.press('Escape')
+                expect(page.locator('.account-trigger')).to_be_focused()
                 # Retry after an actual failed HTTP response.
                 page.route('**/api/group/**', lambda route: route.fulfill(status=503, json={'detail': 'Synthetic temporary error'}))
                 page.goto(base + '/')
@@ -166,6 +170,8 @@ def run():
                 check_group_workspace(page, base, groups[0].pk, groups[1].pk, tasks[0].pk, previous.scheduled_for.isoformat(), checks, ARTIFACTS)
                 from materials_workspace_browser import check_materials
                 check_materials(page, base, subject.pk, topic.pk, checks, ARTIFACTS)
+                from materials_flow_browser import check_materials_flow
+                check_materials_flow(page, base, subject.pk, groups[0].pk, checks, ARTIFACTS)
                 teacher_context.close()
 
                 student_context, page = login(browser, student_user.username)
@@ -201,6 +207,7 @@ def run():
                 expect(page.locator('.attempt-page')).to_be_visible()
                 page.get_by_role('navigation', name='Основная навигация').get_by_role('link', name='Мои тесты', exact=True).click()
                 expect(page.get_by_role('button', name='Продолжить', exact=True)).to_be_visible()
+                page.locator('.account-trigger').click()
                 page.get_by_role('button', name='Выйти', exact=True).click()
                 page.wait_for_url('**/login')
                 expect(page.locator('.workspace-sidebar')).to_have_count(0)
