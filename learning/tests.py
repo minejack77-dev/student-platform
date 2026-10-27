@@ -2277,6 +2277,44 @@ class LearningApiTests(APITestCase):
 
 
 class QuestionImportTests(APITestCase):
+    def test_single_choice_import_preserves_punctuation_in_answer_key(self):
+        subject = Subject.objects.create(name="Punctuation import")
+        topic = Topic.objects.create(subject=subject, title="Punctuation")
+        for answer in ["Alpha, beta", "Alpha; beta", "Alpha/beta", "Alpha\nbeta"]:
+            with self.subTest(answer=answer):
+                rows = [
+                    [SpreadsheetCell(value, value) for value in
+                     ["Question", "Option 1", "Option 2", "Option 3", "Key"]],
+                    [SpreadsheetCell(value, value) for value in
+                     ["Choose one", answer, "Alpha", "beta", f"  {answer.upper()}  "]],
+                ]
+                with patch("learning.services.question_import._read_spreadsheet_rows", return_value=rows):
+                    questions = import_questions_from_xls(topic=topic, src="punctuation.xlsx")
+                self.assertEqual(
+                    list(questions[0].choices.order_by("order").values_list("text", "is_correct")),
+                    [(answer, True), ("Alpha", False), ("beta", False)],
+                )
+
+    def test_multiple_choice_import_still_splits_answer_keys(self):
+        subject = Subject.objects.create(name="Multiple answer import")
+        topic = Topic.objects.create(subject=subject, title="Multiple answers")
+        for separator in [",", ";", "\n"]:
+            with self.subTest(separator=separator):
+                rows = [
+                    [SpreadsheetCell(value, value) for value in
+                     ["Question", "Option 1", "Option 2", "Option 3", "Key"]],
+                    [SpreadsheetCell(value, value) for value in
+                     ["Choose two", "Alpha", "beta", "Other", f"Alpha{separator}beta"]],
+                ]
+                with patch("learning.services.question_import._read_spreadsheet_rows", return_value=rows):
+                    questions = import_questions_from_xls(
+                        topic=topic, src="multiple.xlsx", question_type="multiple_choice",
+                    )
+                self.assertEqual(
+                    list(questions[0].choices.order_by("order").values_list("text", "is_correct")),
+                    [("Alpha", True), ("beta", True), ("Other", False)],
+                )
+
     def _write_minimal_xlsx(self, path):
         shared_strings = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="12" uniqueCount="8">

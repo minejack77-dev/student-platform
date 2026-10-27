@@ -291,7 +291,12 @@ def _split_answer_key(answer_key):
 
 
 def _create_choices(*, question, option_texts, answer_key, row_number):
-    normalized_keys = _split_answer_key(answer_key)
+    # A single-choice key is the complete option text, including punctuation.
+    normalized_keys = (
+        {(answer_key or "").strip().casefold()}
+        if question.question_type == Question.QuestionType.SINGLE_CHOICE
+        else _split_answer_key(answer_key)
+    )
     choices = []
     correct_count = 0
 
