@@ -21,10 +21,11 @@ createApp({
     };
     refresh();
     return () => h("main", { style: "padding: 30px; width: 540px; max-width: 100%" }, [
-      h(ScrollableSelect, {
+      h("div", { style: "transform: translateZ(0); position: relative; z-index: 1; overflow: hidden; height: 45px" }, [h(ScrollableSelect, {
         modelValue: selected.value, options: options.value, label: "Тест", placeholder: "Выберите тест",
         "onUpdate:modelValue": value => selected.value = value, onOpen: refresh,
-      }),
+      })]),
+      h("div", { id: "overlapping-card", style: "position: absolute; z-index: 2; top: 120px; left: 0; width: 540px; height: 70px; background: beige" }),
       h("output", { id: "selected" }, selected.value),
       h("button", { id: "outside", style: "margin-top: 300px" }, "Outside"),
     ]);

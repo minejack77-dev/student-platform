@@ -34,6 +34,14 @@ with tempfile.TemporaryFile() as log:
             expect(menu).to_be_visible()
             assert menu.evaluate("e => e.clientHeight") == 238  # 240px including borders
             assert menu.evaluate("e => e.scrollHeight > e.clientHeight")
+            assert menu.evaluate("e => e.parentElement === document.body")
+            assert menu.evaluate("""e => {
+                const r = e.getBoundingClientRect();
+                return e.contains(document.elementFromPoint(r.left + 20, r.top + 100));
+            }"""), "Dropdown must paint above overlapping cards and escape overflow clipping"
+            page.get_by_role("option", name="Задание 4", exact=True).click()
+            expect(page.locator("#selected")).to_have_text("4")
+            trigger.click()
             menu.press("End")
             assert menu.evaluate("e => e.scrollTop") > 0
             menu.press("Enter")
@@ -55,8 +63,19 @@ with tempfile.TemporaryFile() as log:
             trigger.click()
             page.locator("#outside").click()
             expect(menu).to_have_count(0)
+            page.evaluate("document.body.style.minHeight = '1800px'")
+            trigger.click()
+            page.evaluate("window.scrollTo(0, 15)")
+            page.wait_for_function("""() => {
+                const trigger = document.querySelector('[aria-haspopup="listbox"]');
+                const menu = document.querySelector('[role="listbox"]');
+                return Math.abs(menu.getBoundingClientRect().top - trigger.getBoundingClientRect().bottom - 4) < 1;
+            }""")
+            menu.press("Tab")
+            expect(menu).to_have_count(0)
+            expect(page.locator("#outside")).to_be_focused()
             browser.close()
-            print("PASS: fixed height, scrolling, keyboard, refreshed options, outside click")
+            print("PASS: overlay stacking, clipping, scroll positioning, fixed height, selection, keyboard, refresh")
     finally:
         server.terminate()
         server.wait(timeout=10)

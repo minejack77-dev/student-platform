@@ -15,9 +15,30 @@ const trigger = ref(null);
 const list = ref(null);
 const opened = ref(false);
 const activeValue = ref("");
+const popupStyle = ref({});
 const selected = computed(() => props.options.find(option => option.value === props.modelValue));
 const enabled = computed(() => props.options.filter(option => !option.disabled));
 const optionId = value => `${id}-option-${value}`;
+
+const positionPopup = () => {
+  if (!opened.value || !trigger.value) return;
+  const rect = trigger.value.getBoundingClientRect();
+  const margin = 8;
+  const gap = 4;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight;
+  const below = Math.max(0, viewportHeight - rect.bottom - gap - margin);
+  const above = Math.max(0, rect.top - gap - margin);
+  const preferredHeight = Math.min(240, viewportHeight * 0.4);
+  const upwards = below < preferredHeight && above > below;
+  const height = Math.min(preferredHeight, upwards ? above : below);
+  const width = Math.min(rect.width, viewportWidth - margin * 2);
+  popupStyle.value = {
+    left: `${Math.max(margin, Math.min(rect.left, viewportWidth - width - margin))}px`,
+    top: `${upwards ? rect.top - gap - height : rect.bottom + gap}px`,
+    width: `${width}px`, height: `${height}px`,
+  };
+};
 
 const revealActive = async () => {
   await nextTick();
@@ -37,6 +58,7 @@ const close = (restoreFocus = false) => {
 const open = async (fromEnd = false) => {
   if (props.disabled || opened.value) return;
   opened.value = true;
+  positionPopup();
   activeValue.value = enabled.value.find(option => option.value === props.modelValue)?.value
     ?? (fromEnd ? enabled.value.at(-1)?.value : enabled.value[0]?.value) ?? "";
   emit("open");
@@ -51,7 +73,7 @@ const choose = option => {
 };
 const onKeydown = event => {
   if (event.key === "Escape") { event.preventDefault(); close(true); return; }
-  if (event.key === "Tab") { close(); return; }
+  if (event.key === "Tab") { close(true); return; }
   if (["Enter", " "].includes(event.key)) {
     event.preventDefault();
     choose(enabled.value.find(option => option.value === activeValue.value));
@@ -73,13 +95,28 @@ watch(enabled, options => {
   }
 });
 watch(() => props.disabled, disabled => { if (disabled) close(); });
-const onOutsidePointer = event => { if (!root.value?.contains(event.target)) close(); };
-onMounted(() => document.addEventListener("pointerdown", onOutsidePointer));
-onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePointer));
+const onOutsideInteraction = event => {
+  if (!root.value?.contains(event.target) && !list.value?.contains(event.target)) close();
+};
+const onScroll = event => {
+  if (!list.value?.contains(event.target)) positionPopup();
+};
+onMounted(() => {
+  document.addEventListener("pointerdown", onOutsideInteraction);
+  document.addEventListener("focusin", onOutsideInteraction);
+  window.addEventListener("scroll", onScroll, true);
+  window.addEventListener("resize", positionPopup);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", onOutsideInteraction);
+  document.removeEventListener("focusin", onOutsideInteraction);
+  window.removeEventListener("scroll", onScroll, true);
+  window.removeEventListener("resize", positionPopup);
+});
 </script>
 
 <template>
-  <div ref="root" class="scrollable-select" @focusout="event => { if (!root?.contains(event.relatedTarget)) close(); }">
+  <div ref="root" class="scrollable-select">
     <button
       ref="trigger" type="button" class="form-select form-select-sm scrollable-select-trigger"
       :disabled="disabled" :aria-label="label" aria-haspopup="listbox"
@@ -87,8 +124,10 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePoint
       @click="opened ? close() : open()"
       @keydown.down.prevent="open()" @keydown.up.prevent="open(true)"
     >{{ selected?.label || placeholder }}</button>
+    <Teleport to="body">
     <div
       v-if="opened" :id="`${id}-list`" ref="list" class="scrollable-select-list"
+      :style="popupStyle"
       role="listbox" tabindex="-1" :aria-label="label"
       :aria-activedescendant="activeValue ? optionId(activeValue) : undefined"
       @keydown="onKeydown"
@@ -102,6 +141,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePoint
         @mousedown.prevent @click="choose(option)"
       >{{ option.label }}</div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -109,8 +149,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePoint
 .scrollable-select { position: relative; min-width: 0; }
 .scrollable-select-trigger { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrollable-select-list {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 100;
-  width: 100%; height: 240px; max-height: 40vh; overflow-y: auto;
+  position: fixed; z-index: 10000; box-sizing: border-box; overflow-y: auto;
   overscroll-behavior: contain; scrollbar-gutter: stable;
   border: 1px solid #b8c5d8; border-radius: 8px; background: #fff;
   box-shadow: 0 8px 24px #152b4d26; padding: 4px; outline-offset: 2px;
