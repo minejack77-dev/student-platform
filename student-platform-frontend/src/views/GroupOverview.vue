@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import { apiError } from "@/utils/apiError";
+import { loadAssignmentOptions } from "@/utils/assignmentOptions";
 import { Group, Task, Topic } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
@@ -116,6 +117,7 @@ const savedAssignmentWorkbook = ref("");
 const savedAssignmentWorkbookName = ref("");
 const topics = ref([]);
 const tasksByTopicId = ref({});
+const taskOptionRequests = new Map();
 
 const calendarStartDate = ref(formatISODate(startOfWeek(new Date())));
 const calendarDays = ref([]);
@@ -168,13 +170,13 @@ const loadTopicsByWorkbook = async (workbookId) => {
     return;
   }
 
-  const response = await Topic.filter({
+  const items = await loadAssignmentOptions(Topic, {
     subject: savedAssignmentSubject.value,
     workbook: workbookId,
     is_active: true,
     ordering: "title",
   });
-  topics.value = response.results ?? response;
+  topics.value = items;
   tasksByTopicId.value = {};
 };
 
@@ -184,21 +186,18 @@ const loadTasksByTopic = async (topicId) => {
   }
 
   const topicKey = String(topicId);
-  if (tasksByTopicId.value[topicKey]) {
-    return tasksByTopicId.value[topicKey];
-  }
-
-  const response = await Task.filter({
-    topic: topicKey,
-    is_active: true,
-    ordering: "title",
-  });
-  const items = response.results ?? response;
-  tasksByTopicId.value = {
-    ...tasksByTopicId.value,
-    [topicKey]: items,
-  };
-  return items;
+  if (taskOptionRequests.has(topicKey)) return taskOptionRequests.get(topicKey);
+  const request = (async () => {
+    try {
+      const items = await loadAssignmentOptions(Task, { topic: topicKey, is_active: true });
+      tasksByTopicId.value = { ...tasksByTopicId.value, [topicKey]: items };
+      return items;
+    } finally {
+      taskOptionRequests.delete(topicKey);
+    }
+  })();
+  taskOptionRequests.set(topicKey, request);
+  return request;
 };
 
 const primeCalendarTaskOptions = async () => {
@@ -212,11 +211,17 @@ const primeCalendarTaskOptions = async () => {
 
 const getTasksForTopic = (topicId) => tasksByTopicId.value[String(topicId)] ?? [];
 
-const onTopicChange = async (item) => {
-  const tasksForTopic = await loadTasksByTopic(item.topicDraft);
-  if (!tasksForTopic.some((taskItem) => String(taskItem.id) === String(item.taskDraft || ""))) {
-    item.taskDraft = "";
+const refreshTaskOptions = async (topicId) => {
+  try {
+    await loadTasksByTopic(topicId);
+  } catch (error) {
+    calendarError.value = apiError(error, "groupOverview.calendarErrors.load");
   }
+};
+
+const onTopicChange = async (item) => {
+  item.taskDraft = "";
+  await refreshTaskOptions(item.topicDraft);
 };
 
 const loadTeacherAssignment = async () => {
@@ -633,6 +638,8 @@ onMounted(async () => {
                   class="form-select form-select-sm schedule-select"
                   :disabled="!item.topicDraft"
                   :aria-label="t('common.task')"
+                  @focus="refreshTaskOptions(item.topicDraft)"
+                  @pointerdown="refreshTaskOptions(item.topicDraft)"
                 >
                   <option value="">
                     {{ item.topicDraft ? t("groupOverview.chooseTask") : t("groupOverview.chooseLessonFirst") }}
