@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import { apiError } from "@/utils/apiError";
 import { loadAssignmentOptions } from "@/utils/assignmentOptions";
+import ScrollableSelect from "@/components/ScrollableSelect.vue";
 import { Group, Task, Topic } from "@/api.js";
 import { useLocaleFormatting } from "@/composables/useLocaleFormatting";
 
@@ -210,6 +211,11 @@ const primeCalendarTaskOptions = async () => {
 };
 
 const getTasksForTopic = (topicId) => tasksByTopicId.value[String(topicId)] ?? [];
+const getTaskOptions = topicId => getTasksForTopic(topicId).map(task => ({
+  value: String(task.id),
+  label: t("ux.taskReady", { title: task.title, active: task.active_question_count, required: task.questions_per_attempt }),
+  disabled: task.active_question_count < task.questions_per_attempt,
+}));
 
 const refreshTaskOptions = async (topicId) => {
   try {
@@ -633,26 +639,14 @@ onMounted(async () => {
 
               <div class="schedule-field">
                 <label class="form-label schedule-label">{{ t("common.task") }}</label>
-                <select
+                <ScrollableSelect
                   v-model="item.taskDraft"
-                  class="form-select form-select-sm schedule-select"
+                  :options="getTaskOptions(item.topicDraft)"
                   :disabled="!item.topicDraft"
-                  :aria-label="t('common.task')"
-                  @focus="refreshTaskOptions(item.topicDraft)"
-                  @pointerdown="refreshTaskOptions(item.topicDraft)"
-                >
-                  <option value="">
-                    {{ item.topicDraft ? t("groupOverview.chooseTask") : t("groupOverview.chooseLessonFirst") }}
-                  </option>
-                  <option
-                    v-for="taskItem in getTasksForTopic(item.topicDraft)"
-                    :key="taskItem.id"
-                    :value="String(taskItem.id)"
-                    :disabled="taskItem.active_question_count < taskItem.questions_per_attempt"
-                  >
-                    {{ t("ux.taskReady", { title: taskItem.title, active: taskItem.active_question_count, required: taskItem.questions_per_attempt }) }}
-                  </option>
-                </select>
+                  :label="t('common.task')"
+                  :placeholder="item.topicDraft ? t('groupOverview.chooseTask') : t('groupOverview.chooseLessonFirst')"
+                  @open="refreshTaskOptions(item.topicDraft)"
+                />
               </div>
 
               <div class="schedule-topic-state">
